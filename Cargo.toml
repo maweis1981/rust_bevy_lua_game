@@ -1,0 +1,33 @@
+[package]
+name = "hollowlullaby"
+version = "0.1.0"
+edition = "2021"
+description = "A Bevy + Lua game running on iOS"
+
+# The crate is built two ways:
+#   - rlib      -> linked by the desktop `hollowlullaby` binary (src/main.rs)
+#   - staticlib -> linked into the iOS app by Xcode (entrypoint: main_rs)
+[lib]
+name = "hollowlullaby"
+crate-type = ["staticlib", "rlib"]
+
+[[bin]]
+name = "hollowlullaby"
+path = "src/main.rs"
+
+[dependencies]
+bevy = "0.19"
+# Stock Lua 5.4, compiled from vendored C sources via the `cc` crate so it
+# cross-compiles cleanly to the iOS toolchain.
+mlua = { version = "0.11", features = ["lua54", "vendored"] }
+
+# Enable filesystem asset hot-reload during desktop development only.
+[target.'cfg(not(target_os = "ios"))'.dependencies]
+bevy = { version = "0.19", features = ["file_watcher"] }
+
+# Faster iteration: optimize dependencies (Bevy) even in dev builds.
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.dev]
+opt-level = 1

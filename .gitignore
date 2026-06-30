@@ -1,0 +1,5 @@
+/target
+/build
+*.xcodeproj
+DerivedData/
+.DS_Store

@@ -1,0 +1,61 @@
+# XcodeGen spec. Regenerate the .xcodeproj with: xcodegen generate
+# (or `make ios-project`). The project is git-ignored and fully derived from here.
+name: hollowlullaby
+options:
+  bundleIdPrefix: com.example
+  deploymentTarget:
+    iOS: "13.0"
+  createIntermediateGroups: true
+
+targets:
+  hollowlullaby:
+    type: application
+    platform: iOS
+    sources:
+      - path: ios/Sources
+      # Folder reference: the whole `assets/` tree is copied into the app bundle
+      # as `assets/`, which is where Bevy's iOS asset reader looks.
+      - path: assets
+        type: folder
+        buildPhase: resources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.ngmob.hollowlullaby
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        # Code signing for physical devices (automatic provisioning).
+        # Team N37MF9W73E is the only locally-valid Apple Development identity.
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: N37MF9W73E
+        CODE_SIGN_IDENTITY: "Apple Development"
+        # The Rust lib is arm64 only (device + Apple-Silicon simulator). Pin the
+        # build to arm64 so Xcode doesn't try to link an x86_64 simulator slice.
+        ARCHS: arm64
+        ONLY_ACTIVE_ARCH: YES
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait"
+        ENABLE_BITCODE: NO
+        # Link the Rust static library produced by the pre-build script.
+        LIBRARY_SEARCH_PATHS:
+          - $(inherited)
+          - $(SRCROOT)/build/ios
+        OTHER_LDFLAGS:
+          - $(inherited)
+          - -lhollowlullaby
+    preBuildScripts:
+      - name: Build Rust static library
+        script: bash "$SRCROOT/ios/build_rust.sh" "$SRCROOT/build/ios"
+        basedOnDependencyAnalysis: false
+    # System frameworks required by wgpu (Metal), winit (UIKit), and Bevy audio.
+    dependencies:
+      - sdk: UIKit.framework
+      - sdk: Foundation.framework
+      - sdk: CoreGraphics.framework
+      - sdk: QuartzCore.framework
+      - sdk: Metal.framework
+      - sdk: MetalKit.framework
+      - sdk: AudioToolbox.framework
+      - sdk: AVFoundation.framework
+      - sdk: GameController.framework
+      - sdk: CoreHaptics.framework

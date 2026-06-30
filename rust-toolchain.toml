@@ -1,0 +1,9 @@
+[toolchain]
+# Bevy 0.19 requires Rust >= 1.95. The machine's global default is pinned to an
+# old 1.71.1, so this project explicitly opts into stable (auto-installed by rustup).
+channel = "stable"
+components = ["rustfmt", "clippy"]
+targets = [
+    "aarch64-apple-ios",      # physical iPhone/iPad (arm64)
+    "aarch64-apple-ios-sim",  # iOS Simulator on Apple Silicon
+]
