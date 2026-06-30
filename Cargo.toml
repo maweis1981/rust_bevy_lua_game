@@ -3,6 +3,7 @@ name = "hollowlullaby"
 version = "0.1.0"
 edition = "2021"
 description = "A Bevy + Lua game running on iOS"
+license = "MIT"
 
 # The crate is built two ways:
 #   - rlib      -> linked by the desktop `hollowlullaby` binary (src/main.rs)
