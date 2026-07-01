@@ -72,9 +72,12 @@ To expose a new capability to scripts:
 3. Handle the variant in `run_lua`'s match (this is where you have `Commands` and ECS
    queries to actually mutate the world).
 
-Reads from ECS into Lua (e.g. input state, positions) are not yet wired; the current
-bridge is write-only (Lua → ECS). Add a read path by stashing snapshots in app-data or
-the Lua registry before calling `on_update`.
+The **write path** (Lua → ECS) follows the three steps above. A **read path** also
+exists for input: `tick_lua` snapshots the pointer (mouse/touch in world coords) and
+held keys into the `Bridge` app-data each frame *before* calling `on_update`, and the
+`game.pointer()` / `game.key(name)` functions just read that snapshot. Add more reads
+(e.g. entity positions) the same way — stash a snapshot in app-data (or the Lua
+registry) before `on_update`, never hand Lua a `&World`.
 
 ### Lua scripts as Bevy assets
 
