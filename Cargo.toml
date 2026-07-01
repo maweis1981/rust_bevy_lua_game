@@ -17,7 +17,8 @@ name = "hollowlullaby"
 path = "src/main.rs"
 
 [dependencies]
-bevy = "0.19"
+# `wav` adds the WAV decoder (not in Bevy's defaults) for the game's SFX/music.
+bevy = { version = "0.19", features = ["wav"] }
 # Stock Lua 5.4, compiled from vendored C sources via the `cc` crate so it
 # cross-compiles cleanly to the iOS toolchain.
 mlua = { version = "0.11", features = ["lua54", "vendored"] }

@@ -14,10 +14,20 @@
 //! Lua-facing API (global table `game`):
 //!   game.log(message)
 //!   game.bounds() -> half_width, half_height   (world units; origin at center)
-//!   game.spawn(x, y, w, h, r, g, b) -> id      (colored sprite; rgb in 0..1)
+//!   game.spawn(x, y, w, h, r, g, b [, a]) -> id (colored sprite; rgba in 0..1,
+//!                                               alpha optional, default 1)
 //!   game.move_to(id, x, y)
+//!   game.set_color(id, r, g, b, a)             (recolor a sprite; enables
+//!                                               flashes and fading trails)
 //!   game.despawn(id)
 //!   game.set_text(string)                      (updates the on-screen HUD text)
+//!   game.shake(intensity)                      (0..1 impulse; Rust decays a
+//!                                               camera screen-shake from it)
+//!   game.play_sound(name)                      (one-shot SFX: assets/audio/<name>.wav)
+//!   game.play_music(name)                      (looping bg music; replaces any
+//!                                               currently-playing track)
+//!   game.haptic(kind)                          ("light"/"medium"/"heavy"/
+//!                                               "success"; iOS only, else no-op)
 //!   game.pointer() -> x, y, down               (mouse/touch in world coords;
 //!                                               x,y are nil when unavailable,
 //!                                               down = button/finger held)
@@ -48,9 +58,14 @@ impl Plugin for ScriptPlugin {
         app.init_asset::<LuaScript>()
             .init_asset_loader::<LuaScriptLoader>()
             .init_resource::<EntityRegistry>()
+            .init_resource::<ScreenShake>()
+            .init_resource::<MusicTrack>()
             .insert_non_send(LuaVm::new())
             .add_systems(Startup, (setup_scene, load_main_script))
-            .add_systems(Update, (reload_changed_scripts, tick_lua, apply_lua).chain());
+            .add_systems(
+                Update,
+                (reload_changed_scripts, tick_lua, apply_lua, camera_shake).chain(),
+            );
     }
 }
 
@@ -66,8 +81,24 @@ struct Hud(Entity);
 #[derive(Resource, Default)]
 struct EntityRegistry(HashMap<u32, Entity>);
 
+/// The 2D camera, tagged so `camera_shake` can offset it.
+#[derive(Component)]
+struct GameCamera;
+
+/// Decaying "trauma" that drives the camera screen-shake. `game.shake` adds to
+/// it; `camera_shake` bleeds it back to zero each frame.
+#[derive(Resource, Default)]
+struct ScreenShake {
+    trauma: f32,
+}
+
+/// The currently-playing looping music entity, so `game.play_music` can stop the
+/// previous track before starting a new one.
+#[derive(Resource, Default)]
+struct MusicTrack(Option<Entity>);
+
 fn setup_scene(mut commands: Commands) {
-    commands.spawn(Camera2d);
+    commands.spawn((Camera2d, GameCamera));
 
     let hud = commands
         .spawn((
@@ -141,17 +172,25 @@ enum LuaCommand {
         y: f32,
         w: f32,
         h: f32,
-        color: (f32, f32, f32),
+        color: (f32, f32, f32, f32),
     },
     MoveTo {
         id: u32,
         x: f32,
         y: f32,
     },
+    SetColor {
+        id: u32,
+        color: (f32, f32, f32, f32),
+    },
     Despawn {
         id: u32,
     },
     SetText(String),
+    Shake(f32),
+    PlaySound(String),
+    PlayMusic(String),
+    Haptic(i32),
 }
 
 /// Shared state stored in `mlua` app-data: the command queue, the id counter,
@@ -306,7 +345,18 @@ fn register_api(lua: &Lua) -> mlua::Result<()> {
     game.set(
         "spawn",
         lua.create_function(
-            |lua, (x, y, w, h, r, g, b): (f32, f32, f32, f32, f32, f32, f32)| {
+            #[allow(clippy::type_complexity)]
+            |lua,
+             (x, y, w, h, r, g, b, a): (
+                f32,
+                f32,
+                f32,
+                f32,
+                f32,
+                f32,
+                f32,
+                Option<f32>,
+            )| {
                 let mut bridge = lua
                     .app_data_mut::<Bridge>()
                     .ok_or_else(|| mlua::Error::runtime("bridge missing"))?;
@@ -318,7 +368,7 @@ fn register_api(lua: &Lua) -> mlua::Result<()> {
                     y,
                     w,
                     h,
-                    color: (r, g, b),
+                    color: (r, g, b, a.unwrap_or(1.0)),
                 });
                 Ok(id)
             },
@@ -330,6 +380,19 @@ fn register_api(lua: &Lua) -> mlua::Result<()> {
         lua.create_function(|lua, (id, x, y): (u32, f32, f32)| {
             if let Some(mut bridge) = lua.app_data_mut::<Bridge>() {
                 bridge.queue.push(LuaCommand::MoveTo { id, x, y });
+            }
+            Ok(())
+        })?,
+    )?;
+
+    game.set(
+        "set_color",
+        lua.create_function(|lua, (id, r, g, b, a): (u32, f32, f32, f32, f32)| {
+            if let Some(mut bridge) = lua.app_data_mut::<Bridge>() {
+                bridge.queue.push(LuaCommand::SetColor {
+                    id,
+                    color: (r, g, b, a),
+                });
             }
             Ok(())
         })?,
@@ -355,8 +418,70 @@ fn register_api(lua: &Lua) -> mlua::Result<()> {
         })?,
     )?;
 
+    game.set(
+        "shake",
+        lua.create_function(|lua, intensity: f32| {
+            if let Some(mut bridge) = lua.app_data_mut::<Bridge>() {
+                bridge.queue.push(LuaCommand::Shake(intensity));
+            }
+            Ok(())
+        })?,
+    )?;
+
+    game.set(
+        "play_sound",
+        lua.create_function(|lua, name: String| {
+            if let Some(mut bridge) = lua.app_data_mut::<Bridge>() {
+                bridge.queue.push(LuaCommand::PlaySound(name));
+            }
+            Ok(())
+        })?,
+    )?;
+
+    game.set(
+        "play_music",
+        lua.create_function(|lua, name: String| {
+            if let Some(mut bridge) = lua.app_data_mut::<Bridge>() {
+                bridge.queue.push(LuaCommand::PlayMusic(name));
+            }
+            Ok(())
+        })?,
+    )?;
+
+    game.set(
+        "haptic",
+        lua.create_function(|lua, kind: String| {
+            let style = match kind.as_str() {
+                "medium" => 1,
+                "heavy" => 2,
+                "success" => 3,
+                _ => 0, // "light" and anything else
+            };
+            if let Some(mut bridge) = lua.app_data_mut::<Bridge>() {
+                bridge.queue.push(LuaCommand::Haptic(style));
+            }
+            Ok(())
+        })?,
+    )?;
+
     lua.globals().set("game", game)?;
     Ok(())
+}
+
+/// Trigger an iOS haptic. On other platforms this is a no-op.
+fn trigger_haptic(style: i32) {
+    #[cfg(target_os = "ios")]
+    unsafe {
+        hl_haptic(style);
+    }
+    #[cfg(not(target_os = "ios"))]
+    let _ = style;
+}
+
+#[cfg(target_os = "ios")]
+extern "C" {
+    /// Defined in `ios/Sources/haptics.m`.
+    fn hl_haptic(style: i32);
 }
 
 // ---------------------------------------------------------------------------
@@ -459,14 +584,21 @@ fn tick_lua(
 }
 
 /// Apply everything Lua queued this frame.
+#[allow(clippy::too_many_arguments)] // Bevy systems legitimately take many params
 fn apply_lua(
     mut commands: Commands,
     mut vm: NonSendMut<LuaVm>,
     mut registry: ResMut<EntityRegistry>,
     mut transforms: Query<&mut Transform>,
+    mut sprites: Query<&mut Sprite>,
     mut texts: Query<&mut Text>,
+    mut shake: ResMut<ScreenShake>,
+    mut music: ResMut<MusicTrack>,
+    assets: Res<AssetServer>,
     hud: Option<Res<Hud>>,
 ) {
+    // Sprites spawn at increasing z so later-spawned things (ball) draw in front
+    // of earlier ones (net, trail) without depending on transparent-sort order.
     for command in vm.drain() {
         match command {
             LuaCommand::Spawn {
@@ -475,12 +607,13 @@ fn apply_lua(
                 y,
                 w,
                 h,
-                color: (r, g, b),
+                color: (r, g, b, a),
             } => {
+                let z = 0.001 * id as f32;
                 let entity = commands
                     .spawn((
-                        Sprite::from_color(Color::srgb(r, g, b), Vec2::new(w, h)),
-                        Transform::from_xyz(x, y, 0.0),
+                        Sprite::from_color(Color::srgba(r, g, b, a), Vec2::new(w, h)),
+                        Transform::from_xyz(x, y, z),
                     ))
                     .id();
                 registry.0.insert(id, entity);
@@ -490,6 +623,16 @@ fn apply_lua(
                     if let Ok(mut transform) = transforms.get_mut(entity) {
                         transform.translation.x = x;
                         transform.translation.y = y;
+                    }
+                }
+            }
+            LuaCommand::SetColor {
+                id,
+                color: (r, g, b, a),
+            } => {
+                if let Some(&entity) = registry.0.get(&id) {
+                    if let Ok(mut sprite) = sprites.get_mut(entity) {
+                        sprite.color = Color::srgba(r, g, b, a);
                     }
                 }
             }
@@ -505,6 +648,45 @@ fn apply_lua(
                     }
                 }
             }
+            LuaCommand::Shake(intensity) => {
+                shake.trauma = (shake.trauma + intensity).clamp(0.0, 1.0);
+            }
+            LuaCommand::PlaySound(name) => {
+                let handle = assets.load::<AudioSource>(format!("audio/{name}.wav"));
+                commands.spawn((AudioPlayer::new(handle), PlaybackSettings::DESPAWN));
+            }
+            LuaCommand::PlayMusic(name) => {
+                if let Some(prev) = music.0.take() {
+                    commands.entity(prev).despawn();
+                }
+                let handle = assets.load::<AudioSource>(format!("audio/{name}.wav"));
+                let entity = commands
+                    .spawn((AudioPlayer::new(handle), PlaybackSettings::LOOP))
+                    .id();
+                music.0 = Some(entity);
+            }
+            LuaCommand::Haptic(style) => {
+                trigger_haptic(style);
+            }
         }
     }
+}
+
+/// Bleed the screen-shake trauma toward zero each frame and offset the camera by
+/// a jittering amount derived from it. At zero trauma the camera sits at origin.
+fn camera_shake(
+    time: Res<Time>,
+    mut shake: ResMut<ScreenShake>,
+    mut cameras: Query<&mut Transform, With<GameCamera>>,
+) {
+    shake.trauma = (shake.trauma - time.delta_secs() * 1.6).max(0.0);
+    let Ok(mut transform) = cameras.single_mut() else {
+        return;
+    };
+    // trauma^2 makes light taps fall off fast; the sines supply the jitter.
+    let amount = shake.trauma * shake.trauma;
+    let t = time.elapsed_secs();
+    const MAX_OFFSET: f32 = 24.0;
+    transform.translation.x = amount * MAX_OFFSET * (t * 41.0).sin();
+    transform.translation.y = amount * MAX_OFFSET * (t * 47.0).cos();
 }

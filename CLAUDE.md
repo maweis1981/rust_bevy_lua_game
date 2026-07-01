@@ -79,6 +79,27 @@ held keys into the `Bridge` app-data each frame *before* calling `on_update`, an
 (e.g. entity positions) the same way — stash a snapshot in app-data (or the Lua
 registry) before `on_update`, never hand Lua a `&World`.
 
+### Presentation: audio, haptics, screen shake
+
+The bridge also exposes juice primitives that scripts drive:
+
+- **Audio.** `game.play_sound(name)` / `game.play_music(name)` map `name` to
+  `assets/audio/<name>.wav` and spawn a Bevy `AudioPlayer` (`DESPAWN` for one-shots,
+  `LOOP` for music; `MusicTrack` tracks the current loop so a new one replaces it). WAV
+  decoding is **not** in Bevy's defaults — the `wav` feature is enabled in `Cargo.toml`.
+  The clips are synthesized (no external assets) by `tools/gen_audio.py`; re-run it to
+  regenerate them.
+- **Haptics.** `game.haptic("light"/"medium"/"heavy"/"success")` calls the C shim
+  `hl_haptic` in `ios/Sources/haptics.m` (UIKit feedback generators). It's `#[cfg(target_os
+  = "ios")]`-gated in Rust and a no-op on desktop, so desktop builds don't link it.
+- **Screen shake.** `game.shake(0..1)` adds "trauma" to the `ScreenShake` resource; the
+  `camera_shake` system offsets the tagged `GameCamera` by a trauma² · sine jitter and
+  bleeds trauma back to zero, so effects decay smoothly (no manual per-frame camera math
+  in Lua).
+- **Recolor.** `game.set_color(id, r,g,b,a)` mutates an existing sprite's color (used for
+  the ball trail's fade and the paddle hit-flash); `game.spawn` takes an optional 8th
+  alpha arg.
+
 ### Lua scripts as Bevy assets
 
 Scripts are loaded through a custom `LuaScript` asset + `AssetLoader` (not `include_str!`
