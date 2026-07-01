@@ -31,8 +31,10 @@ local PADDLE_SPEED = 760   -- max player paddle speed (px/s) — bounds the foll
 local AI_SPEED = 430       -- AI paddle speed cap (px/s), beatable on purpose
 local AI_DEADZONE = 10     -- AI won't chase jitter within this many px
 local BALL_SPEED = 380     -- serve speed (px/s)
-local BALL_MAX = 780       -- speed cap so the ball can never tunnel a paddle
+local BALL_MAX = 780       -- TOTAL speed cap (keeps the ball fair + un-tunnelable)
 local SPEEDUP = 1.045      -- ball speeds up a touch on every paddle hit
+local MAX_BOUNCE_ANGLE = 0.87 -- rad (~50°): steepest rebound off a paddle edge
+local MAX_DT = 1 / 30      -- clamp long frames (hitch / app-resume) so nothing leaps
 local SERVE_DELAY = 0.9    -- pause at center before each serve (no teleporting)
 local TRAIL_N = 12         -- ball-trail segment count
 
@@ -124,14 +126,17 @@ local function move_player(dt, limit)
   ly = clamp(ly + vy * dt, -limit, limit)
 end
 
--- Reflect the ball off a paddle: steer the angle by the hit offset, speed up a
--- little, and cap the total speed so the next step can never skip a paddle.
+-- Reflect the ball off a paddle: the hit offset steers the rebound angle, the
+-- ball speeds up a touch, and the *total* speed is capped. Bounding total speed
+-- (not just the horizontal part) keeps the ball fair and guarantees a single
+-- frame can never carry it far enough to skip a paddle.
 local function rebound(paddle_y, face_x, dir)
   local off = clamp((by - paddle_y) / (PADDLE_H * 0.5), -1, 1)
-  local spd = math.min(math.abs(bvx) * SPEEDUP, BALL_MAX)
+  local speed = math.min(math.sqrt(bvx * bvx + bvy * bvy) * SPEEDUP, BALL_MAX)
+  local angle = off * MAX_BOUNCE_ANGLE
   bx = face_x
-  bvx = spd * dir
-  bvy = off * spd
+  bvx = dir * speed * math.cos(angle)
+  bvy = speed * math.sin(angle)
   game.play_sound("hit")
   game.haptic("light")
   game.shake(0.12)
@@ -141,6 +146,7 @@ function on_update(dt)
   local hw, hh = game.bounds()
   if hw <= 0 then return end          -- window size not known yet
   if not started then init(hw, hh) end
+  dt = math.min(dt, MAX_DT)           -- a hitch must never let anything teleport
 
   local lx = -hw + MARGIN
   local rx =  hw - MARGIN

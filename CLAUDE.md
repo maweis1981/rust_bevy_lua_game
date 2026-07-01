@@ -16,6 +16,7 @@ make run          # desktop build + run (cargo run). Lua hot-reloads while runni
 make check        # cargo check — fast compile validation
 make clippy       # lints (cargo clippy --all-targets)
 make fmt          # cargo fmt
+make test         # Rust unit tests + the Lua gameplay invariant suite
 
 make ios-lib      # cross-compile the static lib for the simulator only
 make ios-project  # regenerate hollowlullaby.xcodeproj from project.yml
@@ -26,7 +27,19 @@ make device-build # build + sign the app for a physical device (aarch64-apple-io
 make device-run   # build + install + launch on the connected device (DEVICE=<udid>)
 ```
 
-There are no tests yet. To run a single test once they exist: `cargo test <name>`.
+## Tests
+
+`make test` runs two layers:
+
+- **Rust unit tests** (`src/script.rs`, `#[cfg(test)] mod tests`) cover pure helpers
+  like `haptic_style` and the `shake_offset` camera-shake math. Run one: `cargo test <name>`.
+- **Lua gameplay invariants** (`tools/test_pong.lua`, needs `lua5.4`) mock the Rust `game`
+  API and drive `assets/scripts/main.lua` headless for thousands of frames across three
+  scenarios (rallies, misses, frame-hitches), asserting the "game feel" contract: no
+  paddle/ball teleport, no tunneling, total ball speed capped, ball stays on-screen, a
+  serve pause after each score, and that sound/shake/haptic fire on the events that cause
+  them. This suite is what caught the unbounded-speed and un-clamped-`dt` bugs — extend it
+  when you change gameplay in `main.lua`.
 
 ## Toolchain (important, non-obvious)
 

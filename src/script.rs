@@ -441,12 +441,7 @@ fn register_api(lua: &Lua) -> mlua::Result<()> {
     game.set(
         "haptic",
         lua.create_function(|lua, kind: String| {
-            let style = match kind.as_str() {
-                "medium" => 1,
-                "heavy" => 2,
-                "success" => 3,
-                _ => 0, // "light" and anything else
-            };
+            let style = haptic_style(&kind);
             if let Some(mut bridge) = lua.app_data_mut::<Bridge>() {
                 bridge.queue.push(LuaCommand::Haptic(style));
             }
@@ -456,6 +451,27 @@ fn register_api(lua: &Lua) -> mlua::Result<()> {
 
     lua.globals().set("game", game)?;
     Ok(())
+}
+
+/// Map a Lua haptic kind name to the integer style `hl_haptic` expects.
+fn haptic_style(kind: &str) -> i32 {
+    match kind {
+        "medium" => 1,
+        "heavy" => 2,
+        "success" => 3,
+        _ => 0, // "light" and anything else
+    }
+}
+
+/// The camera offset for a given shake `trauma` (0..1) at time `t` seconds.
+/// `trauma²` makes light taps fall off fast; the sines supply the jitter.
+fn shake_offset(trauma: f32, t: f32) -> (f32, f32) {
+    const MAX_OFFSET: f32 = 24.0;
+    let amount = trauma * trauma;
+    (
+        amount * MAX_OFFSET * (t * 41.0).sin(),
+        amount * MAX_OFFSET * (t * 47.0).cos(),
+    )
 }
 
 /// Trigger an iOS haptic. On other platforms this is a no-op.
@@ -673,10 +689,40 @@ fn camera_shake(
     let Ok(mut transform) = cameras.single_mut() else {
         return;
     };
-    // trauma^2 makes light taps fall off fast; the sines supply the jitter.
-    let amount = shake.trauma * shake.trauma;
-    let t = time.elapsed_secs();
-    const MAX_OFFSET: f32 = 24.0;
-    transform.translation.x = amount * MAX_OFFSET * (t * 41.0).sin();
-    transform.translation.y = amount * MAX_OFFSET * (t * 47.0).cos();
+    let (x, y) = shake_offset(shake.trauma, time.elapsed_secs());
+    transform.translation.x = x;
+    transform.translation.y = y;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{haptic_style, shake_offset};
+
+    #[test]
+    fn haptic_kinds_map_to_styles() {
+        assert_eq!(haptic_style("light"), 0);
+        assert_eq!(haptic_style("medium"), 1);
+        assert_eq!(haptic_style("heavy"), 2);
+        assert_eq!(haptic_style("success"), 3);
+        assert_eq!(haptic_style("nonsense"), 0); // unknown falls back to light
+    }
+
+    #[test]
+    fn zero_trauma_means_no_camera_offset() {
+        for t in 0..100 {
+            let (x, y) = shake_offset(0.0, t as f32 * 0.13);
+            assert_eq!((x, y), (0.0, 0.0));
+        }
+    }
+
+    #[test]
+    fn shake_offset_is_bounded_by_max() {
+        // At full trauma the offset never exceeds MAX_OFFSET (24) on either axis.
+        for i in 0..1000 {
+            let t = i as f32 * 0.017;
+            let (x, y) = shake_offset(1.0, t);
+            assert!(x.abs() <= 24.0 + 1e-3, "x={x} out of range");
+            assert!(y.abs() <= 24.0 + 1e-3, "y={y} out of range");
+        }
+    }
 }

@@ -9,8 +9,11 @@ BUNDLE_ID := com.ngmob.hollowlullaby
 CONFIG ?= Debug
 DEVICE_APP := build/DerivedData/Build/Products/$(CONFIG)-iphoneos/hollowlullaby.app
 
-.PHONY: run build check fmt clippy ios-lib ios-project ios-build ios-run \
-        device-build device-run clean
+.PHONY: run build check fmt clippy test test-lua ios-lib ios-project ios-build \
+        ios-run device-build device-run clean
+
+# Lua interpreter for the gameplay tests (override: make test LUA=lua)
+LUA ?= lua5.4
 
 # --- Desktop ---------------------------------------------------------------
 run:            ## Run the game on macOS (hot-reloads assets/scripts/*.lua)
@@ -27,6 +30,17 @@ fmt:
 
 clippy:
 	cargo clippy --all-targets
+
+test: test-lua      ## Run Rust unit tests + the Lua gameplay invariant suite
+	cargo test
+
+# Headless gameplay tests: drive assets/scripts/main.lua under a mocked host API
+# and assert the "game feel" invariants (no teleport/tunnel, speed cap, serve
+# pause, effects fire). Skipped with a note if no Lua interpreter is installed.
+test-lua:
+	@command -v $(LUA) >/dev/null 2>&1 \
+		&& $(LUA) tools/test_pong.lua \
+		|| echo "skip: $(LUA) not found (brew install lua) — gameplay tests not run"
 
 # --- iOS -------------------------------------------------------------------
 ios-lib:        ## Cross-compile the Rust static lib for the simulator
