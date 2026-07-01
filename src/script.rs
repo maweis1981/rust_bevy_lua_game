@@ -52,7 +52,7 @@
 
 use std::collections::HashMap;
 
-use bevy::asset::{io::Reader, AssetLoader, LoadContext};
+use bevy::asset::{io::Reader, AssetLoader, LoadContext, LoadState};
 use bevy::prelude::*;
 use bevy::sprite::Anchor;
 use mlua::{Function, Lua};
@@ -168,16 +168,22 @@ impl AssetLoader for LuaScriptLoader {
 const EXTRA_SCRIPTS: &[&str] = &["scripts/roguelike.lua"];
 
 /// All Lua chunks in execution order: extras first, then `main.lua` last.
+/// `dirty` means "(re)run once everything has settled" and persists across
+/// frames — so we retry every frame until all scripts load, instead of only
+/// reacting to a single asset event (which could be missed on device).
 #[derive(Resource)]
-struct ScriptHandles(Vec<(String, Handle<LuaScript>)>);
+struct ScriptHandles {
+    list: Vec<(String, Handle<LuaScript>)>,
+    dirty: bool,
+}
 
 fn load_scripts(mut commands: Commands, assets: Res<AssetServer>) {
-    let mut handles: Vec<(String, Handle<LuaScript>)> = EXTRA_SCRIPTS
+    let mut list: Vec<(String, Handle<LuaScript>)> = EXTRA_SCRIPTS
         .iter()
         .map(|p| (p.to_string(), assets.load(*p)))
         .collect();
-    handles.push((MAIN_SCRIPT_PATH.to_string(), assets.load(MAIN_SCRIPT_PATH)));
-    commands.insert_resource(ScriptHandles(handles));
+    list.push((MAIN_SCRIPT_PATH.to_string(), assets.load(MAIN_SCRIPT_PATH)));
+    commands.insert_resource(ScriptHandles { list, dirty: true });
 }
 
 // ---------------------------------------------------------------------------
@@ -595,27 +601,37 @@ extern "C" {
 fn reload_changed_scripts(
     mut events: MessageReader<AssetEvent<LuaScript>>,
     scripts: Res<Assets<LuaScript>>,
-    handles: Option<Res<ScriptHandles>>,
+    assets: Res<AssetServer>,
+    handles: Option<ResMut<ScriptHandles>>,
     mut vm: NonSendMut<LuaVm>,
 ) {
-    // Re-run everything whenever any Lua chunk is (re)loaded.
-    let changed = events
+    let Some(mut handles) = handles else { return };
+    // Any (re)load marks us dirty; the flag persists until scripts settle.
+    if events
         .read()
-        .any(|e| matches!(e, AssetEvent::Added { .. } | AssetEvent::Modified { .. }));
-    if !changed {
+        .any(|e| matches!(e, AssetEvent::Added { .. } | AssetEvent::Modified { .. }))
+    {
+        handles.dirty = true;
+    }
+    if !handles.dirty {
         return;
     }
-    let Some(handles) = handles else { return };
 
-    // Gather every chunk's source in execution order; wait until all are loaded.
-    let mut chunks = Vec::with_capacity(handles.0.len());
-    for (name, handle) in &handles.0 {
-        match scripts.get(handle) {
-            Some(script) => chunks.push((name.clone(), script.source.clone())),
-            None => return, // not all loaded yet; try again on the next event
+    // Gather sources in execution order. Wait (staying dirty, retrying next
+    // frame) while any is still loading, but *skip* one that failed to load so a
+    // missing/broken extra file can never block `main.lua` and the menu forever.
+    let mut chunks = Vec::with_capacity(handles.list.len());
+    for (name, handle) in &handles.list {
+        if let Some(script) = scripts.get(handle) {
+            chunks.push((name.clone(), script.source.clone()));
+        } else if matches!(assets.get_load_state(handle), Some(LoadState::Failed(_))) {
+            warn!("skipping Lua script that failed to load: {name}");
+        } else {
+            return; // still loading; retry next frame
         }
     }
 
+    handles.dirty = false;
     for (name, source) in &chunks {
         if let Err(err) = vm.exec_chunk(source, name) {
             error!("lua load error in {name}: {err}");

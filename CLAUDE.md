@@ -135,7 +135,8 @@ The bridge also exposes juice primitives that scripts drive:
 `src/background.rs` (`BackgroundPlugin`) is the project's example of a *custom* shader —
 beyond Bevy's built-in sprite/text shaders. It's a `Material2d` (`BackgroundMaterial`, a
 single `vec4` uniform) on a full-screen quad at z = -10; the fragment shader lives in
-`assets/shaders/background.wgsl` and animates a gradient + grid + vignette from an elapsed-time
+`assets/shaders/background.wgsl` and animates a domain-warped fractal-noise aurora (FBM +
+one warp level, cheap sin-free hash) with a vignette, from an elapsed-time
 uniform updated each frame. It's pure Rust rendering (independent of which Lua game is
 loaded). Notes: WGSL imports `bevy_sprite::mesh2d_vertex_output::VertexOutput` and binds the
 material at `@group(#{MATERIAL_BIND_GROUP})` (Bevy fills the index in); the `.wgsl` loads via
