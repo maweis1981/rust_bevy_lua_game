@@ -4,7 +4,10 @@
 SIM ?= iPhone 16
 DEVICE ?= 8B363280-D4AA-58BE-9681-361C8A3718AC
 BUNDLE_ID := com.ngmob.hollowlullaby
-DEVICE_APP := build/DerivedData/Build/Products/Debug-iphoneos/hollowlullaby.app
+# Build configuration for device runs. Use CONFIG=Release for a smooth,
+# optimized build (Debug runs Bevy/wgpu with debug assertions and is much slower).
+CONFIG ?= Debug
+DEVICE_APP := build/DerivedData/Build/Products/$(CONFIG)-iphoneos/hollowlullaby.app
 
 .PHONY: run build check fmt clippy ios-lib ios-project ios-build ios-run \
         device-build device-run clean
@@ -47,9 +50,9 @@ ios-run: ios-build       ## Build, install, and launch on the named simulator
 	xcrun simctl launch --console "$(SIM)" $(BUNDLE_ID)
 
 # --- iOS physical device ---------------------------------------------------
-device-build: ios-project   ## Build & sign the app for a physical device
+device-build: ios-project   ## Build & sign for a device (CONFIG=Debug|Release)
 	xcodebuild -project hollowlullaby.xcodeproj -scheme hollowlullaby \
-		-configuration Debug -sdk iphoneos \
+		-configuration $(CONFIG) -sdk iphoneos \
 		-destination 'generic/platform=iOS' \
 		-derivedDataPath build/DerivedData \
 		-allowProvisioningUpdates build

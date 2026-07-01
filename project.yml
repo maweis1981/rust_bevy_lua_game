@@ -18,6 +18,17 @@ targets:
       - path: assets
         type: folder
         buildPhase: resources
+    # Generated Info.plist. `info.properties` lets us set arbitrary keys that the
+    # GENERATE_INFOPLIST_FILE / INFOPLIST_KEY_* mechanism does not support — namely
+    # CADisableMinimumFrameDurationOnPhone, which unlocks ProMotion (up to 120 Hz;
+    # iOS otherwise caps rendering at 60 fps).
+    info:
+      path: ios/Info.plist
+      properties:
+        CADisableMinimumFrameDurationOnPhone: true
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.ngmob.hollowlullaby
@@ -32,9 +43,6 @@ targets:
         # build to arm64 so Xcode doesn't try to link an x86_64 simulator slice.
         ARCHS: arm64
         ONLY_ACTIVE_ARCH: YES
-        GENERATE_INFOPLIST_FILE: YES
-        INFOPLIST_KEY_UILaunchScreen_Generation: YES
-        INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait"
         ENABLE_BITCODE: NO
         # Link the Rust static library produced by the pre-build script.
         LIBRARY_SEARCH_PATHS:
