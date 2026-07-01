@@ -1,35 +1,80 @@
-// Animated background for hollowlullaby, drawn on a full-screen quad behind the
-// game (a custom Bevy `Material2d`). Loaded as an asset, so it hot-reloads on
-// desktop and is bundled on iOS (compiled WGSL -> Metal by wgpu/naga).
+// Animated background for hollowlullaby — a flowing aurora/nebula made from
+// domain-warped fractal noise (the classic Inigo Quilez technique). Drawn on a
+// full-screen quad behind the game (custom Bevy `Material2d`). Loaded as an
+// asset, so it hot-reloads on desktop and is bundled on iOS (WGSL -> Metal).
 
 #import bevy_sprite::mesh2d_vertex_output::VertexOutput
 
-// Material uniform (bind group index is filled in by Bevy's preprocessor).
+// Material uniform (bind group index filled in by Bevy's preprocessor).
 // data = (time_seconds, aspect_ratio, unused, unused)
 @group(#{MATERIAL_BIND_GROUP}) @binding(0) var<uniform> data: vec4<f32>;
+
+// Cheap hash (Dave Hoskins, no `sin` — avoids banding and is fast enough to run
+// fullscreen at high refresh on device).
+fn hash2(p: vec2<f32>) -> f32 {
+    var p3 = fract(vec3<f32>(p.x, p.y, p.x) * 0.1031);
+    p3 = p3 + dot(p3, p3.yzx + 33.33);
+    return fract((p3.x + p3.y) * p3.z);
+}
+
+// Value noise with a smootherstep interpolant.
+fn noise(p: vec2<f32>) -> f32 {
+    let i = floor(p);
+    let f = fract(p);
+    let u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+    let a = hash2(i + vec2<f32>(0.0, 0.0));
+    let b = hash2(i + vec2<f32>(1.0, 0.0));
+    let c = hash2(i + vec2<f32>(0.0, 1.0));
+    let d = hash2(i + vec2<f32>(1.0, 1.0));
+    return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+}
+
+// Fractal Brownian motion: 4 octaves, rotated each step to break up axis alignment.
+fn fbm(p0: vec2<f32>) -> f32 {
+    var p = p0;
+    var value = 0.0;
+    var amp = 0.5;
+    let m = mat2x2<f32>(1.6, 1.2, -1.2, 1.6);
+    for (var i: i32 = 0; i < 4; i = i + 1) {
+        value = value + amp * noise(p);
+        p = m * p;
+        amp = amp * 0.5;
+    }
+    return value;
+}
 
 @fragment
 fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
     let t = data.x;
-    let uv = mesh.uv;                 // 0..1 across the quad
+    let aspect = max(data.y, 0.0001);
 
-    // Vertical base gradient.
-    let top = vec3<f32>(0.04, 0.05, 0.11);
-    let bottom = vec3<f32>(0.09, 0.12, 0.20);
-    var col = mix(bottom, top, uv.y);
+    // Aspect-corrected, centered coordinates so the noise isn't stretched.
+    var p = vec2<f32>((mesh.uv.x - 0.5) * aspect, mesh.uv.y - 0.5) * 3.0;
 
-    // Slow diagonal light bands drifting over time.
-    let band = sin((uv.x + uv.y) * 16.0 - t * 1.4) * 0.5 + 0.5;
-    col += vec3<f32>(0.03, 0.05, 0.09) * band;
+    // One level of domain warping — samples the field through an offset built
+    // from the field itself, which gives the soft flowing "aurora" motion.
+    let q = vec2<f32>(
+        fbm(p + vec2<f32>(0.0, t * 0.06)),
+        fbm(p + vec2<f32>(5.2, 1.3) - t * 0.05),
+    );
+    let f = fbm(p + 4.0 * q + vec2<f32>(1.7, 9.2));
 
-    // Faint moving grid, brighter where the bands pass.
-    let cell = fract(uv * vec2<f32>(12.0, 26.0) + vec2<f32>(0.0, t * 0.05)) - 0.5;
-    let grid = smoothstep(0.47, 0.5, max(abs(cell.x), abs(cell.y)));
-    col += vec3<f32>(0.05, 0.07, 0.12) * grid * (0.35 + 0.65 * band);
+    // Palette: deep navy base -> indigo -> teal -> soft cyan highlight.
+    let c_base = vec3<f32>(0.02, 0.03, 0.07);
+    let c_indigo = vec3<f32>(0.07, 0.06, 0.22);
+    let c_teal = vec3<f32>(0.04, 0.24, 0.36);
+    let c_cyan = vec3<f32>(0.35, 0.62, 0.72);
 
-    // Gentle vignette to focus the play area.
-    let d = distance(uv, vec2<f32>(0.5, 0.5));
-    col *= 1.0 - smoothstep(0.45, 0.95, d) * 0.5;
+    var col = mix(c_base, c_indigo, clamp(f * f * 2.2, 0.0, 1.0));
+    col = mix(col, c_teal, clamp(length(q) * 0.9, 0.0, 1.0));
+    col = mix(col, c_cyan, clamp(q.x * q.x * 1.6, 0.0, 1.0));
+
+    // Slow overall "breathing" so it never looks static.
+    col = col * (0.9 + 0.1 * sin(t * 0.4));
+
+    // Soft vignette to focus the play area.
+    let d = distance(mesh.uv, vec2<f32>(0.5, 0.5));
+    col = col * (1.0 - smoothstep(0.5, 1.05, d) * 0.55);
 
     return vec4<f32>(col, 1.0);
 }
