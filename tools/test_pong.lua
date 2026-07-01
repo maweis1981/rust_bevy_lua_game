@@ -70,6 +70,7 @@ end
 dofile("assets/scripts/roguelike.lua")
 dofile("assets/scripts/game2048.lua")
 dofile("assets/scripts/shooter.lua")
+dofile("assets/scripts/world.lua")
 dofile("assets/scripts/main.lua")
 
 local function boot() frame_events = {}; on_start(); frame_events = {}; on_update(DT) end
@@ -88,7 +89,7 @@ local function step(dt) frame_events = {}; on_update(dt or DT) end
 ----------------------------------------------------------------------
 local function router_tests()
   boot()
-  for _, key in ipairs({ "grow", "breakout", "snake", "roguelike", "game2048", "shooter" }) do
+  for _, key in ipairs({ "grow", "breakout", "snake", "roguelike", "game2048", "shooter", "world" }) do
     local d = enter(key)
     check(d and d.game == key, "menu tile should enter game '" .. key .. "'")
     check(d.back ~= nil, "game '" .. key .. "' should expose a back button")
@@ -359,6 +360,42 @@ local function shooter_tests()
 end
 
 ----------------------------------------------------------------------
+-- Game 7: Cozy Isle (loaded from its own file)
+----------------------------------------------------------------------
+local function world_tests()
+  boot()
+  local d = enter("world")
+  check(d.game == "world", "Cozy Isle loads from its own file and enters")
+  local inv = d.inv()
+  check(inv.wood == 0 and inv.stone == 0 and inv.flower == 0, "world starts with empty inventory")
+
+  -- Walk to a tree, then PICK -> wood increases.
+  local tree = d.trees[1]
+  for _ = 1, 400 do
+    game._down, game._px, game._py = true, tree.x, tree.y - 40   -- hold near the tree
+    step()
+    if (pos[d.villager].x - tree.x) ^ 2 + (pos[d.villager].y - (tree.y - 40)) ^ 2 < 100 then break end
+  end
+  clear_input()
+  on_tap(d.b_act.x, d.b_act.y)                                    -- PICK
+  check(d.inv().wood >= 1, "world: standing by a tree and picking gives wood")
+
+  -- BUILD cycles the recipe; giving resources + PLACE drops a decoration.
+  local r0 = d.recipe()
+  on_tap(d.b_build.x, d.b_build.y)
+  check(d.recipe() ~= r0, "world: BUILD button cycles the recipe")
+  local iv = d.inv(); iv.wood, iv.stone, iv.flower = 9, 9, 9        -- stock up
+  -- cycle to a recipe we can afford (any), then place
+  local before = d.placed()
+  on_tap(d.b_act.x, d.b_act.y)                                    -- PLACE (recipe selected)
+  check(d.placed() == before + 1, "world: placing a recipe adds a decoration")
+
+  -- Back button returns to the menu.
+  on_tap(d.back.x, d.back.y); step()
+  check(DEBUG.game == "menu", "world: BACK returns to the menu")
+end
+
+----------------------------------------------------------------------
 router_tests()
 grow_physics(12000, DT)
 grow_miss_shrinks(6000)
@@ -368,6 +405,7 @@ snake_tests()
 rogue_tests()
 game2048_tests()
 shooter_tests()
+world_tests()
 
 print(string.format("checks=%d", checks))
 if #failures == 0 then

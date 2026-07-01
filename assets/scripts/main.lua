@@ -497,6 +497,10 @@ function on_start()
     scenes.shooter = make_shooter()
     order[#order + 1] = { key = "shooter", label = "6. Space Shooter", color = { 0.25, 0.55, 0.75 } }
   end
+  if make_world then
+    scenes.world = make_world()
+    order[#order + 1] = { key = "world", label = "7. Cozy Isle", color = { 0.45, 0.72, 0.42 } }
+  end
   booted = false
 end
 

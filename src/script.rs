@@ -169,6 +169,7 @@ const EXTRA_SCRIPTS: &[&str] = &[
     "scripts/roguelike.lua",
     "scripts/game2048.lua",
     "scripts/shooter.lua",
+    "scripts/world.lua",
 ];
 
 /// All Lua chunks in execution order: extras first, then `main.lua` last.
