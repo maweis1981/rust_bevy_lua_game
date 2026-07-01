@@ -96,8 +96,8 @@ struct GameCamera;
 /// Decaying "trauma" that drives the camera screen-shake. `game.shake` adds to
 /// it; `camera_shake` bleeds it back to zero each frame.
 #[derive(Resource, Default)]
-struct ScreenShake {
-    trauma: f32,
+pub(crate) struct ScreenShake {
+    pub(crate) trauma: f32,
 }
 
 /// The currently-playing looping music entity, so `game.play_music` can stop the
@@ -175,6 +175,7 @@ const EXTRA_SCRIPTS: &[&str] = &["scripts/roguelike.lua"];
 struct ScriptHandles {
     list: Vec<(String, Handle<LuaScript>)>,
     dirty: bool,
+    initialized: bool,
 }
 
 fn load_scripts(mut commands: Commands, assets: Res<AssetServer>) {
@@ -183,7 +184,11 @@ fn load_scripts(mut commands: Commands, assets: Res<AssetServer>) {
         .map(|p| (p.to_string(), assets.load(*p)))
         .collect();
     list.push((MAIN_SCRIPT_PATH.to_string(), assets.load(MAIN_SCRIPT_PATH)));
-    commands.insert_resource(ScriptHandles { list, dirty: true });
+    commands.insert_resource(ScriptHandles {
+        list,
+        dirty: true,
+        initialized: false,
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -606,12 +611,15 @@ fn reload_changed_scripts(
     mut vm: NonSendMut<LuaVm>,
 ) {
     let Some(mut handles) = handles else { return };
-    // Any (re)load marks us dirty; the flag persists until scripts settle.
-    if events
-        .read()
-        .any(|e| matches!(e, AssetEvent::Added { .. } | AssetEvent::Modified { .. }))
-    {
-        handles.dirty = true;
+    // First load: run once when all scripts settle. After that, only a *Modified*
+    // event (desktop hot-reload) re-runs — this avoids re-executing `on_start`
+    // several times for the initial `Added` events (which caused startup churn).
+    for event in events.read() {
+        match event {
+            AssetEvent::Modified { .. } => handles.dirty = true,
+            AssetEvent::Added { .. } if !handles.initialized => handles.dirty = true,
+            _ => {}
+        }
     }
     if !handles.dirty {
         return;
@@ -639,7 +647,10 @@ fn reload_changed_scripts(
         }
     }
     match vm.finish_reload() {
-        Ok(()) => info!("loaded {} Lua scripts", chunks.len()),
+        Ok(()) => {
+            handles.initialized = true;
+            info!("loaded {} Lua scripts", chunks.len());
+        }
         Err(err) => error!("lua on_start error: {err}"),
     }
 }
@@ -675,46 +686,42 @@ fn tick_lua(
     keyboard: Res<ButtonInput<KeyCode>>,
     cameras: Query<(&Camera, &GlobalTransform)>,
 ) {
-    if let Ok(window) = windows.single() {
-        vm.set_screen(window.width() * 0.5, window.height() * 0.5);
-    }
+    let Ok(window) = windows.single() else {
+        vm.update(time.delta_secs());
+        return;
+    };
+    vm.set_screen(window.width() * 0.5, window.height() * 0.5);
 
-    // Collect tap positions (window/logical pixels) from touch and mouse.
+    let Ok((camera, cam_transform)) = cameras.single() else {
+        vm.update(time.delta_secs());
+        return;
+    };
+
+    // Taps from touch (just-pressed) and a left click.
     let mut taps: Vec<Vec2> = touches.iter_just_pressed().map(|t| t.position()).collect();
     if mouse.just_pressed(MouseButton::Left) {
-        if let Ok(window) = windows.single() {
-            if let Some(cursor) = window.cursor_position() {
-                taps.push(cursor);
-            }
+        if let Some(cursor) = window.cursor_position() {
+            taps.push(cursor);
+        }
+    }
+    for pixel in &taps {
+        if let Ok(world) = camera.viewport_to_world_2d(cam_transform, *pixel) {
+            vm.on_tap(world.x, world.y);
         }
     }
 
-    // Current pointer (mouse cursor wins; otherwise first active touch) and
-    // whether it is held. Touches imply "down"; the mouse needs its button.
+    // Current pointer (mouse cursor wins; otherwise first active touch) + held.
     let mut pointer_px: Option<Vec2> = touches.iter().next().map(|t| t.position());
     let mut pointer_down = touches.iter().next().is_some();
-    if let Ok(window) = windows.single() {
-        if let Some(cursor) = window.cursor_position() {
-            pointer_px = Some(cursor);
-        }
+    if let Some(cursor) = window.cursor_position() {
+        pointer_px = Some(cursor);
     }
     if mouse.pressed(MouseButton::Left) {
         pointer_down = true;
     }
-
-    let mut pointer_world: Option<(f32, f32)> = None;
-    if let Ok((camera, cam_transform)) = cameras.single() {
-        for pixel in taps {
-            if let Ok(world) = camera.viewport_to_world_2d(cam_transform, pixel) {
-                vm.on_tap(world.x, world.y);
-            }
-        }
-        if let Some(pixel) = pointer_px {
-            if let Ok(world) = camera.viewport_to_world_2d(cam_transform, pixel) {
-                pointer_world = Some((world.x, world.y));
-            }
-        }
-    }
+    let pointer_world = pointer_px
+        .and_then(|p| camera.viewport_to_world_2d(cam_transform, p).ok())
+        .map(|w| (w.x, w.y));
 
     vm.set_input(pointer_world, pointer_down, key_snapshot(&keyboard));
     vm.update(time.delta_secs());
