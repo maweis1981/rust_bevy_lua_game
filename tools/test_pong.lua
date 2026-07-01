@@ -115,9 +115,13 @@ local function physics_scenario(frames, dt)
   local prev_ball, prev_left, prev_lh = nil, nil, dims[left_id].h
   local saw_grow, saw_shrink, saw_win, saw_lose = false, false, false, false
   local pending_restart = false
+  local finger = 0
 
   for _ = 1, frames do
-    game._down, game._py = true, pos[ball_id].y   -- perfect tracking
+    -- Relative-drag emulation: slide the finger by the paddle->ball gap so the
+    -- paddle chases the ball (works regardless of DRAG_SENS thanks to the cap).
+    finger = finger + (pos[ball_id].y - pos[left_id].y)
+    game._down, game._py = true, finger
     frame_events = {}
     on_update(dt)
 
@@ -194,9 +198,10 @@ local function miss_shrinks_scenario(frames)
   rand_mode = "good"
   local left_id, _, ball_id = boot()
   local start_h = dims[left_id].h
-  local lost = false
+  local lost, finger = false, 0
   for _ = 1, frames do
-    game._down, game._py = true, 100000   -- pin paddle to the top; ball drifts low
+    finger = finger + 500                 -- keep dragging up: paddle pins to top
+    game._down, game._py = true, finger   -- ball drifts low -> the player misses
     frame_events = {}
     on_update(1 / 60)
     if events_have("log", "lose") then lost = true; break end
@@ -211,9 +216,10 @@ end
 local function bad_hits_lose_scenario(frames)
   rand_mode = "bad"
   local left_id, _, ball_id = boot()
-  local lost, saw_heavy = false, false
+  local lost, saw_heavy, finger = false, false, 0
   for _ = 1, frames do
-    game._down, game._py = true, pos[ball_id].y
+    finger = finger + (pos[ball_id].y - pos[left_id].y)   -- track -> hits reds
+    game._down, game._py = true, finger
     frame_events = {}
     on_update(1 / 60)
     if events_have("haptic", "heavy") then saw_heavy = true end
@@ -231,9 +237,10 @@ local function hitch_scenario(frames, big_dt)
   local left_id, right_id, ball_id = boot()
   local ball_hw = dims[ball_id].w * 0.5
   local pad_hw = dims[left_id].w * 0.5
-  local prev_ball, max_step = nil, 0
+  local prev_ball, max_step, finger = nil, 0, 0
   for _ = 1, frames do
-    game._down, game._py = true, pos[ball_id].y
+    finger = finger + (pos[ball_id].y - pos[left_id].y)
+    game._down, game._py = true, finger
     frame_events = {}
     on_update(big_dt)
     local b, l, r = pos[ball_id], pos[left_id], pos[right_id]

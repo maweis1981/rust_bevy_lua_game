@@ -12,14 +12,17 @@
 -- approach is a fresh choice (telegraphed by colour). The bigger your paddle
 -- gets, the harder red balls are to dodge — that's the difficulty curve.
 --
--- Controls: drag (mouse held / finger) or Up/Down (W/S). See src/script.rs for
--- the host API (spawn/move_to/set_color/set_size/shake/play_sound/haptic/...).
+-- Controls: RELATIVE drag — hold and slide (mouse / finger) and the paddle moves
+-- by how much your finger moves (not to where it is), like a trackpad; or Up/Down
+-- (W/S). See src/script.rs for the host API (spawn/move_to/set_color/set_size/
+-- shake/play_sound/haptic/...).
 
 local PADDLE_W = 20
 local AI_H = 120           -- right (AI) paddle height, fixed
 local BALL = 22
 local MARGIN = 46
 local PADDLE_SPEED = 780   -- max player paddle speed (px/s)
+local DRAG_SENS = 1.5      -- relative-drag gain: paddle move per unit finger move
 local AI_SPEED = 430
 local AI_DEADZONE = 10
 local BALL_SPEED = 360     -- serve speed (px/s)
@@ -51,6 +54,7 @@ local playing = true
 local trail, trail_cursor = {}, 0
 local l_flash, l_flash_col = 0, GOOD_COLOR
 local r_flash = 0
+local drag_prev = nil             -- last pointer y while held (relative drag)
 local started = false
 local SCR_HW, SCR_HH = 0, 0       -- current half-extents (updated each frame)
 
@@ -167,6 +171,7 @@ end
 local function reset_game()
   lh = PLAYER_H_START
   ly = 0
+  drag_prev = nil
   set_player_size()
   playing = true
   serve(-1)
@@ -178,16 +183,24 @@ function on_tap(_, _)
 end
 
 local function move_player(dt, limit)
-  local vy = 0
   local _, py, down = game.pointer()
+  local max_step = PADDLE_SPEED * dt
   if down and py ~= nil then
-    local target = clamp(py, -limit, limit)
-    vy = clamp((target - ly) / dt, -PADDLE_SPEED, PADDLE_SPEED)
+    -- Relative drag: move by how far the finger moved since last frame (not to
+    -- its absolute position), scaled by DRAG_SENS and capped at the paddle's
+    -- max speed. First touch (drag_prev == nil) moves nothing, so no jump.
+    if drag_prev ~= nil then
+      local move = clamp((py - drag_prev) * DRAG_SENS, -max_step, max_step)
+      ly = clamp(ly + move, -limit, limit)
+    end
+    drag_prev = py
   else
+    drag_prev = nil
+    local vy = 0
     if game.key("up") or game.key("w") then vy = vy + PADDLE_SPEED end
     if game.key("down") or game.key("s") then vy = vy - PADDLE_SPEED end
+    ly = clamp(ly + vy * dt, -limit, limit)
   end
-  ly = clamp(ly + vy * dt, -limit, limit)
 end
 
 function on_update(dt)
