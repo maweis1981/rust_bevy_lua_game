@@ -84,10 +84,11 @@ local function router_tests()
   for _, key in ipairs({ "grow", "breakout", "snake" }) do
     local d = enter(key)
     check(d and d.game == key, "menu tile should enter game '" .. key .. "'")
-    on_tap(0, HH - 34); step()              -- press the top-center back button
+    check(d.back ~= nil, "game '" .. key .. "' should expose a back button")
+    on_tap(d.back.x, d.back.y); step()      -- press the BACK button -> menu
     local d2 = enter(key)                   -- re-entering should work (menu was active)
     check(d2 and d2.game == key, "back button should return to the menu (re-enter '" .. key .. "')")
-    on_tap(0, HH - 34); step()
+    on_tap(d2.back.x, d2.back.y); step()
   end
 end
 

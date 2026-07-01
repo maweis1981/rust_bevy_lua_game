@@ -32,11 +32,13 @@ local function tracker()
   }
 end
 
--- A "≡ menu" button pinned top-center; games hit-test it to return to the menu.
-local function make_back(T, hh)
-  local r = { x = 0, y = hh - 34, w = 130, h = 48 }
-  T.spawn(r.x, r.y, r.w, r.h, 0.20, 0.22, 0.30, 0.85)
-  T.text(r.x, r.y, 24, 1, 1, 1, 1, "< MENU")
+-- A "< BACK" button that stops the game and returns to the menu. Pinned to the
+-- top-LEFT, well below the top edge so the iPhone Dynamic Island / status bar
+-- never covers it. Games hit-test the returned rect in their tap handler.
+local function make_back(T, hw, hh)
+  local r = { x = -hw + 82, y = hh - 150, w = 148, h = 62 }
+  T.spawn(r.x, r.y, r.w, r.h, 0.90, 0.35, 0.30, 0.95)
+  T.text(r.x, r.y, 30, 1, 1, 1, 1, "< BACK")
   return r
 end
 
@@ -107,10 +109,10 @@ local function make_grow()
     left = T.spawn(-hw + MARGIN, 0, PADDLE_W, H_START, BASE_L[1], BASE_L[2], BASE_L[3])
     right = T.spawn(hw - MARGIN, 0, PADDLE_W, AI_H, BASE_R[1], BASE_R[2], BASE_R[3])
     ball = T.spawn(0, 0, BALL, BALL, 1, 1, 1)
-    back = make_back(T, hh)
+    back = make_back(T, hw, hh)
     lh, ly, ry, playing = H_START, 0, 0, true
     hud(); serve(-1); built = true
-    DEBUG = { game = "grow", ball = ball, left = left, right = right, get_lh = function() return lh end }
+    DEBUG = { game = "grow", ball = ball, left = left, right = right, back = back, get_lh = function() return lh end }
   end
   local function move_player(dt, limit)
     local _, py, down = game.pointer(); local mx = PADDLE_SPEED * dt
@@ -223,10 +225,10 @@ local function make_breakout()
     end
     paddle = T.spawn(0, py, PADDLE_W, PADDLE_H, 0.85, 0.9, 1.0)
     ball = T.spawn(0, 0, BALL, BALL, 1, 1, 1)
-    back = make_back(T, hh)
+    back = make_back(T, hw, hh)
     px, lives, playing = 0, START_LIVES, true
     serve(); hud(); built = true
-    DEBUG = { game = "breakout", ball = ball, paddle = paddle,
+    DEBUG = { game = "breakout", ball = ball, paddle = paddle, back = back,
       bricks = function() return alive_count end, alive = function() return playing end }
   end
   local function move_paddle(dt)
@@ -356,9 +358,9 @@ local function make_snake()
     cols = math.floor(2 * hw / CELL); rows = math.floor(2 * hh / CELL)
     ox = -cols * CELL * 0.5; oy = -rows * CELL * 0.5
     food_id = T.spawn(0, 0, CELL - 6, CELL - 6, 1.0, 0.35, 0.35)
-    back = make_back(T, hh)
+    back = make_back(T, hw, hh)
     reset(); built = true
-    DEBUG = { game = "snake", len = function() return #snake end,
+    DEBUG = { game = "snake", len = function() return #snake end, back = back,
       alive = function() return playing end, head = function() return snake[1] end, food = food }
   end
   local function set_dir(dx, dy)
