@@ -135,6 +135,38 @@ def snakebody(x, y):
     return _snake_cell(x, y, (65, 175, 82), (32, 110, 50), eyes=False)
 
 
+def _blob(x, y, base, outline, eyes=True, w=24, h=24, ex=(7, 16), ey=9):
+    if not rounded(x, y, w, h, 6):
+        return (0, 0, 0, 0)
+    if min(x, w - 1 - x, y, h - 1 - y) == 0:
+        return outline + (255,)
+    if eyes:
+        for cx in ex:
+            if math.hypot(x - cx, y - ey) <= 2.6:
+                return (245, 245, 245, 255)
+            if math.hypot(x - cx, y - ey) <= 1.2:
+                return (20, 20, 20, 255)
+    hl = max(0.0, 1.0 - math.hypot(x - 9, y - 8) / 14.0) * 30
+    return (clampb(base[0] + hl), clampb(base[1] + hl), clampb(base[2] + hl), 255)
+
+
+def hero(x, y):
+    return _blob(x, y, (70, 150, 240), (30, 80, 160))       # blue adventurer
+
+
+def enemy(x, y):
+    return _blob(x, y, (215, 70, 90), (130, 30, 45))        # red slime
+
+
+def gem(x, y):
+    w = h = 16
+    if abs(x - 7.5) / 7.5 + abs(y - 7.5) / 7.5 <= 1.0:      # diamond
+        d = abs(x - 7.5) / 7.5 + abs(y - 7.5) / 7.5
+        v = 1.0 - 0.4 * d
+        return (clampb(90 * v), clampb(235 * v), clampb(220 * v), 255)
+    return (0, 0, 0, 0)
+
+
 SPRITES = {
     "orb": (32, 32, orb),
     "paddle": (24, 24, paddle),
@@ -142,6 +174,9 @@ SPRITES = {
     "food": (24, 24, food),
     "snakehead": (32, 32, snakehead),
     "snakebody": (32, 32, snakebody),
+    "hero": (24, 24, hero),
+    "enemy": (24, 24, enemy),
+    "gem": (16, 16, gem),
 }
 
 if __name__ == "__main__":

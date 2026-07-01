@@ -66,12 +66,16 @@ local function check_once(k, c, m)
   if not c and not seen[k] then seen[k] = true; failures[#failures + 1] = m end
 end
 
+-- Mirror the engine's load order: extra game files first, then main.lua.
+dofile("assets/scripts/roguelike.lua")
 dofile("assets/scripts/main.lua")
 
-local TILE_Y = { grow = 122, breakout = 0, snake = -122 }
 local function boot() frame_events = {}; on_start(); frame_events = {}; on_update(DT) end
 local function enter(key)
-  clear_input(); on_tap(0, TILE_Y[key])
+  clear_input()
+  for _, t in ipairs(DEBUG.tiles) do                 -- menu exposes its tiles
+    if t.key == key then on_tap(t.x, t.y); break end
+  end
   frame_events = {}; on_update(DT)          -- first update builds the scene
   return DEBUG
 end
@@ -82,7 +86,7 @@ local function step(dt) frame_events = {}; on_update(dt or DT) end
 ----------------------------------------------------------------------
 local function router_tests()
   boot()
-  for _, key in ipairs({ "grow", "breakout", "snake" }) do
+  for _, key in ipairs({ "grow", "breakout", "snake", "roguelike" }) do
     local d = enter(key)
     check(d and d.game == key, "menu tile should enter game '" .. key .. "'")
     check(d.back ~= nil, "game '" .. key .. "' should expose a back button")
@@ -139,7 +143,7 @@ local function grow_physics(frames, dt)
       check_once("gtun_r", b.x <= r.x - pad_hw - ball_hw + 1.0, "ball tunneled AI paddle")
     end
     if prev_left and not resized and not over then
-      check_once("gtele", math.abs(l.y - prev_left) <= 780 * dt + 0.5, "player paddle teleported")
+      check_once("gtele", math.abs(l.y - prev_left) <= 1800 * dt + 0.5, "player paddle teleported")
     end
     if over then on_tap(0, 0); pending_restart = true end
     prev_ball, prev_left, prev_lh = { x = b.x, y = b.y }, l.y, lh
@@ -254,12 +258,59 @@ local function snake_tests()
 end
 
 ----------------------------------------------------------------------
+-- Game 4: Roguelike (loaded from its own file)
+----------------------------------------------------------------------
+local function pick_levelup(d)
+  if d.leveling() then
+    local ch = d.choices()
+    if ch[1] and ch[1].rect then on_tap(ch[1].rect.x, ch[1].rect.y) end
+  end
+end
+
+local function rogue_tests()
+  boot()
+  local d = enter("roguelike")
+  check(d.game == "roguelike", "roguelike loads from its own file and enters")
+
+  -- Play: circle around to dodge; auto-fire kills; gems level you up.
+  local ang, got_kill, leveled = 0, false, false
+  for _ = 1, 14000 do
+    ang = ang + 0.06
+    game._down, game._px, game._py = true, math.cos(ang) * 70, math.sin(ang) * 70
+    step()
+    check_once("rogue_bounds",
+      math.abs(pos[d.player].x) <= HW + 1 and math.abs(pos[d.player].y) <= HH + 1,
+      "roguelike player left the arena")
+    check_once("rogue_cap", d.enemies() <= 60, "roguelike enemy count exceeded the cap")
+    if d.kills() > 0 then got_kill = true end
+    if d.leveling() then leveled = true; pick_levelup(d) end
+    if not d.alive() then break end
+  end
+  check(got_kill, "roguelike: auto-fire should kill enemies")
+  check(leveled, "roguelike: collecting gems should trigger a level-up")
+
+  -- Death: stand still, get swarmed, run out of HP.
+  boot(); d = enter("roguelike")
+  clear_input()
+  local died = false
+  for _ = 1, 16000 do
+    step(); pick_levelup(d)
+    if not d.alive() then died = true; break end
+  end
+  check(died, "roguelike: standing still should eventually lose all HP")
+
+  on_tap(0, 0); step()
+  check(d.alive(), "roguelike: tap restarts after death")
+end
+
+----------------------------------------------------------------------
 router_tests()
 grow_physics(12000, DT)
 grow_miss_shrinks(6000)
 breakout_win(60000)
 breakout_lose(3000)
 snake_tests()
+rogue_tests()
 
 print(string.format("checks=%d", checks))
 if #failures == 0 then

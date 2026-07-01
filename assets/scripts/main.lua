@@ -54,13 +54,25 @@ local function switch(key)
   if current and current.enter then current.enter() end
 end
 
+-- Helpers exposed to external game modules (loaded from their own .lua files,
+-- e.g. scripts/roguelike.lua). They run before main.lua, so they only *use*
+-- GAME_KIT at scene-build time, by which point this table exists.
+GAME_KIT = {
+  clamp = clamp,
+  sign = sign,
+  in_rect = in_rect,
+  tracker = tracker,
+  make_back = make_back,
+  switch = function(k) switch(k) end,
+}
+
 -- ===================================================================
 -- Game 1: Grow the Paddle
 -- ===================================================================
 local function make_grow()
   local T = tracker()
   local PADDLE_W, AI_H, BALL, MARGIN = 20, 120, 22, 46
-  local PADDLE_SPEED, DRAG_SENS = 780, 1.5
+  local PADDLE_SPEED, DRAG_SENS = 1800, 2.6   -- higher gain + cap: shorter finger travel
   local AI_SPEED, AI_DEADZONE = 430, 10
   local BALL_SPEED, BALL_MAX, SPEEDUP, MAX_ANGLE = 360, 720, 1.03, 0.87
   local MAX_DT, SERVE_DELAY, TRAIL_N = 1 / 30, 0.8, 12
@@ -444,6 +456,7 @@ local function make_menu()
         y = y - (th + gap)
       end
       built = true
+      DEBUG = { game = "menu", tiles = tiles }
     end,
     tap = function(x, y)
       for _, t in ipairs(tiles) do
@@ -470,6 +483,12 @@ function on_start()
     { key = "breakout", label = "2. Breakout", color = { 1.0, 0.55, 0.25 } },
     { key = "snake", label = "3. Snake", color = { 0.35, 0.82, 0.45 } },
   }
+  -- Games defined in their own files register a global factory (see
+  -- scripts/roguelike.lua). Add them to the menu when present.
+  if make_roguelike then
+    scenes.roguelike = make_roguelike()
+    order[#order + 1] = { key = "roguelike", label = "4. Roguelike", color = { 0.72, 0.4, 0.9 } }
+  end
   booted = false
 end
 

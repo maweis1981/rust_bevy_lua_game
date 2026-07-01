@@ -69,7 +69,7 @@ impl Plugin for ScriptPlugin {
             .init_resource::<ScreenShake>()
             .init_resource::<MusicTrack>()
             .insert_non_send(LuaVm::new())
-            .add_systems(Startup, (setup_scene, load_main_script))
+            .add_systems(Startup, (setup_scene, load_scripts))
             .add_systems(
                 Update,
                 (reload_changed_scripts, tick_lua, apply_lua, camera_shake).chain(),
@@ -162,11 +162,22 @@ impl AssetLoader for LuaScriptLoader {
     }
 }
 
-#[derive(Resource)]
-struct MainScript(#[allow(dead_code)] Handle<LuaScript>);
+/// Extra Lua game modules loaded alongside `main.lua`. They run *before* it (so
+/// `main.lua`'s `on_start` can see the globals they define, e.g. `make_roguelike`)
+/// and are re-run together on any hot-reload.
+const EXTRA_SCRIPTS: &[&str] = &["scripts/roguelike.lua"];
 
-fn load_main_script(mut commands: Commands, assets: Res<AssetServer>) {
-    commands.insert_resource(MainScript(assets.load(MAIN_SCRIPT_PATH)));
+/// All Lua chunks in execution order: extras first, then `main.lua` last.
+#[derive(Resource)]
+struct ScriptHandles(Vec<(String, Handle<LuaScript>)>);
+
+fn load_scripts(mut commands: Commands, assets: Res<AssetServer>) {
+    let mut handles: Vec<(String, Handle<LuaScript>)> = EXTRA_SCRIPTS
+        .iter()
+        .map(|p| (p.to_string(), assets.load(*p)))
+        .collect();
+    handles.push((MAIN_SCRIPT_PATH.to_string(), assets.load(MAIN_SCRIPT_PATH)));
+    commands.insert_resource(ScriptHandles(handles));
 }
 
 // ---------------------------------------------------------------------------
@@ -260,8 +271,14 @@ impl LuaVm {
         }
     }
 
-    fn load(&mut self, source: &str) -> mlua::Result<()> {
-        self.lua.load(source).set_name(MAIN_SCRIPT_PATH).exec()?;
+    /// Execute one Lua chunk (no lifecycle callbacks yet).
+    fn exec_chunk(&mut self, source: &str, name: &str) -> mlua::Result<()> {
+        self.lua.load(source).set_name(name).exec()
+    }
+
+    /// After all chunks are executed, refresh the callback flags and run
+    /// `on_start` once.
+    fn finish_reload(&mut self) -> mlua::Result<()> {
         let globals = self.lua.globals();
         self.has_update = globals.get::<Option<Function>>("on_update")?.is_some();
         self.has_tap = globals.get::<Option<Function>>("on_tap")?.is_some();
@@ -578,19 +595,36 @@ extern "C" {
 fn reload_changed_scripts(
     mut events: MessageReader<AssetEvent<LuaScript>>,
     scripts: Res<Assets<LuaScript>>,
+    handles: Option<Res<ScriptHandles>>,
     mut vm: NonSendMut<LuaVm>,
 ) {
-    for event in events.read() {
-        let id = match event {
-            AssetEvent::Added { id } | AssetEvent::Modified { id } => *id,
-            _ => continue,
-        };
-        if let Some(script) = scripts.get(id) {
-            match vm.load(&script.source) {
-                Ok(()) => info!("loaded Lua script: {MAIN_SCRIPT_PATH}"),
-                Err(err) => error!("lua load error: {err}"),
-            }
+    // Re-run everything whenever any Lua chunk is (re)loaded.
+    let changed = events
+        .read()
+        .any(|e| matches!(e, AssetEvent::Added { .. } | AssetEvent::Modified { .. }));
+    if !changed {
+        return;
+    }
+    let Some(handles) = handles else { return };
+
+    // Gather every chunk's source in execution order; wait until all are loaded.
+    let mut chunks = Vec::with_capacity(handles.0.len());
+    for (name, handle) in &handles.0 {
+        match scripts.get(handle) {
+            Some(script) => chunks.push((name.clone(), script.source.clone())),
+            None => return, // not all loaded yet; try again on the next event
         }
+    }
+
+    for (name, source) in &chunks {
+        if let Err(err) = vm.exec_chunk(source, name) {
+            error!("lua load error in {name}: {err}");
+            return;
+        }
+    }
+    match vm.finish_reload() {
+        Ok(()) => info!("loaded {} Lua scripts", chunks.len()),
+        Err(err) => error!("lua on_start error: {err}"),
     }
 }
 
