@@ -136,9 +136,12 @@ The bridge also exposes juice primitives that scripts drive:
 beyond Bevy's built-in sprite/text shaders. It's a `Material2d` (`BackgroundMaterial`, a
 single `vec4` uniform) on a full-screen quad at z = -10; the fragment shader lives in
 `assets/shaders/background.wgsl` and animates a domain-warped fractal-noise aurora (FBM +
-one warp level, cheap sin-free hash) with a vignette, from an elapsed-time
-uniform updated each frame. It's pure Rust rendering (independent of which Lua game is
-loaded). Notes: WGSL imports `bevy_sprite::mesh2d_vertex_output::VertexOutput` and binds the
+one warp level, cheap sin-free hash) with a vignette. The `vec4` uniform packs
+`(time, aspect, energy, _)`: **energy ties the shader to gameplay** — `drive_background`
+reads the shared `ScreenShake` trauma (every game already calls `game.shake` on hits/scores),
+attack-fast / release-slow smooths it, and the shader speeds the flow, brightens, and blooms
+a cyan-white flash by it. So the background reacts across all mini-games with no Lua changes.
+Notes: WGSL imports `bevy_sprite::mesh2d_vertex_output::VertexOutput` and binds the
 material at `@group(#{MATERIAL_BIND_GROUP})` (Bevy fills the index in); the `.wgsl` loads via
 the normal asset pipeline, so it hot-reloads on desktop and bundles on iOS (wgpu/naga compiles
 WGSL → Metal). `Assets::get_mut` returns a change-detection guard, so bind it `mut`.

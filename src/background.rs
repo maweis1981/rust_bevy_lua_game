@@ -13,6 +13,8 @@ use bevy::render::render_resource::AsBindGroup;
 use bevy::shader::ShaderRef;
 use bevy::sprite_render::{Material2d, Material2dPlugin, MeshMaterial2d};
 
+use crate::script::ScreenShake;
+
 const SHADER_PATH: &str = "shaders/background.wgsl";
 
 pub struct BackgroundPlugin;
@@ -26,7 +28,7 @@ impl Plugin for BackgroundPlugin {
 }
 
 /// The material bound to the background quad. `data` packs animation inputs:
-/// x = time (s), y = aspect ratio; z/w reserved for future use.
+/// x = time (s), y = aspect ratio, z = gameplay energy (0..1), w reserved.
 #[derive(Asset, TypePath, AsBindGroup, Clone)]
 struct BackgroundMaterial {
     #[uniform(0)]
@@ -39,9 +41,15 @@ impl Material2d for BackgroundMaterial {
     }
 }
 
-/// Handle to the one background material instance, so we can update its uniform.
+/// The one background material, plus a smoothed "energy" that ties the shader to
+/// gameplay: it snaps up with each `ScreenShake` impulse (paddle hit, brick break,
+/// food eaten, death — every game already calls `game.shake`) and eases back down,
+/// so the aurora surges and brightens in sync with the action.
 #[derive(Resource)]
-struct BackgroundHandle(Handle<BackgroundMaterial>);
+struct BackgroundState {
+    handle: Handle<BackgroundMaterial>,
+    energy: f32,
+}
 
 fn setup_background(
     mut commands: Commands,
@@ -57,20 +65,34 @@ fn setup_background(
         MeshMaterial2d(material.clone()),
         Transform::from_xyz(0.0, 0.0, -10.0),
     ));
-    commands.insert_resource(BackgroundHandle(material));
+    commands.insert_resource(BackgroundState {
+        handle: material,
+        energy: 0.0,
+    });
 }
 
 fn drive_background(
     time: Res<Time>,
-    handle: Res<BackgroundHandle>,
+    shake: Res<ScreenShake>,
+    mut state: ResMut<BackgroundState>,
     windows: Query<&Window>,
     mut materials: ResMut<Assets<BackgroundMaterial>>,
 ) {
-    if let Some(mut material) = materials.get_mut(&handle.0) {
+    let dt = time.delta_secs();
+    // Fast attack on impact, slower release than the camera trauma so the aurora
+    // stays lit through a rally instead of only blipping on each hit.
+    if shake.trauma > state.energy {
+        state.energy = shake.trauma;
+    } else {
+        state.energy = (state.energy - dt * 1.4).max(0.0);
+    }
+
+    let handle = state.handle.clone();
+    if let Some(mut material) = materials.get_mut(&handle) {
         let aspect = windows
             .single()
             .map(|w| w.width() / w.height().max(1.0))
             .unwrap_or(1.0);
-        material.data = Vec4::new(time.elapsed_secs(), aspect, 0.0, 0.0);
+        material.data = Vec4::new(time.elapsed_secs(), aspect, state.energy, 0.0);
     }
 }

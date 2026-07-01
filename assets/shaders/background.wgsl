@@ -47,15 +47,19 @@ fn fbm(p0: vec2<f32>) -> f32 {
 fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
     let t = data.x;
     let aspect = max(data.y, 0.0001);
+    let energy = clamp(data.z, 0.0, 1.0);   // gameplay impulse from ScreenShake
 
     // Aspect-corrected, centered coordinates so the noise isn't stretched.
     var p = vec2<f32>((mesh.uv.x - 0.5) * aspect, mesh.uv.y - 0.5) * 3.0;
 
+    // The flow speeds up when the game is energized (a hit / score just landed).
+    let flow = t * (1.0 + energy * 3.0);
+
     // One level of domain warping — samples the field through an offset built
     // from the field itself, which gives the soft flowing "aurora" motion.
     let q = vec2<f32>(
-        fbm(p + vec2<f32>(0.0, t * 0.06)),
-        fbm(p + vec2<f32>(5.2, 1.3) - t * 0.05),
+        fbm(p + vec2<f32>(0.0, flow * 0.06)),
+        fbm(p + vec2<f32>(5.2, 1.3) - flow * 0.05),
     );
     let f = fbm(p + 4.0 * q + vec2<f32>(1.7, 9.2));
 
@@ -71,6 +75,12 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
 
     // Slow overall "breathing" so it never looks static.
     col = col * (0.9 + 0.1 * sin(t * 0.4));
+
+    // Gameplay reactivity: brighten the whole field and bloom a warm cyan-white
+    // into the brightest aurora bands on impact, so the background pulses with play.
+    col = col * (1.0 + energy * 0.7);
+    let flash = vec3<f32>(0.30, 0.55, 0.75);
+    col = col + flash * energy * smoothstep(0.35, 0.95, f);
 
     // Soft vignette to focus the play area.
     let d = distance(mesh.uv, vec2<f32>(0.5, 0.5));
