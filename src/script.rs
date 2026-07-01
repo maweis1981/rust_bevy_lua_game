@@ -165,7 +165,11 @@ impl AssetLoader for LuaScriptLoader {
 /// Extra Lua game modules loaded alongside `main.lua`. They run *before* it (so
 /// `main.lua`'s `on_start` can see the globals they define, e.g. `make_roguelike`)
 /// and are re-run together on any hot-reload.
-const EXTRA_SCRIPTS: &[&str] = &["scripts/roguelike.lua", "scripts/game2048.lua"];
+const EXTRA_SCRIPTS: &[&str] = &[
+    "scripts/roguelike.lua",
+    "scripts/game2048.lua",
+    "scripts/shooter.lua",
+];
 
 /// All Lua chunks in execution order: extras first, then `main.lua` last.
 /// `dirty` means "(re)run once everything has settled" and persists across

@@ -493,6 +493,10 @@ function on_start()
     scenes.game2048 = make_2048()
     order[#order + 1] = { key = "game2048", label = "5. 2048", color = { 0.95, 0.68, 0.35 } }
   end
+  if make_shooter then
+    scenes.shooter = make_shooter()
+    order[#order + 1] = { key = "shooter", label = "6. Space Shooter", color = { 0.25, 0.55, 0.75 } }
+  end
   booted = false
 end
 
