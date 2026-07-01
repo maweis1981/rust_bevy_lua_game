@@ -16,6 +16,9 @@
 //!   game.bounds() -> half_width, half_height   (world units; origin at center)
 //!   game.spawn(x, y, w, h, r, g, b [, a]) -> id (colored sprite; rgba in 0..1,
 //!                                               alpha optional, default 1)
+//!   game.spawn_sprite(x, y, w, h, name) -> id  (textured sprite from
+//!                                               assets/textures/<name>.png;
+//!                                               set_color tints it)
 //!   game.move_to(id, x, y)
 //!   game.set_color(id, r, g, b, a)             (recolor a sprite; enables
 //!                                               flashes and fading trails)
@@ -200,6 +203,14 @@ enum LuaCommand {
         size: f32,
         color: (f32, f32, f32, f32),
         text: String,
+    },
+    SpawnSprite {
+        id: u32,
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+        image: String,
     },
     Despawn {
         id: u32,
@@ -436,6 +447,26 @@ fn register_api(lua: &Lua) -> mlua::Result<()> {
                 Ok(id)
             },
         )?,
+    )?;
+
+    game.set(
+        "spawn_sprite",
+        lua.create_function(|lua, (x, y, w, h, image): (f32, f32, f32, f32, String)| {
+            let mut bridge = lua
+                .app_data_mut::<Bridge>()
+                .ok_or_else(|| mlua::Error::runtime("bridge missing"))?;
+            bridge.next_id += 1;
+            let id = bridge.next_id;
+            bridge.queue.push(LuaCommand::SpawnSprite {
+                id,
+                x,
+                y,
+                w,
+                h,
+                image,
+            });
+            Ok(id)
+        })?,
     )?;
 
     game.set(
@@ -717,6 +748,27 @@ fn apply_lua(
                         },
                         TextColor(Color::srgba(r, g, b, a)),
                         Anchor::CENTER,
+                        Transform::from_xyz(x, y, z),
+                    ))
+                    .id();
+                registry.0.insert(id, entity);
+            }
+            LuaCommand::SpawnSprite {
+                id,
+                x,
+                y,
+                w,
+                h,
+                image,
+            } => {
+                let z = 0.001 * id as f32;
+                let entity = commands
+                    .spawn((
+                        Sprite {
+                            image: assets.load(format!("textures/{image}.png")),
+                            custom_size: Some(Vec2::new(w, h)),
+                            ..default()
+                        },
                         Transform::from_xyz(x, y, z),
                     ))
                     .id();

@@ -124,6 +124,23 @@ The bridge also exposes juice primitives that scripts drive:
   fade, paddle flash, green/red ball telegraph) and `game.set_size(id, w, h)` its
   `custom_size` (the player paddle grows/shrinks); `game.spawn` takes an optional 8th alpha
   arg.
+- **Textured sprites (pixel art).** `game.spawn_sprite(x,y,w,h,name)` spawns a `Sprite`
+  textured from `assets/textures/<name>.png` (ball/paddle/brick/food/snake). The PNGs are
+  procedural pixel art from `tools/gen_textures.py` (stdlib-only encoder); `set_color` tints
+  the grayscale ones (orb/paddle/brick). `lib.rs` sets `ImagePlugin::default_nearest()` so
+  they stay crisp when scaled. `Text2d` menu labels use `game.spawn_text`.
+
+### Custom shader (animated background)
+
+`src/background.rs` (`BackgroundPlugin`) is the project's example of a *custom* shader —
+beyond Bevy's built-in sprite/text shaders. It's a `Material2d` (`BackgroundMaterial`, a
+single `vec4` uniform) on a full-screen quad at z = -10; the fragment shader lives in
+`assets/shaders/background.wgsl` and animates a gradient + grid + vignette from an elapsed-time
+uniform updated each frame. It's pure Rust rendering (independent of which Lua game is
+loaded). Notes: WGSL imports `bevy_sprite::mesh2d_vertex_output::VertexOutput` and binds the
+material at `@group(#{MATERIAL_BIND_GROUP})` (Bevy fills the index in); the `.wgsl` loads via
+the normal asset pipeline, so it hot-reloads on desktop and bundles on iOS (wgpu/naga compiles
+WGSL → Metal). `Assets::get_mut` returns a change-detection guard, so bind it `mut`.
 
 ### Lua scripts as Bevy assets
 

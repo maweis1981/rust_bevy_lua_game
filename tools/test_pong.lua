@@ -35,6 +35,7 @@ game = {
   log = function(m) record("log", m) end,
   bounds = function() return HW, HH end,
   spawn = function(x, y, w, h) max_id = max_id + 1; dims[max_id] = { w = w, h = h }; pos[max_id] = { x = x, y = y }; return max_id end,
+  spawn_sprite = function(x, y, w, h) max_id = max_id + 1; dims[max_id] = { w = w, h = h }; pos[max_id] = { x = x, y = y }; return max_id end,
   spawn_text = function(x, y) max_id = max_id + 1; dims[max_id] = { w = 0, h = 0 }; pos[max_id] = { x = x, y = y }; return max_id end,
   move_to = function(id, x, y) pos[id] = { x = x, y = y } end,
   set_color = function() end,

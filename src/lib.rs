@@ -16,16 +16,21 @@ pub use script::ScriptPlugin;
 pub fn run() {
     let mut app = App::new();
 
-    app.add_plugins(DefaultPlugins.set(WindowPlugin {
-        primary_window: Some(Window {
-            title: "hollowlullaby".into(),
-            // On iOS the OS controls the surface size; on desktop this is the
-            // initial window size (portrait phone aspect for parity).
-            resolution: (430, 932).into(),
-            ..default()
-        }),
-        ..default()
-    }))
+    app.add_plugins(
+        DefaultPlugins
+            .set(WindowPlugin {
+                primary_window: Some(Window {
+                    title: "hollowlullaby".into(),
+                    // On iOS the OS controls the surface size; on desktop this is
+                    // the initial window size (portrait phone aspect for parity).
+                    resolution: (430, 932).into(),
+                    ..default()
+                }),
+                ..default()
+            })
+            // Nearest sampling keeps the pixel-art sprites crisp when scaled up.
+            .set(ImagePlugin::default_nearest()),
+    )
     .insert_resource(ClearColor(Color::srgb(0.06, 0.07, 0.10)))
     .add_plugins(FrameTimeDiagnosticsPlugin::default())
     .add_plugins(background::BackgroundPlugin)

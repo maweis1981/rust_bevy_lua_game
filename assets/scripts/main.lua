@@ -27,6 +27,7 @@ local function tracker()
   local ids = {}
   return {
     spawn = function(...) local id = game.spawn(...); ids[#ids + 1] = id; return id end,
+    sprite = function(...) local id = game.spawn_sprite(...); ids[#ids + 1] = id; return id end,
     text = function(...) local id = game.spawn_text(...); ids[#ids + 1] = id; return id end,
     clear = function() for _, id in ipairs(ids) do game.despawn(id) end; ids = {} end,
   }
@@ -106,9 +107,9 @@ local function make_grow()
     for i = 1, TRAIL_N do
       trail[i] = { id = T.spawn(0, 0, BALL * 0.7, BALL * 0.7, 0.75, 0.85, 1.0, 0), a = 0 }
     end
-    left = T.spawn(-hw + MARGIN, 0, PADDLE_W, H_START, BASE_L[1], BASE_L[2], BASE_L[3])
-    right = T.spawn(hw - MARGIN, 0, PADDLE_W, AI_H, BASE_R[1], BASE_R[2], BASE_R[3])
-    ball = T.spawn(0, 0, BALL, BALL, 1, 1, 1)
+    left = T.sprite(-hw + MARGIN, 0, PADDLE_W, H_START, "paddle")
+    right = T.sprite(hw - MARGIN, 0, PADDLE_W, AI_H, "paddle")
+    ball = T.sprite(0, 0, BALL, BALL, "orb")
     back = make_back(T, hw, hh)
     lh, ly, ry, playing = H_START, 0, 0, true
     hud(); serve(-1); built = true
@@ -218,13 +219,15 @@ local function make_breakout()
         local x = -hw + SIDE + bw * 0.5 + (c - 1) * (bw + GAP)
         local y = top - (r - 1) * (BRICK_H + GAP)
         local col = ROW_C[r]
-        local id = T.spawn(x, y, bw, BRICK_H, col[1], col[2], col[3])
+        local id = T.sprite(x, y, bw, BRICK_H, "brick")
+        game.set_color(id, col[1], col[2], col[3], 1)
         bricks[#bricks + 1] = { id = id, x = x, y = y, w = bw, h = BRICK_H, alive = true }
         alive_count = alive_count + 1
       end
     end
-    paddle = T.spawn(0, py, PADDLE_W, PADDLE_H, 0.85, 0.9, 1.0)
-    ball = T.spawn(0, 0, BALL, BALL, 1, 1, 1)
+    paddle = T.sprite(0, py, PADDLE_W, PADDLE_H, "paddle")
+    game.set_color(paddle, 0.85, 0.9, 1.0, 1)
+    ball = T.sprite(0, 0, BALL, BALL, "orb")
     back = make_back(T, hw, hh)
     px, lives, playing = 0, START_LIVES, true
     serve(); hud(); built = true
@@ -310,7 +313,7 @@ end
 local function make_snake()
   local T = tracker()
   local CELL, TICK = 34, 0.13
-  local back, food_id
+  local back, food_id, head_id
   local cols, rows, ox, oy = 0, 0, 0, 0
   local snake, dir, ndir, grow_by = {}, { 1, 0 }, { 1, 0 }, 0
   local food = { c = 0, r = 0 }
@@ -332,15 +335,15 @@ local function make_snake()
   end
   local function hud() game.set_text(string.format("LEN %d", #snake)) end
   local function render()
-    for i, s in ipairs(snake) do
-      if not segs[i] then
-        segs[i] = T.spawn(0, 0, CELL - 4, CELL - 4, 0.35, 0.85, 0.45)
-      end
-      local x, y = cell_xy(s.c, s.r)
-      game.move_to(segs[i], x, y)
-      game.set_color(segs[i], i == 1 and 0.6 or 0.35, i == 1 and 1.0 or 0.85, i == 1 and 0.55 or 0.45, 1)
+    game.move_to(head_id, cell_xy(snake[1].c, snake[1].r))
+    local need = #snake - 1                    -- body segments (all but the head)
+    for i = 2, #snake do
+      local bi = i - 1
+      if not segs[bi] then segs[bi] = T.sprite(0, 0, CELL - 4, CELL - 4, "snakebody") end
+      game.move_to(segs[bi], cell_xy(snake[i].c, snake[i].r))
+      game.set_color(segs[bi], 1, 1, 1, 1)
     end
-    for i = #snake + 1, #segs do game.set_color(segs[i], 0, 0, 0, 0) end
+    for bi = need + 1, #segs do game.set_color(segs[bi], 1, 1, 1, 0) end  -- hide extras
   end
   local function die()
     playing = false; game.set_text(string.format("GAME OVER\nLEN %d\nTap to restart", #snake))
@@ -357,7 +360,8 @@ local function make_snake()
     HW, HH = hw, hh
     cols = math.floor(2 * hw / CELL); rows = math.floor(2 * hh / CELL)
     ox = -cols * CELL * 0.5; oy = -rows * CELL * 0.5
-    food_id = T.spawn(0, 0, CELL - 6, CELL - 6, 1.0, 0.35, 0.35)
+    food_id = T.sprite(0, 0, CELL - 4, CELL - 4, "food")
+    head_id = T.sprite(0, 0, CELL - 4, CELL - 4, "snakehead")
     back = make_back(T, hw, hh)
     reset(); built = true
     DEBUG = { game = "snake", len = function() return #snake end, back = back,
