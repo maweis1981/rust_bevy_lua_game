@@ -12,7 +12,7 @@ function make_world()
   local clamp, inr = K.clamp, K.in_rect
   local T = K.tracker()
 
-  local VSPEED, GATHER = 230, 74
+  local VSPEED, GATHER = 230, 130   -- generous reach so PICK feels responsive
   local TREES = { { -0.7, 0.35 }, { 0.7, 0.42 }, { -0.85, -0.1 }, { 0.78, -0.28 }, { -0.1, 0.6 } }
   local ROCKS = { { -0.42, -0.42 }, { 0.55, 0.12 }, { -0.72, 0.62 } }
   local FLOWERS = { { -0.28, 0.1 }, { 0.28, -0.12 }, { 0.1, 0.36 }, { -0.55, -0.25 }, { 0.45, -0.45 }, { -0.15, -0.55 } }
