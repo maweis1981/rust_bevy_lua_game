@@ -7,6 +7,7 @@
 use bevy::diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
 use bevy::prelude::*;
 
+mod background;
 mod script;
 
 pub use script::ScriptPlugin;
@@ -27,6 +28,7 @@ pub fn run() {
     }))
     .insert_resource(ClearColor(Color::srgb(0.06, 0.07, 0.10)))
     .add_plugins(FrameTimeDiagnosticsPlugin::default())
+    .add_plugins(background::BackgroundPlugin)
     .add_plugins(ScriptPlugin)
     .add_systems(Startup, spawn_fps_overlay)
     .add_systems(Update, update_fps_overlay);
