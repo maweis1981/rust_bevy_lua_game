@@ -346,17 +346,7 @@ fn register_api(lua: &Lua) -> mlua::Result<()> {
         "spawn",
         lua.create_function(
             #[allow(clippy::type_complexity)]
-            |lua,
-             (x, y, w, h, r, g, b, a): (
-                f32,
-                f32,
-                f32,
-                f32,
-                f32,
-                f32,
-                f32,
-                Option<f32>,
-            )| {
+            |lua, (x, y, w, h, r, g, b, a): (f32, f32, f32, f32, f32, f32, f32, Option<f32>)| {
                 let mut bridge = lua
                     .app_data_mut::<Bridge>()
                     .ok_or_else(|| mlua::Error::runtime("bridge missing"))?;
