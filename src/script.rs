@@ -22,6 +22,8 @@
 //!   game.set_size(id, w, h)                    (resize a sprite; e.g. a paddle
 //!                                               that grows/shrinks)
 //!   game.despawn(id)
+//!   game.spawn_text(x, y, size, r, g, b, a, s) -> id (world-space Text2d label,
+//!                                               centered at x,y; for menus/titles)
 //!   game.set_text(string)                      (updates the on-screen HUD text)
 //!   game.shake(intensity)                      (0..1 impulse; Rust decays a
 //!                                               camera screen-shake from it)
@@ -49,6 +51,7 @@ use std::collections::HashMap;
 
 use bevy::asset::{io::Reader, AssetLoader, LoadContext};
 use bevy::prelude::*;
+use bevy::sprite::Anchor;
 use mlua::{Function, Lua};
 
 const MAIN_SCRIPT_PATH: &str = "scripts/main.lua";
@@ -189,6 +192,14 @@ enum LuaCommand {
         id: u32,
         w: f32,
         h: f32,
+    },
+    SpawnText {
+        id: u32,
+        x: f32,
+        y: f32,
+        size: f32,
+        color: (f32, f32, f32, f32),
+        text: String,
     },
     Despawn {
         id: u32,
@@ -403,6 +414,28 @@ fn register_api(lua: &Lua) -> mlua::Result<()> {
             }
             Ok(())
         })?,
+    )?;
+
+    game.set(
+        "spawn_text",
+        lua.create_function(
+            |lua, (x, y, size, r, g, b, a, text): (f32, f32, f32, f32, f32, f32, f32, String)| {
+                let mut bridge = lua
+                    .app_data_mut::<Bridge>()
+                    .ok_or_else(|| mlua::Error::runtime("bridge missing"))?;
+                bridge.next_id += 1;
+                let id = bridge.next_id;
+                bridge.queue.push(LuaCommand::SpawnText {
+                    id,
+                    x,
+                    y,
+                    size,
+                    color: (r, g, b, a),
+                    text,
+                });
+                Ok(id)
+            },
+        )?,
     )?;
 
     game.set(
@@ -665,6 +698,29 @@ fn apply_lua(
                         sprite.custom_size = Some(Vec2::new(w, h));
                     }
                 }
+            }
+            LuaCommand::SpawnText {
+                id,
+                x,
+                y,
+                size,
+                color: (r, g, b, a),
+                text,
+            } => {
+                let z = 100.0 + 0.001 * id as f32;
+                let entity = commands
+                    .spawn((
+                        Text2d::new(text),
+                        TextFont {
+                            font_size: FontSize::Px(size),
+                            ..default()
+                        },
+                        TextColor(Color::srgba(r, g, b, a)),
+                        Anchor::CENTER,
+                        Transform::from_xyz(x, y, z),
+                    ))
+                    .id();
+                registry.0.insert(id, entity);
             }
             LuaCommand::Despawn { id } => {
                 if let Some(entity) = registry.0.remove(&id) {

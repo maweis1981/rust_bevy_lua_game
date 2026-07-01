@@ -4,10 +4,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A 2D game: **Rust + Bevy 0.19** engine, **Lua 5.4** (via `mlua`, vendored) for game
-logic, shipping to **macOS** (dev) and **iOS**. The Rust crate is the single source
-of truth, compiled as an `rlib` for the desktop binary and as a `staticlib` linked
-into an iOS UIKit app.
+A 2D **mini-game collection**: **Rust + Bevy 0.19** engine, **Lua 5.4** (via `mlua`,
+vendored) for game logic, shipping to **macOS** (dev) and **iOS**. The Rust crate is the
+single source of truth, compiled as an `rlib` for the desktop binary and as a `staticlib`
+linked into an iOS UIKit app.
+
+`assets/scripts/main.lua` is a small **scene router**: a menu lists games and switches
+between them; each game is a closure returning `{ enter, update, tap, leave }` that tracks
+its own entities (despawned on leave) and exposes a `DEBUG` table for the tests. Games so
+far: **Grow the Paddle** (Pong variant), **Breakout** (the Bevy example, ported), and
+**Snake**. Add a game by writing a `make_*` closure and adding it to `order`/`scenes`.
+
+**On-screen text is Latin-only.** Bevy's bundled `default_font` (Fira) has no CJK/emoji
+glyphs, so all `set_text` / `spawn_text` strings must be ASCII or they render as blank
+boxes (and spam `ICU4X ... segmentation model` errors). Keep UI copy in English.
 
 ## Commands
 
