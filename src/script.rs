@@ -19,6 +19,8 @@
 //!   game.move_to(id, x, y)
 //!   game.set_color(id, r, g, b, a)             (recolor a sprite; enables
 //!                                               flashes and fading trails)
+//!   game.set_size(id, w, h)                    (resize a sprite; e.g. a paddle
+//!                                               that grows/shrinks)
 //!   game.despawn(id)
 //!   game.set_text(string)                      (updates the on-screen HUD text)
 //!   game.shake(intensity)                      (0..1 impulse; Rust decays a
@@ -182,6 +184,11 @@ enum LuaCommand {
     SetColor {
         id: u32,
         color: (f32, f32, f32, f32),
+    },
+    SetSize {
+        id: u32,
+        w: f32,
+        h: f32,
     },
     Despawn {
         id: u32,
@@ -383,6 +390,16 @@ fn register_api(lua: &Lua) -> mlua::Result<()> {
                     id,
                     color: (r, g, b, a),
                 });
+            }
+            Ok(())
+        })?,
+    )?;
+
+    game.set(
+        "set_size",
+        lua.create_function(|lua, (id, w, h): (u32, f32, f32)| {
+            if let Some(mut bridge) = lua.app_data_mut::<Bridge>() {
+                bridge.queue.push(LuaCommand::SetSize { id, w, h });
             }
             Ok(())
         })?,
@@ -639,6 +656,13 @@ fn apply_lua(
                 if let Some(&entity) = registry.0.get(&id) {
                     if let Ok(mut sprite) = sprites.get_mut(entity) {
                         sprite.color = Color::srgba(r, g, b, a);
+                    }
+                }
+            }
+            LuaCommand::SetSize { id, w, h } => {
+                if let Some(&entity) = registry.0.get(&id) {
+                    if let Ok(mut sprite) = sprites.get_mut(entity) {
+                        sprite.custom_size = Some(Vec2::new(w, h));
                     }
                 }
             }

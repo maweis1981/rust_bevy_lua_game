@@ -34,12 +34,13 @@ make device-run   # build + install + launch on the connected device (DEVICE=<ud
 - **Rust unit tests** (`src/script.rs`, `#[cfg(test)] mod tests`) cover pure helpers
   like `haptic_style` and the `shake_offset` camera-shake math. Run one: `cargo test <name>`.
 - **Lua gameplay invariants** (`tools/test_pong.lua`, needs `lua5.4`) mock the Rust `game`
-  API and drive `assets/scripts/main.lua` headless for thousands of frames across three
-  scenarios (rallies, misses, frame-hitches), asserting the "game feel" contract: no
-  paddle/ball teleport, no tunneling, total ball speed capped, ball stays on-screen, a
-  serve pause after each score, and that sound/shake/haptic fire on the events that cause
-  them. This suite is what caught the unbounded-speed and un-clamped-`dt` bugs — extend it
-  when you change gameplay in `main.lua`.
+  API (forcing ball colours by overriding `math.random`) and drive `assets/scripts/main.lua`
+  headless for thousands of frames. It asserts both the physics "feel" contract — no
+  paddle/ball teleport, no tunneling (vs the paddle's *current* height), total ball speed
+  capped, ball on-screen, and nothing leaping on a big-`dt` hitch — and the size mechanic:
+  green hits grow the paddle (+ success haptic), red hits / missed-green shrink it, full
+  screen = win, floor = lose. This suite caught the unbounded-speed and un-clamped-`dt`
+  bugs — extend it when you change gameplay in `main.lua`.
 
 ## Toolchain (important, non-obvious)
 
@@ -109,9 +110,10 @@ The bridge also exposes juice primitives that scripts drive:
   `camera_shake` system offsets the tagged `GameCamera` by a trauma² · sine jitter and
   bleeds trauma back to zero, so effects decay smoothly (no manual per-frame camera math
   in Lua).
-- **Recolor.** `game.set_color(id, r,g,b,a)` mutates an existing sprite's color (used for
-  the ball trail's fade and the paddle hit-flash); `game.spawn` takes an optional 8th
-  alpha arg.
+- **Recolor / resize.** `game.set_color(id, r,g,b,a)` mutates a sprite's color (ball-trail
+  fade, paddle flash, green/red ball telegraph) and `game.set_size(id, w, h)` its
+  `custom_size` (the player paddle grows/shrinks); `game.spawn` takes an optional 8th alpha
+  arg.
 
 ### Lua scripts as Bevy assets
 
