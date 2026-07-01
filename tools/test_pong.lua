@@ -68,6 +68,7 @@ end
 
 -- Mirror the engine's load order: extra game files first, then main.lua.
 dofile("assets/scripts/roguelike.lua")
+dofile("assets/scripts/game2048.lua")
 dofile("assets/scripts/main.lua")
 
 local function boot() frame_events = {}; on_start(); frame_events = {}; on_update(DT) end
@@ -86,7 +87,7 @@ local function step(dt) frame_events = {}; on_update(dt or DT) end
 ----------------------------------------------------------------------
 local function router_tests()
   boot()
-  for _, key in ipairs({ "grow", "breakout", "snake", "roguelike" }) do
+  for _, key in ipairs({ "grow", "breakout", "snake", "roguelike", "game2048" }) do
     local d = enter(key)
     check(d and d.game == key, "menu tile should enter game '" .. key .. "'")
     check(d.back ~= nil, "game '" .. key .. "' should expose a back button")
@@ -304,6 +305,38 @@ local function rogue_tests()
 end
 
 ----------------------------------------------------------------------
+-- Game 5: 2048 (loaded from its own file)
+----------------------------------------------------------------------
+local function game2048_tests()
+  boot()
+  local d = enter("game2048")
+  check(d.game == "game2048", "2048 loads from its own file and enters")
+  local b = d.board()
+  local n0 = 0
+  for r = 1, 4 do for c = 1, 4 do if b[r][c] > 0 then n0 = n0 + 1 end end end
+  check(n0 == 2, "2048 starts with exactly two tiles")
+
+  -- Merge: a row of {2,2,4,0} slid left becomes {4,4,0,0}, +4 score.
+  b[1] = { 2, 2, 4, 0 }; b[2] = { 0, 0, 0, 0 }; b[3] = { 0, 0, 0, 0 }; b[4] = { 0, 0, 0, 0 }
+  local s0 = d.score()
+  d.move("left")
+  check(b[1][1] == 4 and b[1][2] == 4, "2048 merges equal tiles when sliding")
+  check(d.score() >= s0 + 4, "2048 score increases on a merge")
+
+  -- Every tile is always 0 or a power of two across many moves.
+  local dirs = { "left", "right", "up", "down" }
+  for i = 1, 400 do
+    d.move(dirs[(i % 4) + 1])
+    for r = 1, 4 do for c = 1, 4 do
+      local v = d.board()[r][c]
+      check_once("v2048", v == 0 or (v >= 2 and (v & (v - 1)) == 0),
+        "2048 produced a non-power-of-two tile: " .. tostring(v))
+    end end
+    if not d.alive() then break end
+  end
+end
+
+----------------------------------------------------------------------
 router_tests()
 grow_physics(12000, DT)
 grow_miss_shrinks(6000)
@@ -311,6 +344,7 @@ breakout_win(60000)
 breakout_lose(3000)
 snake_tests()
 rogue_tests()
+game2048_tests()
 
 print(string.format("checks=%d", checks))
 if #failures == 0 then

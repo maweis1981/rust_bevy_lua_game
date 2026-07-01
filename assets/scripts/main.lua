@@ -489,6 +489,10 @@ function on_start()
     scenes.roguelike = make_roguelike()
     order[#order + 1] = { key = "roguelike", label = "4. Roguelike", color = { 0.72, 0.4, 0.9 } }
   end
+  if make_2048 then
+    scenes.game2048 = make_2048()
+    order[#order + 1] = { key = "game2048", label = "5. 2048", color = { 0.95, 0.68, 0.35 } }
+  end
   booted = false
 end
 

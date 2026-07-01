@@ -167,6 +167,16 @@ def gem(x, y):
     return (0, 0, 0, 0)
 
 
+def tile(x, y):
+    # A clean white rounded tile with a soft top highlight — tinted at runtime
+    # (e.g. the 2048 palette). Rounded corners via a generous radius.
+    w = h = 40
+    if not rounded(x, y, w, h, 9):
+        return (0, 0, 0, 0)
+    v = 255 - int(0.6 * y)                                  # subtle top->bottom shade
+    return (clampb(v), clampb(v), clampb(v), 255)
+
+
 SPRITES = {
     "orb": (32, 32, orb),
     "paddle": (24, 24, paddle),
@@ -177,6 +187,7 @@ SPRITES = {
     "hero": (24, 24, hero),
     "enemy": (24, 24, enemy),
     "gem": (16, 16, gem),
+    "tile": (40, 40, tile),
 }
 
 if __name__ == "__main__":
