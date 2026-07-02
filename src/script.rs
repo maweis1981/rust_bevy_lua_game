@@ -53,6 +53,7 @@
 //!   function on_tap(x, y)         -- world coords of a touch / left click
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 use bevy::asset::{io::Reader, AssetLoader, LoadContext, LoadState};
 use bevy::prelude::*;
@@ -192,8 +193,45 @@ const EXTRA_SCRIPTS: &[&str] = &[
     "scripts/world.lua",
     "scripts/match3.lua",
     "scripts/umami.lua",
-    "scripts/catch.lua", // AI-generated pack (tier "ai"), see tools/PACK_SPEC.md
 ];
+
+/// Directory (under the asset root) scanned at runtime for drop-in game packs.
+/// Any `*.lua` here is loaded dynamically and self-registers into `PACKS` — so a
+/// pack is published by dropping a file in, with no recompile and no edit to
+/// EXTRA_SCRIPTS. See tools/PACK_SPEC.md.
+const PACKS_DIR: &str = "scripts/packs";
+
+/// Enumerate `*.lua` under the asset root's PACKS_DIR. We only use `std::fs` to
+/// LIST names; each is then loaded through the normal asset pipeline (so
+/// hot-reload still works). Checks the working dir (`assets/…`, desktop) and the
+/// executable's bundle (`<app>/assets/…`, iOS). Returns asset-relative paths.
+fn discover_packs() -> Vec<String> {
+    let mut roots: Vec<PathBuf> = vec![PathBuf::from("assets")];
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            roots.push(dir.join("assets"));
+        }
+    }
+    let mut found: Vec<String> = Vec::new();
+    for root in roots {
+        if let Ok(entries) = std::fs::read_dir(root.join(PACKS_DIR)) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().and_then(|e| e.to_str()) == Some("lua") {
+                    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                        found.push(format!("{PACKS_DIR}/{name}"));
+                    }
+                }
+            }
+            if !found.is_empty() {
+                break; // first root that has packs wins
+            }
+        }
+    }
+    found.sort();
+    found.dedup();
+    found
+}
 
 /// All Lua chunks in execution order: extras first, then `main.lua` last.
 /// `dirty` means "(re)run once everything has settled" and persists across
@@ -211,6 +249,13 @@ fn load_scripts(mut commands: Commands, assets: Res<AssetServer>) {
         .iter()
         .map(|p| (p.to_string(), assets.load(*p)))
         .collect();
+    // Dynamic drop-in packs, discovered at runtime (before main.lua so their
+    // PACKS registration is visible to on_start).
+    for path in discover_packs() {
+        info!("loading dynamic pack: {path}");
+        let handle = assets.load(&path);
+        list.push((path, handle));
+    }
     list.push((MAIN_SCRIPT_PATH.to_string(), assets.load(MAIN_SCRIPT_PATH)));
     commands.insert_resource(ScriptHandles {
         list,

@@ -77,7 +77,7 @@ dofile("assets/scripts/shooter.lua")
 dofile("assets/scripts/world.lua")
 dofile("assets/scripts/match3.lua")
 dofile("assets/scripts/umami.lua")
-dofile("assets/scripts/catch.lua")
+dofile("assets/scripts/packs/catch.lua")
 dofile("assets/scripts/main.lua")
 
 -- Reseed the LCG each boot so every test scenario is deterministic and
