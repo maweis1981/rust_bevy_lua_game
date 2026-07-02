@@ -27,8 +27,10 @@ and pixel size** — the game picks it up with no code change.
 | `decor_flowerbed.png` | 44×30 | a cute flowerbed, cluster of tiny pink & yellow flowers in soft soil, top-down |
 | `ground_grass.png` | 64×64 (tileable) | a soft seamless cartoon grass texture, gentle green, subtle blades, tileable |
 
-> Decor items currently render as tinted rounded tiles; when the `decor_*.png`
-> files exist we can switch `world.lua` to use them (one line each).
+> The `decor_*.png` files now exist (AI-generated) and `world.lua` places them
+> directly per recipe. `ground_grass.png` also exists but is not wired yet —
+> the ground is a single stretched sprite, so tiling it needs texture-repeat
+> support in Rust (otherwise a 64×64 tile stretched full-screen looks blocky).
 
 ## Space Shooter (game #6) — already high-res, optional upgrade
 | file | size (px) | prompt |
