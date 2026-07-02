@@ -207,3 +207,7 @@ function make_2048()
     end,
   }
 end
+
+-- Self-register this game pack (see main.lua: menu builds from PACKS).
+PACKS = PACKS or {}
+PACKS["game2048"] = { slot = 5, key = "game2048", label = "2048", short = "2048", icon = "gem", color = { 0.95, 0.68, 0.35 }, tier = "preset", make = make_2048 }

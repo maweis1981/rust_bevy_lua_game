@@ -5,7 +5,7 @@
 -- tap PICK to gather wood/stone/flowers; tap BUILD to pick a recipe, then PICK
 -- (now "PLACE") to craft & drop a decoration — combine resources to build up the
 -- world. Its own file; uses GAME_KIT + the `game` bridge. Art in assets/textures
--- (villager/tree/rock/flower + tinted tiles for decor) — swappable with AI art.
+-- (villager/tree/rock/flower + decor_* sprites) — AI-generated, swappable.
 
 function make_world()
   local K = GAME_KIT
@@ -16,12 +16,13 @@ function make_world()
   local TREES = { { -0.7, 0.35 }, { 0.7, 0.42 }, { -0.85, -0.1 }, { 0.78, -0.28 }, { -0.1, 0.6 } }
   local ROCKS = { { -0.42, -0.42 }, { 0.55, 0.12 }, { -0.72, 0.62 } }
   local FLOWERS = { { -0.28, 0.1 }, { 0.28, -0.12 }, { 0.1, 0.36 }, { -0.55, -0.25 }, { 0.45, -0.45 }, { -0.15, -0.55 } }
+  -- tex/pw/ph select the decoration sprite dropped when the recipe is placed.
   local RECIPES = {
-    { name = "FENCE", w = 2, s = 0, f = 0, col = { 0.80, 0.62, 0.40 } },
-    { name = "LAMP", w = 1, s = 1, f = 0, col = { 0.98, 0.86, 0.42 } },
-    { name = "PATH", w = 0, s = 2, f = 0, col = { 0.82, 0.80, 0.72 } },
-    { name = "BENCH", w = 2, s = 1, f = 0, col = { 0.72, 0.52, 0.36 } },
-    { name = "FLOWERBED", w = 0, s = 0, f = 3, col = { 0.96, 0.56, 0.72 } },
+    { name = "FENCE", w = 2, s = 0, f = 0, tex = "decor_fence", pw = 42, ph = 30 },
+    { name = "LAMP", w = 1, s = 1, f = 0, tex = "decor_lamp", pw = 42, ph = 48 },
+    { name = "PATH", w = 0, s = 2, f = 0, tex = "decor_path", pw = 42, ph = 30 },
+    { name = "BENCH", w = 2, s = 1, f = 0, tex = "decor_bench", pw = 48, ph = 34 },
+    { name = "FLOWERBED", w = 0, s = 0, f = 3, tex = "decor_flowerbed", pw = 44, ph = 30 },
   }
 
   local trees, rocks, flowers, placed = {}, {}, {}, {}
@@ -91,8 +92,7 @@ function make_world()
       if inv.wood >= r.w and inv.stone >= r.s and inv.flower >= r.f then
         inv.wood, inv.stone, inv.flower = inv.wood - r.w, inv.stone - r.s, inv.flower - r.f
         local px, py = vx, vy - 26
-        local id = game.spawn_sprite(px, py, 42, 30, "tile")
-        game.set_color(id, r.col[1], r.col[2], r.col[3], 1)
+        local id = game.spawn_sprite(px, py, r.pw, r.ph, r.tex)
         placed[#placed + 1] = { id = id, x = px, y = py }
         game.play_sound("hit"); game.haptic("light"); game.shake(0.05); hud()
       else
@@ -152,3 +152,7 @@ function make_world()
     end,
   }
 end
+
+-- Self-register this game pack (see main.lua: menu builds from PACKS).
+PACKS = PACKS or {}
+PACKS["world"] = { slot = 7, key = "world", label = "Cozy Isle", short = "Cozy Isle", icon = "villager", color = { 0.45, 0.72, 0.42 }, tier = "curated", make = make_world }

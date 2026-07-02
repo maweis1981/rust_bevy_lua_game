@@ -1,32 +1,44 @@
--- roguelike.lua — a small arena survivors-like ("roguelike").
+-- roguelike.lua — a small arena survivors-like ("roguelike"), game #4.
 --
--- Loaded from its OWN file (see EXTRA_SCRIPTS in src/script.rs). It runs before
--- main.lua and registers the global factory `make_roguelike`, which main.lua's
--- on_start adds to the menu. It uses GAME_KIT (shared helpers exposed by
--- main.lua) plus the usual `game` bridge API.
+-- Loaded from its OWN file (see EXTRA_SCRIPTS in src/script.rs); registers the
+-- global make_roguelike that main.lua adds to the menu. Uses GAME_KIT + `game`.
 --
--- Loop: move (drag / WASD) to dodge enemies that chase you; you auto-fire at the
--- nearest one. Kills drop XP gems; collect them to level up and pick 1 of 3
--- random upgrades (the roguelike build variety). Enemies get faster/tougher over
--- time. Lose all HP -> game over. Tap to restart; "< BACK" returns to the menu.
+-- Loop: steer with a FLOATING JOYSTICK (touch anywhere; drag to move) or WASD to
+-- dodge enemies that chase you; you auto-fire at the nearest one. Hits flash +
+-- knock back enemies with a tiny hitstop; kills pop into particles and drop XP
+-- gems that magnetise to you. Collect XP to level up and pick 1 of 3 upgrades.
+-- Enemies come in variants and ramp up over time. Lose all HP -> game over.
+--
+-- Interaction/feel follows twin-stick-roguelite conventions (Vampire Survivors /
+-- Brotato): move-only one-thumb control, auto-aim/fire, and juice on every hit.
 
 function make_roguelike()
   local K = GAME_KIT
   local clamp, inr = K.clamp, K.in_rect
 
-  local PSIZE, ESIZE, BSIZE, GSIZE = 26, 24, 12, 16
-  local BASE_MOVE, DRAG_SENS, BULLET_SPEED, BASE_ESPEED = 300, 2.6, 440, 62
+  local PSIZE, BSIZE, GSIZE = 26, 12, 16
+  local BASE_MOVE, BULLET_SPEED, BASE_ESPEED = 330, 480, 60
+  local JOY_RANGE, MAGNET_R, MAGNET_SPEED = 90, 145, 340
   local MAX_ENEMIES, MAX_DT, CONTACT_CD = 60, 1 / 30, 0.7
+  local FLASH_T, HITSTOP, KNOCK = 0.12, 0.05, 16
+
+  -- Enemy variants: {tint, size, hp mult, speed mult, xp}. Distinct colours read
+  -- at a glance (white grunt, orange darter, violet brute).
+  local ETYPES = {
+    { tint = { 1.0, 1.0, 1.0 }, size = 24, hp = 0, spd = 1.0, xp = 1 },
+    { tint = { 1.0, 0.66, 0.42 }, size = 20, hp = 0, spd = 1.55, xp = 1 },
+    { tint = { 0.68, 0.58, 1.0 }, size = 34, hp = 3, spd = 0.62, xp = 3 },
+  }
 
   local T = K.tracker()
-  local player, back
+  local player, back, joy_base, joy_knob
   local px, py, hp, max_hp = 0, 0, 5, 5
   local move_speed, damage, fire_int, nbullets = BASE_MOVE, 1, 0.6, 1
-  local enemies, bullets, gems = {}, {}, {}
+  local enemies, bullets, gems, fx = {}, {}, {}, {}
   local fire_t, spawn_t, elapsed, hurt_cd = 0, 0, 0, 0
   local xp, xp_need, level, kills = 0, 4, 1, 0
   local playing, leveling, built = true, false, false
-  local choices, choice_ids, drag_prev = {}, {}, nil
+  local choices, choice_ids, joy = {}, {}, nil
   local HW, HH = 0, 0
 
   local UPGRADES = {
@@ -41,11 +53,43 @@ function make_roguelike()
   local function hud()
     game.set_text(string.format("HP %d/%d   LV %d   KILL %d", hp, max_hp, level, kills))
   end
+
+  ------------------------------------------------------------------ juice fx
+  local function particle(x, y, col, n, spread)
+    for i = 1, n do
+      local a = (i / n) * 6.28
+      local id = game.spawn_sprite(x, y, GSIZE, GSIZE, "sparkle")
+      game.set_color(id, col[1], col[2], col[3], 1)
+      fx[#fx + 1] = { id = id, x = x, y = y, vx = math.cos(a) * spread, vy = math.sin(a) * spread,
+        life = 0.4, ttl = 0.4, size = GSIZE, r = col[1], g = col[2], b = col[3], part = true }
+    end
+  end
+  local function dmg_number(x, y, n)
+    fx[#fx + 1] = { id = game.spawn_text(x, y, 22, 1, 0.95, 0.5, 1, tostring(n)),
+      x = x, y = y, vx = 0, vy = 70, life = 0.5 }
+  end
+  local function update_fx(dt)
+    local keep = {}
+    for _, e in ipairs(fx) do
+      e.life = e.life - dt
+      if e.life <= 0 then game.despawn(e.id) else
+        e.x = e.x + e.vx * dt; e.y = e.y + e.vy * dt
+        game.move_to(e.id, e.x, e.y)
+        if e.part then
+          e.size = e.size * (1 - dt * 1.5); game.set_size(e.id, e.size, e.size)
+          game.set_color(e.id, e.r, e.g, e.b, e.life / e.ttl)
+        end
+        keep[#keep + 1] = e
+      end
+    end
+    fx = keep
+  end
+
   local function despawn_all(list) for _, e in ipairs(list) do game.despawn(e.id) end end
   local function clear_choices() for _, id in ipairs(choice_ids) do game.despawn(id) end; choice_ids = {} end
   local function cleanup()
-    despawn_all(enemies); despawn_all(bullets); despawn_all(gems); clear_choices()
-    enemies, bullets, gems = {}, {}, {}
+    despawn_all(enemies); despawn_all(bullets); despawn_all(gems); despawn_all(fx); clear_choices()
+    enemies, bullets, gems, fx = {}, {}, {}, {}
     T.clear()
   end
 
@@ -73,10 +117,10 @@ function make_roguelike()
     game.play_sound("score"); game.haptic("success")
   end
 
-  local function gain_xp()
-    xp = xp + 1
+  local function gain_xp(amount)
+    xp = xp + amount
     if xp >= xp_need then
-      xp = 0; level = level + 1; xp_need = xp_need + 3; start_levelup()
+      xp = xp - xp_need; level = level + 1; xp_need = xp_need + 3; start_levelup()
     end
   end
 
@@ -87,8 +131,15 @@ function make_roguelike()
     elseif edge == 2 then ex, ey = HW + 20, (math.random() * 2 - 1) * HH
     elseif edge == 3 then ex, ey = (math.random() * 2 - 1) * HW, HH + 20
     else ex, ey = (math.random() * 2 - 1) * HW, -HH - 20 end
-    local id = game.spawn_sprite(ex, ey, ESIZE, ESIZE, "enemy")
-    enemies[#enemies + 1] = { id = id, x = ex, y = ey, hp = 1 + math.floor(elapsed / 25) }
+    -- introduce tougher variants as the run goes on
+    local roll = math.random()
+    local ti = 1
+    if elapsed > 60 and roll < 0.22 then ti = 3 elseif elapsed > 25 and roll < 0.4 then ti = 2 end
+    local et = ETYPES[ti]
+    local id = game.spawn_sprite(ex, ey, et.size, et.size, "enemy")
+    game.set_color(id, et.tint[1], et.tint[2], et.tint[3], 1)
+    enemies[#enemies + 1] = { id = id, x = ex, y = ey, size = et.size, tint = et.tint, spd = et.spd,
+      xp = et.xp, hp = 1 + et.hp + math.floor(elapsed / 25), flash = 0, freeze = 0 }
   end
 
   local function nearest_enemy()
@@ -108,22 +159,23 @@ function make_roguelike()
       local a = ang + (i - (nbullets + 1) / 2) * 0.18
       local id = game.spawn_sprite(px, py, BSIZE, BSIZE, "orb")
       game.set_color(id, 1.0, 0.9, 0.3, 1)
-      bullets[#bullets + 1] = {
-        id = id, x = px, y = py,
-        vx = math.cos(a) * BULLET_SPEED, vy = math.sin(a) * BULLET_SPEED, life = 1.6,
-      }
+      bullets[#bullets + 1] = { id = id, x = px, y = py,
+        vx = math.cos(a) * BULLET_SPEED, vy = math.sin(a) * BULLET_SPEED, life = 1.6 }
     end
+    particle(px, py, { 1.0, 0.92, 0.5 }, 3, 60)   -- muzzle flash
     game.play_sound("wall")
   end
 
   local function build(hw, hh)
     HW, HH = hw, hh
-    enemies, bullets, gems = {}, {}, {}
+    enemies, bullets, gems, fx = {}, {}, {}, {}
     px, py, hp, max_hp = 0, 0, 5, 5
     move_speed, damage, fire_int, nbullets = BASE_MOVE, 1, 0.6, 1
     fire_t, spawn_t, elapsed, hurt_cd = 0, 0, 0, 0
     xp, xp_need, level, kills = 0, 4, 1, 0
-    playing, leveling = true, false
+    playing, leveling, joy = true, false, nil
+    joy_base = game.spawn_sprite(0, -9999, 120, 120, "orb"); game.set_color(joy_base, 1, 1, 1, 0)
+    joy_knob = game.spawn_sprite(0, -9999, 54, 54, "orb"); game.set_color(joy_knob, 1, 1, 1, 0)
     player = T.sprite(0, 0, PSIZE, PSIZE, "hero")
     back = K.make_back(T, hw, hh)
     hud(); built = true
@@ -138,28 +190,35 @@ function make_roguelike()
 
   local function move_player(dt)
     local dpx, dpy, down = game.pointer()
-    local mx = move_speed * dt
     local lx, ly = HW - PSIZE * 0.5, HH - PSIZE * 0.5
+    local vx, vy = 0, 0
     if down and dpx ~= nil and dpy ~= nil then
-      if drag_prev then
-        px = clamp(px + clamp((dpx - drag_prev.x) * DRAG_SENS, -mx, mx), -lx, lx)
-        py = clamp(py + clamp((dpy - drag_prev.y) * DRAG_SENS, -mx, mx), -ly, ly)
+      if not joy then joy = { ax = dpx, ay = dpy } end     -- floating stick: anchor where the thumb lands
+      local ddx, ddy = dpx - joy.ax, dpy - joy.ay
+      local d = math.sqrt(ddx * ddx + ddy * ddy)
+      if d > 1 then
+        local m = math.min(d, JOY_RANGE) / JOY_RANGE
+        vx, vy = ddx / d * move_speed * m, ddy / d * move_speed * m
       end
-      drag_prev = { x = dpx, y = dpy }
+      local cl = math.min(d, JOY_RANGE)
+      game.move_to(joy_base, joy.ax, joy.ay); game.set_color(joy_base, 0.85, 0.92, 1.0, 0.16)
+      game.move_to(joy_knob, joy.ax + (d > 0 and ddx / d * cl or 0), joy.ay + (d > 0 and ddy / d * cl or 0))
+      game.set_color(joy_knob, 0.8, 0.9, 1.0, 0.5)
     else
-      drag_prev = nil
-      local vx, vy = 0, 0
+      joy = nil
+      game.set_color(joy_base, 1, 1, 1, 0); game.set_color(joy_knob, 1, 1, 1, 0)
       if game.key("left") or game.key("a") then vx = vx - move_speed end
       if game.key("right") or game.key("d") then vx = vx + move_speed end
       if game.key("up") or game.key("w") then vy = vy + move_speed end
       if game.key("down") or game.key("s") then vy = vy - move_speed end
-      px = clamp(px + vx * dt, -lx, lx); py = clamp(py + vy * dt, -ly, ly)
     end
+    px = clamp(px + vx * dt, -lx, lx); py = clamp(py + vy * dt, -ly, ly)
   end
 
   return {
     enter = function() built = false end,
-    leave = function() cleanup(); built = false end,
+    leave = function() cleanup(); if joy_base then game.despawn(joy_base) end
+      if joy_knob then game.despawn(joy_knob) end; built = false end,
     tap = function(x, y)
       if back and inr(back, x, y) then K.switch("menu"); return end
       if leveling then
@@ -187,13 +246,20 @@ function make_roguelike()
 
       local espeed = BASE_ESPEED + elapsed * 1.4
       for _, e in ipairs(enemies) do
-        local dx, dy = px - e.x, py - e.y
-        local d = math.sqrt(dx * dx + dy * dy) + 1e-6
-        e.x = e.x + dx / d * espeed * dt; e.y = e.y + dy / d * espeed * dt
+        e.flash = math.max(0, e.flash - dt)
+        e.freeze = math.max(0, e.freeze - dt)
+        if e.freeze <= 0 then
+          local dx, dy = px - e.x, py - e.y
+          local d = math.sqrt(dx * dx + dy * dy) + 1e-6
+          e.x = e.x + dx / d * espeed * e.spd * dt; e.y = e.y + dy / d * espeed * e.spd * dt
+        end
         game.move_to(e.id, e.x, e.y)
-        if hurt_cd <= 0 and d < (PSIZE + ESIZE) * 0.5 then
+        if e.flash > 0 then game.set_color(e.id, 1, 1, 1, 1)
+        else game.set_color(e.id, e.tint[1], e.tint[2], e.tint[3], 1) end
+        local d = math.sqrt((px - e.x) ^ 2 + (py - e.y) ^ 2)
+        if hurt_cd <= 0 and d < (PSIZE + e.size) * 0.5 then
           hp = hp - 1; hurt_cd = CONTACT_CD
-          game.play_sound("hit"); game.haptic("heavy"); game.shake(0.2)
+          game.play_sound("hit"); game.haptic("heavy"); game.shake(0.22)
           if hp <= 0 then game_over(); return end
           hud()
         end
@@ -208,12 +274,17 @@ function make_roguelike()
         local hit = false
         for ei = #enemies, 1, -1 do
           local e = enemies[ei]
-          if math.abs(b.x - e.x) < (ESIZE + BSIZE) * 0.5 and math.abs(b.y - e.y) < (ESIZE + BSIZE) * 0.5 then
+          if math.abs(b.x - e.x) < (e.size + BSIZE) * 0.5 and math.abs(b.y - e.y) < (e.size + BSIZE) * 0.5 then
             e.hp = e.hp - damage; hit = true
+            e.flash = FLASH_T; e.freeze = HITSTOP
+            local bl = math.sqrt(b.vx * b.vx + b.vy * b.vy) + 1e-6
+            e.x = e.x + b.vx / bl * KNOCK; e.y = e.y + b.vy / bl * KNOCK
+            dmg_number(e.x, e.y + e.size * 0.5, damage)
             if e.hp <= 0 then
-              gems[#gems + 1] = { id = game.spawn_sprite(e.x, e.y, GSIZE, GSIZE, "gem"), x = e.x, y = e.y }
+              particle(e.x, e.y, e.tint, 6, 130)
+              gems[#gems + 1] = { id = game.spawn_sprite(e.x, e.y, GSIZE, GSIZE, "gem"), x = e.x, y = e.y, xp = e.xp }
               game.despawn(e.id); table.remove(enemies, ei)
-              kills = kills + 1; game.shake(0.05); hud()
+              kills = kills + 1; game.play_sound("hit"); game.shake(0.08 + 0.02 * e.size / 24); hud()
             end
             break
           end
@@ -229,10 +300,11 @@ function make_roguelike()
         local g = gems[gi]
         local dx, dy = px - g.x, py - g.y
         local d = math.sqrt(dx * dx + dy * dy) + 1e-6
-        if d < 90 then g.x = g.x + dx / d * 220 * dt; g.y = g.y + dy / d * 220 * dt end
+        if d < MAGNET_R then g.x = g.x + dx / d * MAGNET_SPEED * dt; g.y = g.y + dy / d * MAGNET_SPEED * dt end
         if d < (PSIZE + GSIZE) * 0.5 then
-          game.despawn(g.id); table.remove(gems, gi); gain_xp()
-          if leveling then game.move_to(player, px, py); return end
+          game.despawn(g.id); table.remove(gems, gi)
+          game.play_sound("wall"); gain_xp(g.xp)
+          if leveling then game.move_to(player, px, py); update_fx(dt); return end
         else
           game.move_to(g.id, g.x, g.y)
         end
@@ -241,6 +313,11 @@ function make_roguelike()
       local flash = hurt_cd > 0 and (0.5 + 0.5 * math.cos(hurt_cd * 30)) or 0
       game.set_color(player, 1, 1 - flash * 0.6, 1 - flash * 0.6, 1)
       game.move_to(player, px, py)
+      update_fx(dt)
     end,
   }
 end
+
+-- Self-register this game pack (see main.lua: menu builds from PACKS).
+PACKS = PACKS or {}
+PACKS["roguelike"] = { slot = 4, key = "roguelike", label = "Roguelike", short = "Rogue", icon = "hero", color = { 0.72, 0.4, 0.9 }, tier = "preset", make = make_roguelike }
