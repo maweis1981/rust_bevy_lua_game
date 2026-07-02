@@ -24,6 +24,8 @@
 //!                                               flashes and fading trails)
 //!   game.set_size(id, w, h)                    (resize a sprite; e.g. a paddle
 //!                                               that grows/shrinks)
+//!   game.set_rotation(id, radians)             (rotate a sprite about z; e.g. a
+//!                                               rolling ball, a kick lunge)
 //!   game.despawn(id)
 //!   game.spawn_text(x, y, size, r, g, b, a, s) -> id (world-space Text2d label,
 //!                                               centered at x,y; for menus/titles)
@@ -67,7 +69,9 @@ impl Plugin for ScriptPlugin {
             .init_asset_loader::<LuaScriptLoader>()
             .init_resource::<EntityRegistry>()
             .init_resource::<ScreenShake>()
+            .init_resource::<BackgroundTheme>()
             .init_resource::<MusicTrack>()
+            .init_resource::<TextureCache>()
             .insert_non_send(LuaVm::new())
             .add_systems(Startup, (setup_scene, load_scripts))
             .add_systems(
@@ -100,18 +104,34 @@ pub(crate) struct ScreenShake {
     pub(crate) trauma: f32,
 }
 
+/// Per-scene background palette selector, set from Lua via `game.set_bg_theme`.
+/// `background.rs` eases the aurora shader toward this target so each mini-game
+/// can tint the backdrop to match its mood (e.g. garden greens for Gem Match).
+#[derive(Resource, Default)]
+pub(crate) struct BackgroundTheme {
+    pub(crate) target: f32,
+}
+
 /// The currently-playing looping music entity, so `game.play_music` can stop the
 /// previous track before starting a new one.
 #[derive(Resource, Default)]
 struct MusicTrack(Option<Entity>);
 
-fn setup_scene(mut commands: Commands) {
+/// Retains a strong handle to every texture ever loaded, keyed by name, so a
+/// sprite that swaps its image (frame animation via `set_sprite_image`) never
+/// drops the only handle to a frame — which would let Bevy unload it and cause a
+/// one-frame blank (flicker) when the animation cycles back to it.
+#[derive(Resource, Default)]
+struct TextureCache(HashMap<String, Handle<Image>>);
+
+fn setup_scene(mut commands: Commands, assets: Res<AssetServer>) {
     commands.spawn((Camera2d, GameCamera));
 
     let hud = commands
         .spawn((
             Text::new(""),
             TextFont {
+                font: FontSource::Handle(assets.load("fonts/game.ttf")),
                 font_size: 28.0.into(),
                 ..default()
             },
@@ -170,6 +190,9 @@ const EXTRA_SCRIPTS: &[&str] = &[
     "scripts/game2048.lua",
     "scripts/shooter.lua",
     "scripts/world.lua",
+    "scripts/match3.lua",
+    "scripts/umami.lua",
+    "scripts/catch.lua", // AI-generated pack (tier "ai"), see tools/PACK_SPEC.md
 ];
 
 /// All Lua chunks in execution order: extras first, then `main.lua` last.
@@ -223,6 +246,14 @@ enum LuaCommand {
         w: f32,
         h: f32,
     },
+    SetRotation {
+        id: u32,
+        radians: f32,
+    },
+    SetSpriteImage {
+        id: u32,
+        image: String,
+    },
     SpawnText {
         id: u32,
         x: f32,
@@ -244,6 +275,7 @@ enum LuaCommand {
     },
     SetText(String),
     Shake(f32),
+    SetBgTheme(f32),
     PlaySound(String),
     PlayMusic(String),
     Haptic(i32),
@@ -461,6 +493,26 @@ fn register_api(lua: &Lua) -> mlua::Result<()> {
     )?;
 
     game.set(
+        "set_rotation",
+        lua.create_function(|lua, (id, radians): (u32, f32)| {
+            if let Some(mut bridge) = lua.app_data_mut::<Bridge>() {
+                bridge.queue.push(LuaCommand::SetRotation { id, radians });
+            }
+            Ok(())
+        })?,
+    )?;
+
+    game.set(
+        "set_sprite_image",
+        lua.create_function(|lua, (id, image): (u32, String)| {
+            if let Some(mut bridge) = lua.app_data_mut::<Bridge>() {
+                bridge.queue.push(LuaCommand::SetSpriteImage { id, image });
+            }
+            Ok(())
+        })?,
+    )?;
+
+    game.set(
         "spawn_text",
         lua.create_function(
             |lua, (x, y, size, r, g, b, a, text): (f32, f32, f32, f32, f32, f32, f32, String)| {
@@ -531,6 +583,17 @@ fn register_api(lua: &Lua) -> mlua::Result<()> {
             Ok(())
         })?,
     )?;
+
+    game.set(
+        "set_bg_theme",
+        lua.create_function(|lua, theme: f32| {
+            if let Some(mut bridge) = lua.app_data_mut::<Bridge>() {
+                bridge.queue.push(LuaCommand::SetBgTheme(theme));
+            }
+            Ok(())
+        })?,
+    )?;
+
 
     game.set(
         "play_sound",
@@ -742,7 +805,9 @@ fn apply_lua(
     mut sprites: Query<&mut Sprite>,
     mut texts: Query<&mut Text>,
     mut shake: ResMut<ScreenShake>,
+    mut bg_theme: ResMut<BackgroundTheme>,
     mut music: ResMut<MusicTrack>,
+    mut tex_cache: ResMut<TextureCache>,
     assets: Res<AssetServer>,
     hud: Option<Res<Hud>>,
 ) {
@@ -792,6 +857,24 @@ fn apply_lua(
                     }
                 }
             }
+            LuaCommand::SetRotation { id, radians } => {
+                if let Some(&entity) = registry.0.get(&id) {
+                    if let Ok(mut transform) = transforms.get_mut(entity) {
+                        transform.rotation = Quat::from_rotation_z(radians);
+                    }
+                }
+            }
+            LuaCommand::SetSpriteImage { id, image } => {
+                if let Some(&entity) = registry.0.get(&id) {
+                    if let Ok(mut sprite) = sprites.get_mut(entity) {
+                        sprite.image = tex_cache
+                            .0
+                            .entry(image.clone())
+                            .or_insert_with(|| assets.load(format!("textures/{image}.png")))
+                            .clone();
+                    }
+                }
+            }
             LuaCommand::SpawnText {
                 id,
                 x,
@@ -805,6 +888,7 @@ fn apply_lua(
                     .spawn((
                         Text2d::new(text),
                         TextFont {
+                            font: FontSource::Handle(assets.load("fonts/game.ttf")),
                             font_size: FontSize::Px(size),
                             ..default()
                         },
@@ -824,10 +908,15 @@ fn apply_lua(
                 image,
             } => {
                 let z = 0.001 * id as f32;
+                let handle = tex_cache
+                    .0
+                    .entry(image.clone())
+                    .or_insert_with(|| assets.load(format!("textures/{image}.png")))
+                    .clone();
                 let entity = commands
                     .spawn((
                         Sprite {
-                            image: assets.load(format!("textures/{image}.png")),
+                            image: handle,
                             custom_size: Some(Vec2::new(w, h)),
                             ..default()
                         },
@@ -850,6 +939,9 @@ fn apply_lua(
             }
             LuaCommand::Shake(intensity) => {
                 shake.trauma = (shake.trauma + intensity).clamp(0.0, 1.0);
+            }
+            LuaCommand::SetBgTheme(theme) => {
+                bg_theme.target = theme.clamp(0.0, 1.0);
             }
             LuaCommand::PlaySound(name) => {
                 let handle = assets.load::<AudioSource>(format!("audio/{name}.wav"));

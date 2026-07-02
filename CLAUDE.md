@@ -174,9 +174,9 @@ install/launch on simulator.
 
 ### Physical device
 
-`project.yml` is configured for automatic signing: `DEVELOPMENT_TEAM: N37MF9W73E`
+`project.yml` is configured for automatic signing: `DEVELOPMENT_TEAM: 4JFR4NTMKQ`
 (the only locally-valid Apple Development identity, "wei ma (5R5933K932)"),
-`CODE_SIGN_STYLE: Automatic`, bundle id `com.ngmob.hollowlullaby`. `make device-run`
+`CODE_SIGN_STYLE: Automatic`, bundle id `com.ngmob.hollow`. `make device-run`
 builds for `aarch64-apple-ios`, signs (Xcode auto-creates the provisioning profile via
 `-allowProvisioningUpdates`), installs and launches via `devicectl`.
 
