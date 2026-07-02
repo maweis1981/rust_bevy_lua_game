@@ -3,14 +3,18 @@
 # Physical device UDID can be overridden: make device-run DEVICE=<udid>
 SIM ?= iPhone 16
 DEVICE ?= 8B363280-D4AA-58BE-9681-361C8A3718AC
-BUNDLE_ID := com.ngmob.hollowlullaby
+BUNDLE_ID := com.ngmob.hollow
 # Build configuration for device runs. Use CONFIG=Release for a smooth,
 # optimized build (Debug runs Bevy/wgpu with debug assertions and is much slower).
 CONFIG ?= Debug
 DEVICE_APP := build/DerivedData/Build/Products/$(CONFIG)-iphoneos/hollowlullaby.app
 
 .PHONY: run build check fmt clippy test test-lua ios-lib ios-project ios-build \
-        ios-run device-build device-run clean
+        ios-run device-build device-run ios-archive ios-export ios-ipa clean
+
+# Output locations for the App Store archive + exported IPA (TestFlight).
+ARCHIVE := build/hollowlullaby.xcarchive
+IPA_DIR := build/ipa
 
 # Lua interpreter for the gameplay tests (override: make test LUA=lua)
 LUA ?= lua5.4
@@ -74,6 +78,28 @@ device-build: ios-project   ## Build & sign for a device (CONFIG=Debug|Release)
 device-run: device-build    ## Build, install, and launch on the connected device
 	xcrun devicectl device install app --device "$(DEVICE)" "$(DEVICE_APP)"
 	xcrun devicectl device process launch --device "$(DEVICE)" $(BUNDLE_ID)
+
+# --- TestFlight / App Store ------------------------------------------------
+# Archive a Release build for distribution (Apple Distribution signing is created
+# automatically via -allowProvisioningUpdates; needs a paid Developer account).
+ios-archive: ios-project   ## Archive a Release build for the App Store
+	xcodebuild -project hollowlullaby.xcodeproj -scheme hollowlullaby \
+		-configuration Release -sdk iphoneos \
+		-destination 'generic/platform=iOS' \
+		-archivePath "$(ARCHIVE)" \
+		-allowProvisioningUpdates archive
+
+# Export a signed .ipa from the archive using ios/ExportOptions.plist.
+ios-export:                ## Export a signed .ipa from the archive
+	xcodebuild -exportArchive -archivePath "$(ARCHIVE)" \
+		-exportOptionsPlist ios/ExportOptions.plist \
+		-exportPath "$(IPA_DIR)" \
+		-allowProvisioningUpdates
+	@echo "IPA ready: $(IPA_DIR)/hollowlullaby.ipa"
+	@echo "Upload it with Transporter (App Store) or Xcode Organizer."
+
+# One shot: archive then export the IPA for TestFlight.
+ios-ipa: ios-archive ios-export   ## Archive + export the TestFlight .ipa
 
 clean:
 	cargo clean

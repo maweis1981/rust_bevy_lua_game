@@ -40,9 +40,13 @@ game = {
   move_to = function(id, x, y) pos[id] = { x = x, y = y } end,
   set_color = function() end,
   set_size = function(id, w, h) dims[id] = { w = w, h = h } end,
+  set_rotation = function() end,
+  set_sprite_image = function() end,
   despawn = function(id) pos[id] = nil; dims[id] = nil end,
   set_text = function() end,
   shake = function(v) record("shake", v) end,
+  set_bg_theme = function(v) record("bg_theme", v) end,
+  set_native_bg = function(n) record("native_bg", n) end,
   play_sound = function(n) record("sound", n) end,
   play_music = function(n) record("music", n) end,
   haptic = function(k) record("haptic", k) end,
@@ -71,9 +75,14 @@ dofile("assets/scripts/roguelike.lua")
 dofile("assets/scripts/game2048.lua")
 dofile("assets/scripts/shooter.lua")
 dofile("assets/scripts/world.lua")
+dofile("assets/scripts/match3.lua")
+dofile("assets/scripts/umami.lua")
+dofile("assets/scripts/packs/catch.lua")
 dofile("assets/scripts/main.lua")
 
-local function boot() frame_events = {}; on_start(); frame_events = {}; on_update(DT) end
+-- Reseed the LCG each boot so every test scenario is deterministic and
+-- independent of how many random draws earlier tests consumed.
+local function boot() rng = 987654321; frame_events = {}; on_start(); frame_events = {}; on_update(DT) end
 local function enter(key)
   clear_input()
   for _, t in ipairs(DEBUG.tiles) do                 -- menu exposes its tiles
@@ -89,7 +98,7 @@ local function step(dt) frame_events = {}; on_update(dt or DT) end
 ----------------------------------------------------------------------
 local function router_tests()
   boot()
-  for _, key in ipairs({ "grow", "breakout", "snake", "roguelike", "game2048", "shooter", "world" }) do
+  for _, key in ipairs({ "grow", "breakout", "snake", "roguelike", "game2048", "shooter", "world", "match3", "umami", "catch" }) do
     local d = enter(key)
     check(d and d.game == key, "menu tile should enter game '" .. key .. "'")
     check(d.back ~= nil, "game '" .. key .. "' should expose a back button")
@@ -396,6 +405,252 @@ local function world_tests()
 end
 
 ----------------------------------------------------------------------
+-- Game 8: Gem Match (match-3, loaded from its own file)
+----------------------------------------------------------------------
+local function m3_full(d)
+  for r = 1, d.rows do for c = 1, d.cols do if d.get(c, r) < 1 then return false end end end
+  return true
+end
+local function m3_has_match(d)
+  for r = 1, d.rows do
+    for c = 1, d.cols do
+      local v = d.get(c, r)
+      if v > 0 then
+        if c <= d.cols - 2 and d.get(c + 1, r) == v and d.get(c + 2, r) == v then return true end
+        if r <= d.rows - 2 and d.get(c, r + 1) == v and d.get(c, r + 2) == v then return true end
+      end
+    end
+  end
+  return false
+end
+local function m3_settle(d) for _ = 1, 900 do if not d.busy() then return end; step() end end
+-- find_move may return a special (c1==c2); swap it with a neighbour to fire it.
+local function m3_pick(d)
+  local c1, r1, c2, r2 = d.find_move()
+  if not c1 then return end
+  if c1 == c2 and r1 == r2 then c2 = (c1 < d.cols) and c1 + 1 or c1 - 1 end
+  return c1, r1, c2, r2
+end
+local function m3_play(mode, lvl)
+  boot(); enter("match3")
+  DEBUG.start(mode, lvl); step()
+  return DEBUG
+end
+
+local function match3_tests()
+  boot()
+  local d = enter("match3")
+  check(d.game == "match3", "match3 loads and enters (mode-select screen)")
+  check(d.back ~= nil, "match3 start screen exposes a back button")
+
+  -- Enter Adventure level 1 and check the fresh board.
+  d = m3_play("adventure", 1)
+  check(d.screen == "play" and d.game == "match3", "match3 start(adventure,1) enters play")
+  check(m3_full(d), "match3 board starts completely full")
+  check(not m3_has_match(d), "match3 board starts with no pre-made matches")
+  check(d.moves() == 18, "match3 level 1 grants 18 moves")
+
+  -- Play legal moves; invariants must hold after each settles.
+  local made = 0
+  for _ = 1, 14 do
+    if d.over() then break end
+    local c1, r1, c2, r2 = m3_pick(d)
+    if not c1 then break end
+    local m0, s0 = d.moves(), d.score()
+    d.swap(c1, r1, c2, r2); m3_settle(d)
+    made = made + 1
+    check_once("m3_full", m3_full(d), "match3 board must stay full after a move")
+    check_once("m3_nomatch", not m3_has_match(d), "match3 must leave no matches once idle")
+    check_once("m3_move_cost", d.moves() == m0 - 1, "match3 must spend exactly one move per swap")
+    check_once("m3_scored", d.score() > s0, "match3 a legal move must increase the score")
+  end
+  check(made > 0, "match3: a legal move should always be available")
+
+  -- Non-adjacent swaps are ignored.
+  d = m3_play("adventure", 1)
+  local m0 = d.moves()
+  d.swap(1, 1, 3, 3); step()
+  check(d.moves() == m0 and not d.busy(), "match3 ignores non-adjacent swaps")
+
+  -- A 4-in-a-row forges a special piece.
+  d = m3_play("endless")
+  d.setcell(1, 1, 2); d.setcell(2, 1, 2); d.setcell(3, 1, 2)
+  d.setcell(4, 2, 2); d.setcell(4, 1, 5); d.setcell(5, 1, 3)
+  d.swap(4, 1, 4, 2)
+  local special = false
+  for _ = 1, 900 do
+    step()
+    for r = 1, d.rows do for c = 1, d.cols do if d.special(c, r) then special = true end end end
+    if not d.busy() then break end
+  end
+  check(special, "match3: a 4-match forges a special piece")
+
+  -- Collect objective counts gathered pieces.
+  d = m3_play("adventure", 3)
+  d.setcell(1, 1, 1); d.setcell(2, 1, 1); d.setcell(4, 1, 1); d.setcell(3, 1, 2); d.setcell(3, 2, 1)
+  local c0 = d.collected()
+  d.swap(3, 1, 3, 2); m3_settle(d)
+  check(d.collected() > c0, "match3 collect objective counts gathered pieces")
+
+  -- Jelly (vines) objective initialises its count.
+  d = m3_play("adventure", 5)
+  check(d.jelly_left() == 12, "match3 vines level starts with 12 vines to clear")
+
+  -- Win: a low target is crossed by the first clear.
+  d = m3_play("adventure", 1)
+  d.set_target_score(1)
+  local c1, r1, c2, r2 = m3_pick(d)
+  d.swap(c1, r1, c2, r2)
+  local won = false
+  for _ = 1, 900 do step(); if events_have("log", "win") then won = true end; if not d.busy() then break end end
+  check(won and d.won(), "match3: reaching the target score wins")
+
+  -- Lose: unreachable target + a single move runs out.
+  d = m3_play("adventure", 1)
+  d.set_target_score(1e9); d.set_moves(1)
+  c1, r1, c2, r2 = m3_pick(d)
+  d.swap(c1, r1, c2, r2)
+  local lost = false
+  for _ = 1, 900 do step(); if events_have("log", "lose") then lost = true end; if not d.busy() then break end end
+  check(lost, "match3: running out of moves loses")
+
+  -- Regression (#2): a game-over then leave+re-enter must still be startable
+  -- (a stale `over` used to swallow the Adventure/Endless taps).
+  d = m3_play("adventure", 1)
+  d.set_target_score(1e9); d.set_moves(1)
+  local pc1, pr1, pc2, pr2 = m3_pick(d); d.swap(pc1, pr1, pc2, pr2); m3_settle(d)
+  check(d.over(), "match3 regression setup reaches game-over")
+  on_tap(d.back.x, d.back.y); step()             -- back: play -> map
+  on_tap(DEBUG.back.x, DEBUG.back.y); step()     -- back: map -> start
+  on_tap(DEBUG.back.x, DEBUG.back.y); step()     -- back: start -> menu
+  check(DEBUG.game == "menu", "match3 back-chain returns to the menu")
+  enter("match3")                                -- re-enter from the menu
+  on_tap(0, 40); step()                          -- tap ADVENTURE on the mode screen
+  check(DEBUG.screen == "map", "match3: re-enter after a game-over can still start (bug #2)")
+end
+
+local function umami_play(k)
+  boot(); enter("umami"); DEBUG.start(k or "soba"); step()
+  return DEBUG
+end
+local function umami_tests()
+  boot()
+  local d = enter("umami")
+  check(d.game == "umami", "umami loads and enters (character select)")
+  check(d.back ~= nil, "umami select screen has a back button")
+
+  d = umami_play("soba")
+  check(d.screen == "play" and d.game == "umami", "umami start(soba) enters play")
+  check(d.char() == "soba", "umami: the picked character is Soba")
+  check(d.cpu_char() ~= "soba", "umami: the CPU picks a different character")
+  check(d.score().p == 0 and d.score().c == 0, "umami starts 0-0")
+
+  -- Ball stays on the table across many frames.
+  for _ = 1, 800 do
+    step(); local b = d.ball()
+    check_once("umami_bounds", math.abs(b.x) <= HW + 2 and math.abs(b.y) <= HH + 2, "umami ball left the table")
+  end
+
+  -- Flick dashes your dumpling.
+  d = umami_play("soba")
+  for _ = 1, 80 do step() end
+  local y0 = d.you().y; d.flick(0, 1, 1); step(); step(); step()
+  check(d.you().y ~= y0, "umami flick dashes the player")
+
+  -- Ball through the top torii scores.
+  d = umami_play("soba")
+  for _ = 1, 80 do step() end
+  local sp0 = d.score().p; d.set_ball(0, HH, 0, 400)
+  for _ = 1, 60 do step(); if d.score().p > sp0 then break end end
+  check(d.score().p > sp0, "umami: a ball through the top torii scores")
+
+  -- Ultimate: fires only when the meter is full, then empties it.
+  d = umami_play("chef")
+  check(not d.fire_ult(), "umami: ultimate cannot fire on an empty meter")
+  d.set_energy(1)
+  check(d.fire_ult(), "umami: ultimate fires when the meter is full")
+  check(d.energy() == 0, "umami: firing the ultimate empties the meter")
+
+  -- Lantern's Guard Wall activates.
+  d = umami_play("lantern")
+  d.set_energy(1); d.fire_ult()
+  check(d.guard() > 0, "umami: Lantern's Guard Wall activates")
+
+  -- Reaching the target score wins the cup.
+  d = umami_play("soba")
+  local won = false
+  for _ = 1, 1500 do
+    step()
+    if not d.serving() then d.set_ball(0, HH - 4, 0, 500) end
+    if events_have("log", "win") then won = true; break end
+  end
+  check(won, "umami: reaching the target score wins the cup")
+
+  -- Arena picker on the select screen cycles through the four courts.
+  boot(); d = enter("umami")
+  local a0 = d.arena()
+  if d.arena_btn then on_tap(d.arena_btn.x, d.arena_btn.y); step()
+    check(DEBUG.arena() ~= a0, "umami: arena button cycles the court") end
+
+  -- BACK: play -> character select -> menu.
+  d = umami_play("soba")
+  on_tap(d.back.x, d.back.y); step()
+  check(DEBUG.screen == "select", "umami: BACK from play returns to character select")
+  on_tap(DEBUG.back.x, DEBUG.back.y); step()
+  check(DEBUG.game == "menu", "umami: BACK from select returns to the menu")
+end
+
+-- AI-generated pack (tools/PACK_SPEC.md): same acceptance bar as hand-written games.
+local function catch_tests()
+  boot()
+  local d = enter("catch")
+  check(d.game == "catch", "catch (AI pack) loads and enters")
+  check(d.back ~= nil, "catch exposes a back button")
+  check(d.score() == 0 and d.lives() == 3, "catch starts 0 score / 3 lives")
+
+  -- Catch: hold the basket at x=0 and feed fruit at x=0 -> score must rise, and
+  -- the basket must never leave the screen.
+  game._down, game._px, game._py = true, 0, -HH + 40
+  local caught = false
+  for _ = 1, 380 do
+    d.spawn_fruit_at(0); step()
+    check_once("catch_bounds", math.abs(pos[d.basket].x) <= HW + 1, "catch basket left the screen")
+    if d.score() > 0 then caught = true; break end
+    if not d.alive() then break end
+  end
+  check(caught, "catch: a fruit landing on the basket scores")
+
+  -- Lose: unattended fruit drains lives to a game over; tap restarts fresh.
+  boot(); d = enter("catch"); clear_input()
+  local lost = false
+  for _ = 1, 4000 do step(); if not d.alive() then lost = true; break end end
+  check(lost, "catch: missing fruit drains lives to a game over")
+  on_tap(0, 0); step()
+  check(d.alive() and d.score() == 0, "catch: tap restarts a fresh round")
+
+  -- Back returns to the menu.
+  boot(); d = enter("catch")
+  on_tap(d.back.x, d.back.y); step()
+  check(DEBUG.game == "menu", "catch: BACK returns to the menu")
+end
+
+local function settings_tests()
+  boot()
+  local opened = false
+  for _, t in ipairs(DEBUG.tiles) do if t.key == "settings" then on_tap(t.x, t.y); opened = true end end
+  check(opened, "menu grid includes a Settings tile")
+  step()
+  check(DEBUG.game == "settings", "Settings tile opens the Settings screen")
+  local h0 = DEBUG.hud()
+  on_tap(DEBUG.toggle.x, DEBUG.toggle.y); step()
+  check(DEBUG.hud() ~= h0, "Settings toggles the HUD flag")
+  check(SETTINGS.hud == DEBUG.hud(), "Settings reflects the global SETTINGS.hud")
+  if not SETTINGS.hud then on_tap(DEBUG.toggle.x, DEBUG.toggle.y); step() end  -- restore ON
+  on_tap(DEBUG.back.x, DEBUG.back.y); step()
+  check(DEBUG.game == "menu", "Settings BACK returns to the menu")
+end
+
+----------------------------------------------------------------------
 router_tests()
 grow_physics(12000, DT)
 grow_miss_shrinks(6000)
@@ -406,6 +661,10 @@ rogue_tests()
 game2048_tests()
 shooter_tests()
 world_tests()
+match3_tests()
+umami_tests()
+catch_tests()
+settings_tests()
 
 print(string.format("checks=%d", checks))
 if #failures == 0 then

@@ -48,6 +48,7 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
     let t = data.x;
     let aspect = max(data.y, 0.0001);
     let energy = clamp(data.z, 0.0, 1.0);   // gameplay impulse from ScreenShake
+    let theme = clamp(data.w, 0.0, 1.0);    // 0 = cool aurora, 1 = warm garden
 
     // Aspect-corrected, centered coordinates so the noise isn't stretched.
     var p = vec2<f32>((mesh.uv.x - 0.5) * aspect, mesh.uv.y - 0.5) * 3.0;
@@ -63,11 +64,13 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
     );
     let f = fbm(p + 4.0 * q + vec2<f32>(1.7, 9.2));
 
-    // Palette: deep navy base -> indigo -> teal -> soft cyan highlight.
-    let c_base = vec3<f32>(0.02, 0.03, 0.07);
-    let c_indigo = vec3<f32>(0.07, 0.06, 0.22);
-    let c_teal = vec3<f32>(0.04, 0.24, 0.36);
-    let c_cyan = vec3<f32>(0.35, 0.62, 0.72);
+    // Two palettes, chosen by theme: the default cool aurora
+    // (navy -> indigo -> teal -> cyan) and a warm "enchanted garden"
+    // (deep moss -> leaf green -> meadow -> soft floral highlight).
+    let c_base = mix(vec3<f32>(0.02, 0.03, 0.07), vec3<f32>(0.03, 0.07, 0.05), theme);
+    let c_indigo = mix(vec3<f32>(0.07, 0.06, 0.22), vec3<f32>(0.09, 0.19, 0.10), theme);
+    let c_teal = mix(vec3<f32>(0.04, 0.24, 0.36), vec3<f32>(0.18, 0.44, 0.22), theme);
+    let c_cyan = mix(vec3<f32>(0.35, 0.62, 0.72), vec3<f32>(0.74, 0.86, 0.46), theme);
 
     var col = mix(c_base, c_indigo, clamp(f * f * 2.2, 0.0, 1.0));
     col = mix(col, c_teal, clamp(length(q) * 0.9, 0.0, 1.0));
@@ -81,6 +84,23 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
     col = col * (1.0 + energy * 0.7);
     let flash = vec3<f32>(0.30, 0.55, 0.75);
     col = col + flash * energy * smoothstep(0.35, 0.95, f);
+
+    // Cozy drifting motes (pollen / fireflies) that slowly rise and twinkle —
+    // warmer and denser in the garden theme, a faint sparkle in the cool one.
+    let mv = vec2<f32>((mesh.uv.x - 0.5) * aspect, mesh.uv.y - 0.5);
+    var motes = 0.0;
+    for (var i: i32 = 0; i < 3; i = i + 1) {
+        let fi = f32(i);
+        let scale = 7.0 + fi * 4.0;
+        let q = mv * scale + vec2<f32>(0.0, t * (0.04 + fi * 0.015));
+        let id = floor(q);
+        let fq = fract(q);
+        let ctr = vec2<f32>(0.5, 0.5) + 0.34 * vec2<f32>(hash2(id) - 0.5, hash2(id + 3.7) - 0.5);
+        let dd = length(fq - ctr);
+        let tw = 0.5 + 0.5 * sin(t * 1.5 + hash2(id) * 6.28);
+        motes = motes + smoothstep(0.10, 0.0, dd) * tw;
+    }
+    col = col + vec3<f32>(0.95, 0.88, 0.55) * motes * (0.10 + 0.30 * theme);
 
     // Soft vignette to focus the play area.
     let d = distance(mesh.uv, vec2<f32>(0.5, 0.5));

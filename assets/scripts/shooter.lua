@@ -221,3 +221,7 @@ function make_shooter()
     end,
   }
 end
+
+-- Self-register this game pack (see main.lua: menu builds from PACKS).
+PACKS = PACKS or {}
+PACKS["shooter"] = { slot = 6, key = "shooter", label = "Space Shooter", short = "Shooter", icon = "ship", color = { 0.25, 0.55, 0.75 }, tier = "curated", make = make_shooter }

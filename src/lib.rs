@@ -31,7 +31,10 @@ pub fn run() {
             // Nearest sampling keeps the pixel-art sprites crisp when scaled up.
             .set(ImagePlugin::default_nearest()),
     )
-    .insert_resource(ClearColor(Color::srgb(0.06, 0.07, 0.10)))
+    // A garden green (not black) so any strip the camera viewport doesn't cover
+    // — e.g. the iOS home-indicator safe area — reads as the grassy background
+    // continuing rather than a black bar.
+    .insert_resource(ClearColor(Color::srgb(0.36, 0.56, 0.34)))
     .add_plugins(FrameTimeDiagnosticsPlugin::default())
     .add_plugins(background::BackgroundPlugin)
     .add_plugins(ScriptPlugin)
@@ -45,11 +48,12 @@ pub fn run() {
 #[derive(Component)]
 struct FpsText;
 
-fn spawn_fps_overlay(mut commands: Commands) {
+fn spawn_fps_overlay(mut commands: Commands, assets: Res<AssetServer>) {
     commands.spawn((
         FpsText,
         Text::new("FPS --"),
         TextFont {
+            font: FontSource::Handle(assets.load("fonts/game.ttf")),
             font_size: 24.0.into(),
             ..default()
         },

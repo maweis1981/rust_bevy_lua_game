@@ -37,9 +37,10 @@ end
 -- top-LEFT, well below the top edge so the iPhone Dynamic Island / status bar
 -- never covers it. Games hit-test the returned rect in their tap handler.
 local function make_back(T, hw, hh)
-  local r = { x = -hw + 82, y = hh - 150, w = 148, h = 62 }
-  T.spawn(r.x, r.y, r.w, r.h, 0.90, 0.35, 0.30, 0.95)
-  T.text(r.x, r.y, 30, 1, 1, 1, 1, "< BACK")
+  -- A sprite button (wooden "return to lobby" sign); the returned rect is the
+  -- tap target games hit-test, so the event is effectively bound to the sprite.
+  local r = { x = -hw + 84, y = hh - 152, w = 132, h = 76 }
+  T.sprite(r.x, r.y, r.w, r.h, "btn_back")
   return r
 end
 
@@ -65,6 +66,10 @@ GAME_KIT = {
   make_back = make_back,
   switch = function(k) switch(k) end,
 }
+
+-- App-wide settings, read by games. `hud` gates the on-screen HUD text (the
+-- router blanks it every frame when off); Settings (in the menu) toggles it.
+SETTINGS = SETTINGS or { hud = true }
 
 -- ===================================================================
 -- Game 1: Grow the Paddle
@@ -436,24 +441,41 @@ local function make_menu()
   local T = tracker()
   local tiles, built = {}, false
   return {
-    enter = function() built = false; game.set_text("") end,
+    enter = function() built = false; game.set_text(""); game.set_bg_theme(0) end,
     leave = function() T.clear(); tiles = {} end,
     update = function(_, hw, hh)
       if built then return end
       game.set_text("")
-      T.text(0, hh - 96, 46, 1, 1, 1, 1, "MINI GAMES")
-      T.text(0, hh - 148, 22, 0.7, 0.8, 1.0, 1, "Select a game")
-      local n = #order
-      local tw = math.min(2 * hw - 80, 440)
-      local th, gap = 96, 26
-      local y = (n * th + (n - 1) * gap) * 0.5 - th * 0.5
+      T.text(0, hh - 92, 46, 1, 1, 1, 1, "MINI GAMES")
+      T.text(0, hh - 140, 20, 0.7, 0.8, 1.0, 1, "Tap a game to play")
+
+      -- Grid of game tiles + a Settings tile (icons make them scannable).
+      local grid = {}
+      for _, item in ipairs(order) do grid[#grid + 1] = item end
+      grid[#grid + 1] = { key = "settings", short = "Settings", color = { 0.5, 0.55, 0.62 }, icon = nil }
+
+      local cols, gap, side = 3, 18, 26
+      local tw = math.min((2 * hw - 2 * side - (cols - 1) * gap) / cols, 150)
+      local th = tw * 1.06
+      local rows = math.ceil(#grid / cols)
+      local top = (rows * th + (rows - 1) * gap) * 0.5 - th * 0.5   -- grid center at y=0
       tiles = {}
-      for _, item in ipairs(order) do
+      for i, item in ipairs(grid) do
+        local col = (i - 1) % cols
+        local row = math.floor((i - 1) / cols)
+        local x = -(cols - 1) * (tw + gap) * 0.5 + col * (tw + gap)
+        local y = top - row * (th + gap)
         local c = item.color
-        T.spawn(0, y, tw, th, c[1], c[2], c[3], 1)
-        T.text(0, y, 32, 1, 1, 1, 1, item.label)
-        tiles[#tiles + 1] = { x = 0, y = y, w = tw, h = th, key = item.key }
-        y = y - (th + gap)
+        T.spawn(x, y, tw, th, c[1], c[2], c[3], 1)
+        if item.icon then T.sprite(x, y + th * 0.14, tw * 0.5, tw * 0.5, item.icon) end
+        T.text(x, y - th * 0.34, 18, 1, 1, 1, 1, item.short or item.label)
+        -- tier badge (top-left corner) so preset / curated / AI packs are distinct
+        if item.tier == "curated" then
+          T.text(x - tw * 0.36, y + th * 0.36, 18, 1, 0.9, 0.4, 1, "*")
+        elseif item.tier == "ai" then
+          T.text(x - tw * 0.32, y + th * 0.36, 13, 0.6, 0.9, 1.0, 1, "AI")
+        end
+        tiles[#tiles + 1] = { x = x, y = y, w = tw, h = th, key = item.key }
       end
       built = true
       DEBUG = { game = "menu", tiles = tiles }
@@ -468,38 +490,77 @@ local function make_menu()
   }
 end
 
+-- Settings screen: toggle the HUD on/off (games read SETTINGS.hud).
+local function make_settings()
+  local T = tracker()
+  local built, back, toggle = false, nil, nil
+  local function label() return "HUD: " .. (SETTINGS.hud and "ON" or "OFF") end
+  local function draw()
+    T.clear()
+    T.text(0, 260, 40, 1, 1, 1, 1, "SETTINGS")
+    local c = SETTINGS.hud and { 0.30, 0.70, 0.45 } or { 0.55, 0.35, 0.35 }
+    toggle = { x = 0, y = 80, w = 320, h = 92 }
+    T.spawn(toggle.x, toggle.y, toggle.w, toggle.h, c[1], c[2], c[3], 1)
+    T.text(toggle.x, toggle.y, 34, 1, 1, 1, 1, label())
+    T.text(0, -20, 20, 0.75, 0.8, 0.9, 1, "Tap to toggle the on-screen HUD")
+    back = make_back(T, HW_S, HH_S)
+    DEBUG = { game = "settings", back = back, toggle = toggle,
+      hud = function() return SETTINGS.hud end }
+  end
+  return {
+    enter = function() built = false; game.set_text(""); game.set_bg_theme(0) end,
+    leave = function() T.clear() end,
+    update = function(_, hw, hh)
+      HW_S, HH_S = hw, hh
+      if not built then draw(); built = true end
+    end,
+    tap = function(x, y)
+      if back and in_rect(back, x, y) then switch("menu"); return end
+      if toggle and in_rect(toggle, x, y) then
+        SETTINGS.hud = not SETTINGS.hud
+        game.play_sound("hit"); game.haptic("light"); draw()
+      end
+    end,
+  }
+end
+
 -- ===================================================================
 -- Router lifecycle
 -- ===================================================================
+-- Data-driven, self-registering game packs. Any .lua loaded before main.lua can
+-- append itself to the global PACKS (keyed by `key`, so a desktop hot-reload that
+-- re-runs every script overwrites rather than duplicates). The three core games
+-- below register the same way. The menu is then built purely from PACKS, sorted
+-- by tier (preset -> curated -> ai) then slot — so publishing a new game is just
+-- dropping a pack file, no edits here. This is the dynamic game-pack mechanism.
 function on_start()
   game.log("Mini-game collection — started")
   game.play_music("music")
   scenes.menu = make_menu()
-  scenes.grow = make_grow()
-  scenes.breakout = make_breakout()
-  scenes.snake = make_snake()
-  order = {
-    { key = "grow", label = "1. Grow Paddle", color = { 0.30, 0.62, 1.0 } },
-    { key = "breakout", label = "2. Breakout", color = { 1.0, 0.55, 0.25 } },
-    { key = "snake", label = "3. Snake", color = { 0.35, 0.82, 0.45 } },
-  }
-  -- Games defined in their own files register a global factory (see
-  -- scripts/roguelike.lua). Add them to the menu when present.
-  if make_roguelike then
-    scenes.roguelike = make_roguelike()
-    order[#order + 1] = { key = "roguelike", label = "4. Roguelike", color = { 0.72, 0.4, 0.9 } }
-  end
-  if make_2048 then
-    scenes.game2048 = make_2048()
-    order[#order + 1] = { key = "game2048", label = "5. 2048", color = { 0.95, 0.68, 0.35 } }
-  end
-  if make_shooter then
-    scenes.shooter = make_shooter()
-    order[#order + 1] = { key = "shooter", label = "6. Space Shooter", color = { 0.25, 0.55, 0.75 } }
-  end
-  if make_world then
-    scenes.world = make_world()
-    order[#order + 1] = { key = "world", label = "7. Cozy Isle", color = { 0.45, 0.72, 0.42 } }
+  scenes.settings = make_settings()
+
+  PACKS = PACKS or {}
+  PACKS.grow = { slot = 1, key = "grow", label = "Grow Paddle", short = "Grow", icon = "orb", color = { 0.30, 0.62, 1.0 }, tier = "preset", make = make_grow }
+  PACKS.breakout = { slot = 2, key = "breakout", label = "Breakout", short = "Breakout", icon = "brick", color = { 1.0, 0.55, 0.25 }, tier = "preset", make = make_breakout }
+  PACKS.snake = { slot = 3, key = "snake", label = "Snake", short = "Snake", icon = "snakehead", color = { 0.35, 0.82, 0.45 }, tier = "preset", make = make_snake }
+
+  local prio = { preset = 1, curated = 2, ai = 3 }
+  local list = {}
+  for _, g in pairs(PACKS) do list[#list + 1] = g end
+  table.sort(list, function(a, b)
+    local pa, pb = prio[a.tier or "preset"] or 9, prio[b.tier or "preset"] or 9
+    if pa ~= pb then return pa < pb end
+    return (a.slot or 99) < (b.slot or 99)
+  end)
+  order = {}
+  for _, g in ipairs(list) do
+    local ok, scene = pcall(g.make)          -- a bad AI pack can't crash the menu
+    if ok and scene then
+      scenes[g.key] = scene
+      order[#order + 1] = g
+    else
+      game.log("pack '" .. tostring(g.key) .. "' failed to build; skipped")
+    end
   end
   booted = false
 end
@@ -509,6 +570,7 @@ function on_update(dt)
   if hw <= 0 then return end
   if not booted then switch("menu"); booted = true end
   if current and current.update then current.update(dt, hw, hh) end
+  if not SETTINGS.hud then game.set_text("") end   -- global HUD toggle (Settings)
 end
 
 function on_tap(x, y)
