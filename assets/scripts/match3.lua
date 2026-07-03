@@ -40,10 +40,38 @@ function make_match3()
     { obj = "collect", ctype = 1, count = 16, moves = 22 },
     { obj = "collect", ctype = 3, count = 14, moves = 20 },
     { obj = "jelly", jelly = 12, moves = 22 },
+    { obj = "ice", frost = 8, moves = 22 },
     { obj = "jelly", jelly = 20, moves = 26 },
     { obj = "collect", ctype = 6, count = 18, moves = 22 },
     { obj = "score", target = 4000, moves = 24 },
   }
+
+  -- Meta layer: "restore the garden". Stars earned across levels are the currency;
+  -- each piece blooms once the running star total crosses its threshold (max stars
+  -- = #LEVELS * 3 = 24, so a fully 3-starred run restores the whole garden). Derived
+  -- purely from progress.stars, so it never desyncs from level progress.
+  local GARDEN = {
+    { tex = "gleaf",           name = "SPROUT",     need = 1 },
+    { tex = "decor_flowerbed", name = "FLOWERBED",  need = 3 },
+    { tex = "flower",          name = "BLOSSOM",    need = 5 },
+    { tex = "tree",            name = "APPLE TREE", need = 8 },
+    { tex = "decor_bench",     name = "BENCH",      need = 11 },
+    { tex = "decor_lamp",      name = "LAMPPOST",   need = 14 },
+    { tex = "gmush",           name = "MUSHROOMS",  need = 17 },
+    { tex = "decor_fence",     name = "FENCE",      need = 20 },
+    { tex = "gbell",           name = "BLUEBELLS",  need = 24 },
+  }
+  local function total_stars()
+    local s = 0
+    for i = 1, #LEVELS do s = s + (progress.stars[i] or 0) end
+    return s
+  end
+  local function garden_restored(ts)
+    ts = ts or total_stars()
+    local n = 0
+    for _, g in ipairs(GARDEN) do if ts >= g.need then n = n + 1 end end
+    return n
+  end
 
   -- layout
   local cell, psize, board_left, board_top, HW, HH = 0, 0, 0, 0, 0, 0
@@ -54,6 +82,7 @@ function make_match3()
   -- meta
   local screen, mode, level_idx, level_def = nil, "adventure", 1, nil
   local score, moves, collected, jelly_left, over, won = 0, 0, 0, 0, false, false
+  local ice_left = 0                                   -- frozen pieces still to thaw
   local idle_timer = 0
   -- input + fx
   local press, sel, bounce, glow, fx, ov = nil, nil, nil, nil, {}, {}
@@ -154,6 +183,7 @@ function make_match3()
   end
   local function kill_piece(p)
     if p.mark then game.despawn(p.mark) end
+    if p.ice_ov then game.despawn(p.ice_ov) end
     game.despawn(p.id)
   end
   local function new_piece(t, c, r, from_y)
@@ -165,15 +195,19 @@ function make_match3()
   end
 
   ------------------------------------------------------------------ matching
+  -- Matchable type of a piece: its colour, or 0 if the cell is empty, a special,
+  -- or FROZEN. Frozen pieces read as 0 so no run ever passes through them — you
+  -- must crack their ice (an adjacent clear) before they can be matched.
+  local function mt(p) if p and (p.ice or 0) == 0 then return p.t or 0 end return 0 end
   local function find_runs()
     local runs = {}
     for r = 1, ROWS do
       local c = 1
       while c <= COLS do
-        local p = cells[r][c]; local t = p and p.t
+        local t = mt(cells[r][c])
         local c2 = c
-        while t and t > 0 and c2 < COLS and cells[r][c2 + 1] and cells[r][c2 + 1].t == t do c2 = c2 + 1 end
-        if t and t > 0 and c2 - c + 1 >= 3 then
+        while t > 0 and c2 < COLS and mt(cells[r][c2 + 1]) == t do c2 = c2 + 1 end
+        if t > 0 and c2 - c + 1 >= 3 then
           local cc = {}; for k = c, c2 do cc[#cc + 1] = { c = k, r = r } end
           runs[#runs + 1] = { cells = cc, len = c2 - c + 1, horiz = true }
         end
@@ -183,10 +217,10 @@ function make_match3()
     for c = 1, COLS do
       local r = 1
       while r <= ROWS do
-        local p = cells[r][c]; local t = p and p.t
+        local t = mt(cells[r][c])
         local r2 = r
-        while t and t > 0 and r2 < ROWS and cells[r2 + 1][c] and cells[r2 + 1][c].t == t do r2 = r2 + 1 end
-        if t and t > 0 and r2 - r + 1 >= 3 then
+        while t > 0 and r2 < ROWS and mt(cells[r2 + 1][c]) == t do r2 = r2 + 1 end
+        if t > 0 and r2 - r + 1 >= 3 then
           local cc = {}; for k = r, r2 do cc[#cc + 1] = { c = c, r = k } end
           runs[#runs + 1] = { cells = cc, len = r2 - r + 1, horiz = false }
         end
@@ -202,11 +236,14 @@ function make_match3()
     cells[r1][c1], cells[r2][c2] = cells[r2][c2], cells[r1][c1]
     return ok
   end
+  local function frozen(c, r) local p = cells[r] and cells[r][c]; return p and (p.ice or 0) > 0 end
   local function find_move()
     for r = 1, ROWS do for c = 1, COLS do
-      if cells[r][c] and cells[r][c].sp then return c, r, c, r end     -- a special is always playable
-      if c < COLS and swap_makes_match(c, r, c + 1, r) then return c, r, c + 1, r end
-      if r < ROWS and swap_makes_match(c, r, c, r + 1) then return c, r, c, r + 1 end
+      if not frozen(c, r) then                                        -- frozen pieces can't be swapped
+        if cells[r][c] and cells[r][c].sp then return c, r, c, r end  -- a special is always playable
+        if c < COLS and not frozen(c + 1, r) and swap_makes_match(c, r, c + 1, r) then return c, r, c + 1, r end
+        if r < ROWS and not frozen(c, r + 1) and swap_makes_match(c, r, c, r + 1) then return c, r, c, r + 1 end
+      end
     end end
   end
   local function has_valid_move() return find_move() ~= nil end
@@ -257,6 +294,25 @@ function make_match3()
     end
     jelly_left = placed
   end
+  -- Frost: freeze n scattered pieces. A frozen piece can't be swapped and can't
+  -- be matched (mt == 0); an adjacent clear cracks its ice, and once thawed it
+  -- behaves normally. A light icy quad overlays the gem (moves with it, like p.mark).
+  local function place_ice(n)
+    local spots = {}
+    for r = 2, ROWS do for c = 1, COLS do spots[#spots + 1] = { r = r, c = c } end end
+    for i = #spots, 2, -1 do local j = math.random(i); spots[i], spots[j] = spots[j], spots[i] end
+    local placed = 0
+    for _, s in ipairs(spots) do
+      if placed >= n then break end
+      local p = cells[s.r][s.c]
+      if p and not p.sp and (p.ice or 0) == 0 then
+        p.ice = 1
+        p.ice_ov = game.spawn(p.x, p.y, psize + GAP * 0.5, psize + GAP * 0.5, 0.62, 0.82, 1.0, 0.52)
+        placed = placed + 1
+      end
+    end
+    ice_left = placed
+  end
 
   ------------------------------------------------------------------ HUD
   local function clear_hud() for _, id in ipairs(hud_ids) do game.despawn(id) end; hud_ids = {} end
@@ -286,7 +342,8 @@ function make_match3()
     local lbl, icon, prog
     if L.obj == "score" then lbl, icon, prog = "SCORE", "gdaisy", score .. "/" .. L.target
     elseif L.obj == "collect" then lbl, icon, prog = "COLLECT", TEX[L.ctype], collected .. "/" .. L.count
-    else lbl, icon, prog = "CLEAR VINES", "gleaf", tostring(jelly_left) end
+    elseif L.obj == "jelly" then lbl, icon, prog = "CLEAR VINES", "gleaf", tostring(jelly_left)
+    else lbl, icon, prog = "THAW FROST", "gbell", tostring(ice_left) end
     add(game.spawn_text(-8, by + 28, 15, 1.0, 1.0, 0.7, 1, lbl))
     add(game.spawn_sprite(-56, by - 8, 34, 34, icon))
     draw_number(8, by - 8, prog, 28)
@@ -352,9 +409,30 @@ function make_match3()
     if #fired > 0 then game.shake(0.25); game.haptic("heavy") end
     for r = 1, ROWS do if creates[r] then for c in pairs(creates[r]) do set[r][c] = nil end end end
 
+    -- Frost: a clear ON or NEXT TO a frozen piece cracks its ice (one crack per
+    -- frozen piece per resolve); the frozen piece is never cleared directly.
+    if ice_left > 0 then
+      local cracked = {}
+      local function crack(rr, cc)
+        local p = cells[rr] and cells[rr][cc]
+        if p and (p.ice or 0) > 0 and not cracked[p] then
+          cracked[p] = true; p.ice = p.ice - 1
+          burst(p.x, p.y, { 0.72, 0.90, 1.0 }, 2); game.play_sound("wall")
+          if p.ice <= 0 then
+            p.ice = nil
+            if p.ice_ov then game.despawn(p.ice_ov); p.ice_ov = nil end
+            ice_left = ice_left - 1; game.haptic("light")
+          elseif p.ice_ov then game.set_color(p.ice_ov, 0.72, 0.88, 1.0, 0.34) end
+        end
+      end
+      for r = 1, ROWS do for c = 1, COLS do if set[r][c] then
+        crack(r, c); crack(r + 1, c); crack(r - 1, c); crack(r, c + 1); crack(r, c - 1)
+      end end end
+    end
+
     local cleared = {}
     for r = 1, ROWS do for c = 1, COLS do
-      if set[r][c] and cells[r][c] then cleared[#cleared + 1] = { c = c, r = r } end
+      if set[r][c] and cells[r][c] and (cells[r][c].ice or 0) == 0 then cleared[#cleared + 1] = { c = c, r = r } end
     end end
     if #cleared == 0 then
       -- nothing to remove but we may still be forging a special: commit that then fall
@@ -450,7 +528,7 @@ function make_match3()
     end
   end
 
-  local show_start, show_map, start_level, start_endless, set_debug_play  -- forward decls
+  local show_start, show_map, start_level, start_endless, set_debug_play, show_garden  -- forward decls
 
   local function win()
     over, won = true, true
@@ -463,12 +541,18 @@ function make_match3()
     end
     local left = math.max(moves, 0)
     local stars = 1 + (left > 0 and 1 or 0) + (left >= level_def.moves * 0.3 and 1 or 0)
+    -- update progress, tracking how many garden pieces this win's new stars unlock
+    local ts_before = total_stars()
+    local old = progress.stars[level_idx] or 0
     progress.unlocked = math.max(progress.unlocked, math.min(level_idx + 1, #LEVELS))
-    progress.stars[level_idx] = math.max(progress.stars[level_idx] or 0, stars)
+    progress.stars[level_idx] = math.max(old, stars)
+    local grew = garden_restored() - garden_restored(ts_before)
     local starstr = string.rep("*", stars) .. string.rep(".", 3 - stars)
+    local lines = { { "LEVEL " .. level_idx .. " CLEAR", 36, 46 }, { starstr, 40, 42 }, { "SCORE " .. score, 24, 36 } }
+    if grew > 0 then lines[#lines + 1] = { "GARDEN GREW! +" .. grew, 20, 34 } end
     local opts = { { label = "MAP", c = { 0.4, 0.5, 0.7 }, act = "map" } }
     if level_idx < #LEVELS then opts[#opts + 1] = { label = "NEXT", c = { 0.3, 0.65, 0.4 }, act = "next" } end
-    panel({ { "LEVEL " .. level_idx .. " CLEAR", 36, 50 }, { starstr, 40, 46 }, { "SCORE " .. score, 24, 40 } }, opts)
+    panel(lines, opts)
   end
   local function lose()
     over = true
@@ -477,13 +561,19 @@ function make_match3()
       { { label = "MAP", c = { 0.4, 0.5, 0.7 }, act = "map" }, { label = "RETRY", c = { 0.65, 0.4, 0.4 }, act = "retry" } })
   end
 
-  local function reshuffle() fill_board(); game.play_sound("wall"); game.shake(0.2); hud() end
+  local function reshuffle()
+    local iced = (level_def and level_def.obj == "ice") and ice_left or 0
+    fill_board()
+    if iced > 0 then place_ice(iced) end               -- re-freeze so ice can't be shuffled away
+    game.play_sound("wall"); game.shake(0.2); hud()
+  end
   local function objective_met()
     if mode == "endless" then return false end
     local L = level_def
     if L.obj == "score" then return score >= L.target
     elseif L.obj == "collect" then return collected >= L.count
-    elseif L.obj == "jelly" then return jelly_left <= 0 end
+    elseif L.obj == "jelly" then return jelly_left <= 0
+    elseif L.obj == "ice" then return ice_left <= 0 end
     return false
   end
   local function end_of_move()
@@ -501,6 +591,9 @@ function make_match3()
     if math.abs(c1 - c2) + math.abs(r1 - r2) ~= 1 then return end
     local pa, pb = cells[r1][c1], cells[r2][c2]
     if not pa or not pb then return end
+    if (pa.ice or 0) > 0 or (pb.ice or 0) > 0 then       -- frozen: crack the ice first
+      sel = nil; game.play_sound("wall"); game.haptic("light"); return
+    end
     local seeds = nil
     if pa.sp or pb.sp then
       seeds = {}
@@ -552,17 +645,28 @@ function make_match3()
     game.set_color(bg_img, 1, 1, 1, 0.86)   -- slightly translucent so the aurora/motes show through
   end
   -- A "garden plot" board: a dark frame + a soft two-tone green checkerboard of
-  -- planting cells (semi-transparent so the backdrop shows through).
+  -- planting cells (semi-transparent so the backdrop shows through). Every cell
+  -- gets a light border so the grid of planting squares reads clearly.
   local function draw_board()
     local cy = board_top - ROWS * cell * 0.5
-    T.spawn(0, cy, COLS * cell + 22, ROWS * cell + 22, 0.05, 0.09, 0.07, 0.6)
+    T.spawn(0, cy, COLS * cell + 22, ROWS * cell + 22, 0.05, 0.09, 0.07, 0.62)
+    local BW = 2                                        -- border thickness
     for r = 1, ROWS do
       for c = 1, COLS do
         local cx, ccy = center(c, r)
-        if (c + r) % 2 == 0 then T.spawn(cx, ccy, cell, cell, 0.24, 0.46, 0.29, 0.5)
-        else T.spawn(cx, ccy, cell, cell, 0.17, 0.37, 0.23, 0.5) end
+        T.spawn(cx, ccy, cell, cell, 0.86, 0.93, 0.72, 0.32)          -- cell border (light)
+        if (c + r) % 2 == 0 then T.spawn(cx, ccy, cell - 2 * BW, cell - 2 * BW, 0.24, 0.46, 0.29, 0.62)
+        else T.spawn(cx, ccy, cell - 2 * BW, cell - 2 * BW, 0.17, 0.37, 0.23, 0.62) end
       end
     end
+  end
+  -- A translucent banner behind the top HUD so the level/score/moves read
+  -- clearly over the bright sky. Drawn in the scene layer BEFORE the back button
+  -- and the HUD numbers, so both stay on top of it.
+  local function draw_hud_panel()
+    local by = HH - 98
+    T.spawn(0, by, 2 * HW - 20, 96, 0.05, 0.11, 0.08, 0.55)     -- backing bar
+    T.spawn(0, by - 48, 2 * HW - 20, 3, 0.55, 0.80, 0.50, 0.5)  -- accent line under it
   end
   -- Ambient garden life: drifting petals + fluttering butterflies over the
   -- backdrop, on every Gem Match screen, so the garden feels alive.
@@ -602,7 +706,7 @@ function make_match3()
     clear_overlay(); clear_board(); clear_hud(); T.clear()
     for _, a in ipairs(amb) do game.despawn(a.id) end; amb = {}
     if bg_img then game.despawn(bg_img); bg_img = nil end
-    over, won, st, hud_on = false, false, "idle", nil
+    over, won, st, hud_on, ice_left = false, false, "idle", nil, 0
     press, sel, bounce, pending, next_seeds, swap_cells, combo = nil, nil, nil, nil, nil, nil, 0
   end
 
@@ -622,6 +726,8 @@ function make_match3()
       moves = function() return moves end,
       collected = function() return collected end,
       jelly_left = function() return jelly_left end,
+      ice_left = function() return ice_left end,
+      frozen = function(c, r) local p = cells[r] and cells[r][c]; return (p and (p.ice or 0) > 0) or false end,
       busy = function() return st ~= "idle" end,
       over = function() return over end,
       won = function() return won end,
@@ -637,7 +743,7 @@ function make_match3()
   function start_level(idx)
     reset_scene()
     local L = LEVELS[idx]
-    level_def = { obj = L.obj, target = L.target, ctype = L.ctype, count = L.count, jelly = L.jelly, moves = L.moves }
+    level_def = { obj = L.obj, target = L.target, ctype = L.ctype, count = L.count, jelly = L.jelly, frost = L.frost, moves = L.moves }
     mode, level_idx = "adventure", idx
     screen = "play"
     score, collected, over, won, combo, st = 0, 0, false, false, 0, "idle"
@@ -646,7 +752,9 @@ function make_match3()
     draw_board()
     fill_board()
     if level_def.obj == "jelly" then place_jelly(level_def.jelly) else jelly, jelly_ov, jelly_left = {}, {}, 0 end
+    if level_def.obj == "ice" then place_ice(level_def.frost) else ice_left = 0 end
     glow = game.spawn_sprite(0, -9999, cell, cell, "sparkle"); game.set_color(glow, 1, 1, 1, 0)
+    draw_hud_panel()
     back = K.make_back(T, HW, HH)
     hud(); set_debug_play()
   end
@@ -660,6 +768,7 @@ function make_match3()
     draw_board()
     fill_board()
     glow = game.spawn_sprite(0, -9999, cell, cell, "sparkle"); game.set_color(glow, 1, 1, 1, 0)
+    draw_hud_panel()
     back = K.make_back(T, HW, HH)
     hud(); set_debug_play()
   end
@@ -692,23 +801,76 @@ function make_match3()
       end
     end
 
+    -- Level nodes float on the garden path with NO square backing: a soft round
+    -- glow (unlocked) or a faded stone (locked) reads as a node without the hard
+    -- rectangular "shadow" a solid quad leaves over the artwork.
     buttons = {}
     for i = 1, n do
       local nd = nodes[i]
       local unlocked = i <= progress.unlocked
       local done = (progress.stars[i] or 0) > 0
-      local ring = unlocked and { 0.34, 0.70, 0.42 } or { 0.30, 0.33, 0.36 }
-      T.spawn(nd.x, nd.y, 76, 76, ring[1], ring[2], ring[3], 0.96)
-      T.sprite(nd.x, nd.y + 4, 48, 48, unlocked and (done and "gdaisy" or "gleaf") or "rock")
-      T.text(nd.x, nd.y - 6, 26, 1, 1, 1, 1, unlocked and tostring(i) or "-")
       if unlocked then
+        local g = T.sprite(nd.x, nd.y, 96, 96, "sparkle")          -- soft circular halo
+        game.set_color(g, done and 1.0 or 0.55, done and 0.9 or 0.85, done and 0.45 or 0.55, done and 0.55 or 0.42)
+        T.sprite(nd.x, nd.y + 6, 58, 58, done and "gdaisy" or "gleaf")
+        T.text(nd.x, nd.y - 30, 26, 1, 1, 1, 1, tostring(i))
         local s = progress.stars[i] or 0
-        T.text(nd.x, nd.y - 44, 16, 1, 0.9, 0.4, 1, string.rep("*", s) .. string.rep(".", 3 - s))
-        buttons[#buttons + 1] = { x = nd.x, y = nd.y, w = 76, h = 76, act = "lvl" .. i }
+        T.text(nd.x, nd.y - 52, 15, 1, 0.9, 0.4, 1, string.rep("*", s) .. string.rep(".", 3 - s))
+        buttons[#buttons + 1] = { x = nd.x, y = nd.y, w = 84, h = 84, act = "lvl" .. i }
+      else
+        local rk = T.sprite(nd.x, nd.y + 4, 50, 50, "rock")        -- faded = still locked
+        game.set_color(rk, 1, 1, 1, 0.5)
+        T.text(nd.x, nd.y - 34, 22, 0.85, 0.88, 0.9, 0.7, "-")
+      end
+    end
+    -- GARDEN (meta) entry, top-right: shows how much of the garden is restored.
+    local gb = { x = HW - 96, y = HH - 130, w = 156, h = 52 }
+    T.spawn(gb.x, gb.y, gb.w, gb.h, 0.30, 0.55, 0.34, 0.92)
+    T.sprite(gb.x - 54, gb.y, 32, 32, "gdaisy")
+    T.text(gb.x + 12, gb.y + 8, 19, 1, 1, 1, 1, "GARDEN")
+    T.text(gb.x + 12, gb.y - 12, 14, 1, 0.95, 0.6, 1, garden_restored() .. "/" .. #GARDEN)
+    buttons[#buttons + 1] = { x = gb.x, y = gb.y, w = gb.w, h = gb.h, act = "garden" }
+
+    back = K.make_back(T, HW, HH)
+    DEBUG.screen = "map"; DEBUG.back = back; DEBUG.garden_btn = gb
+  end
+
+  -- The garden itself: a 3x3 plot that blooms as stars accrue. Restored pieces show
+  -- in full colour with a soft glow; locked pieces are dim silhouettes labelled with
+  -- the star count that unlocks them, so the goal is always visible.
+  function show_garden()
+    reset_scene(); screen = "garden"; game.set_text(""); set_bg_image(BG[1]); spawn_ambient()
+    local ts = total_stars()
+    local restored = garden_restored(ts)
+    T.text(0, HH - 118, 40, 1, 1, 1, 1, "MY GARDEN")
+    T.text(0, HH - 160, 20, 1, 0.95, 0.6, 1, restored .. "/" .. #GARDEN .. " restored   " .. ts .. "*")
+    local nextneed
+    for _, g in ipairs(GARDEN) do if ts < g.need then nextneed = g.need; break end end
+    if nextneed then T.text(0, HH - 190, 15, 0.85, 0.95, 0.8, 1, "Next bloom at " .. nextneed .. " stars")
+    else T.text(0, HH - 190, 15, 1, 0.9, 0.5, 1, "The garden is in full bloom!") end
+
+    local cols, rows = 3, 3
+    local cw = math.min((2 * HW - 44) / cols, 150)
+    local gy0 = HH - 300
+    local gstep = math.min((gy0 - (-HH + 140)) / (rows - 1), cw + 24)
+    for i, g in ipairs(GARDEN) do
+      local col, row = (i - 1) % cols, math.floor((i - 1) / cols)
+      local x = (col - (cols - 1) / 2) * cw
+      local y = gy0 - row * gstep
+      if ts >= g.need then
+        local halo = T.sprite(x, y, cw * 0.92, cw * 0.92, "sparkle")
+        game.set_color(halo, 0.7, 1.0, 0.6, 0.26)
+        T.sprite(x, y + 4, cw * 0.58, cw * 0.58, g.tex)
+        T.text(x, y - cw * 0.42, 14, 1, 1, 1, 1, g.name)
+      else
+        local d = T.sprite(x, y + 4, cw * 0.52, cw * 0.52, g.tex)
+        game.set_color(d, 0.32, 0.40, 0.38, 0.45)               -- locked silhouette
+        T.text(x, y - cw * 0.42, 15, 1, 0.9, 0.5, 1, g.need .. "*")
       end
     end
     back = K.make_back(T, HW, HH)
-    DEBUG.screen = "map"; DEBUG.back = back
+    DEBUG.screen = "garden"; DEBUG.back = back
+    DEBUG.garden_restored = function() return restored end
   end
 
   function show_start()
@@ -747,6 +909,7 @@ function make_match3()
           local bob = idle and math.sin(clock * 2.2 + p.phase) * 2.0 or 0
           local rx, ry = p.x + p.ox, p.y + p.oy + bob
           game.move_to(p.id, rx, ry)
+          if p.ice_ov then game.move_to(p.ice_ov, rx, ry) end
           if p.mark then
             game.move_to(p.mark, rx, ry)
             if p.sp == "bomb" then
@@ -841,6 +1004,7 @@ function make_match3()
         if screen == "play" and mode == "adventure" then show_map()
         elseif screen == "play" then show_start()
         elseif screen == "map" then show_start()
+        elseif screen == "garden" then show_map()
         else K.switch("menu") end
         return
       end
@@ -863,7 +1027,8 @@ function make_match3()
         end end
       elseif screen == "map" then
         for _, b in ipairs(buttons) do if inr(b, x, y) then
-          local n = tonumber(b.act:match("lvl(%d+)")); if n then start_level(n) end
+          if b.act == "garden" then show_garden()
+          else local n = tonumber(b.act:match("lvl(%d+)")); if n then start_level(n) end end
           game.play_sound("hit"); game.haptic("light"); return
         end end
       elseif screen == "play" and st == "idle" then

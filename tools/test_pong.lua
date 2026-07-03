@@ -505,6 +505,42 @@ local function match3_tests()
   for _ = 1, 900 do step(); if events_have("log", "win") then won = true end; if not d.busy() then break end end
   check(won and d.won(), "match3: reaching the target score wins")
 
+  -- Garden meta: winning a level earns stars that restore garden pieces, and the
+  -- garden screen is reachable from the map and reflects the restored count.
+  check(won and d.won(), "match3 garden: prior win banked stars")     -- (stars persist in progress)
+  on_tap(DEBUG.back.x, DEBUG.back.y); step()                          -- win -> map
+  check(DEBUG.screen == "map", "match3 garden: leaving a cleared level returns to the map")
+  check(DEBUG.garden_btn ~= nil, "match3 garden: the map shows a GARDEN button")
+  on_tap(DEBUG.garden_btn.x, DEBUG.garden_btn.y); step()              -- map -> garden
+  check(DEBUG.screen == "garden", "match3 garden: the GARDEN button opens the garden")
+  check(DEBUG.garden_restored() >= 1, "match3 garden: earned stars restore at least one piece")
+  on_tap(DEBUG.back.x, DEBUG.back.y); step()                          -- garden -> map
+  check(DEBUG.screen == "map", "match3 garden: back from the garden returns to the map")
+
+  -- Frost blocker (level 6): frozen pieces can't be swapped or matched until an
+  -- adjacent clear cracks their ice; thawing every frozen piece clears the level.
+  d = m3_play("adventure", 6)
+  check(d.ice_left() == 8, "match3 frost: the ice level starts with 8 frozen pieces")
+  local fc, fr
+  for r = 1, d.rows do for c = 1, d.cols do if d.frozen(c, r) then fc, fr = c, r end end end
+  check(fc ~= nil, "match3 frost: pieces start frozen")
+  local fm0 = d.moves()
+  local fnc = (fc < d.cols) and fc + 1 or fc - 1
+  d.swap(fc, fr, fnc, fr); step()
+  check(d.moves() == fm0 and d.frozen(fc, fr), "match3 frost: a frozen piece cannot be swapped")
+  -- plenty of moves, then play until every frozen piece thaws
+  d.set_moves(999)
+  local thawed = false
+  for _ = 1, 400 do
+    if d.over() then break end
+    local a, b, cc, dd = m3_pick(d)
+    if not a then break end
+    d.swap(a, b, cc, dd); m3_settle(d)
+    if d.ice_left() == 0 then thawed = true; break end
+  end
+  check(thawed, "match3 frost: adjacent clears thaw the ice")
+  check(d.won(), "match3 frost: thawing all the ice clears the level")
+
   -- Lose: unreachable target + a single move runs out.
   d = m3_play("adventure", 1)
   d.set_target_score(1e9); d.set_moves(1)
