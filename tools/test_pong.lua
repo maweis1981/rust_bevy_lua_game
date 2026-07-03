@@ -576,15 +576,68 @@ local function umami_tests()
   d.set_energy(1); d.fire_ult()
   check(d.guard() > 0, "umami: Lantern's Guard Wall activates")
 
-  -- Reaching the target score wins the cup.
+  -- Tournament (P3): a run starts at round 1 with 3 hearts.
   d = umami_play("soba")
-  local won = false
-  for _ = 1, 1500 do
+  check(d.round() == 1 and d.hearts() == 3, "umami: a run starts at round 1 with 3 hearts")
+
+  -- Winning the match advances the round (setup_match rebuilds DEBUG, so read the
+  -- global each frame). Forcing your goals (force_goal bypasses the guard AI, which
+  -- a Lantern CPU can otherwise stall) + picking a buff on each round-cleared upgrade
+  -- screen must eventually lift the cup (log "win" on champion).
+  local champ, saw_advance, saw_upgrade = false, false, false
+  for _ = 1, 2000 do
     step()
-    if not d.serving() then d.set_ball(0, HH - 4, 0, 500) end
-    if events_have("log", "win") then won = true; break end
+    local sc = DEBUG.screen_now()
+    if sc == "play" then
+      if not DEBUG.serving() then DEBUG.force_goal("you") end             -- goal for YOU
+      if DEBUG.round() > 1 then saw_advance = true end
+    elseif sc == "upgrade" then
+      if DEBUG.upgrades() == 3 then saw_upgrade = true end
+      DEBUG.pick_upgrade(1); step()                                       -- take a buff, next round
+    end
+    if events_have("log", "win") then champ = true; break end
   end
-  check(won, "umami: reaching the target score wins the cup")
+  check(saw_advance, "umami: winning a match advances to the next round")
+  check(saw_upgrade, "umami: a cleared round offers three buffs to choose")
+  check(champ, "umami: winning every round lifts the cup (champion)")
+
+  -- A picked buff carries forward: the player keeps the same fighter across rounds,
+  -- so any change in size/dash/kick/ult_gain (or an extra heart) after the upgrade
+  -- must be the buff. Reach round 1's upgrade screen, snapshot, pick, and compare.
+  d = umami_play("soba")
+  for _ = 1, 2000 do
+    step()
+    if DEBUG.screen_now() == "play" and not DEBUG.serving() then DEBUG.force_goal("you") end
+    if DEBUG.screen_now() == "upgrade" then break end
+  end
+  check(DEBUG.screen_now() == "upgrade", "umami: forcing goals reaches the upgrade screen")
+  do
+    local y0 = DEBUG.you(); local before = { pr = y0.pr, dash = y0.dash, kick = y0.kick, ug = y0.ult_gain }
+    local h0 = DEBUG.hearts()
+    DEBUG.pick_upgrade(1); step()
+    local y1 = DEBUG.you()
+    local changed = y1.pr ~= before.pr or y1.dash ~= before.dash
+      or y1.kick ~= before.kick or y1.ult_gain ~= before.ug or DEBUG.hearts() ~= h0
+    check(changed, "umami: a chosen buff carries into the next round")
+  end
+
+  -- Losing matches drains hearts to a run over (rogue). Force CPU goals; retry on
+  -- the between screen; 0 hearts -> run over (log "lose").
+  d = umami_play("soba")
+  local runover, lost_a_heart = false, false
+  for _ = 1, 2000 do
+    step()
+    local sc = DEBUG.screen_now()
+    if sc == "play" then
+      if not DEBUG.serving() then DEBUG.force_goal("cpu") end             -- goal for CPU
+    elseif sc == "between" then
+      if DEBUG.hearts() < 3 then lost_a_heart = true end
+      on_tap(0, 0); step()                                                -- retry round
+    end
+    if events_have("log", "lose") then runover = true; break end
+  end
+  check(lost_a_heart, "umami: losing a match costs a heart")
+  check(runover, "umami: draining all hearts ends the run")
 
   -- Arena picker on the select screen cycles through the four courts.
   boot(); d = enter("umami")

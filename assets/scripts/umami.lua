@@ -46,6 +46,24 @@ function make_umami()
   local cpu = { x = 0, y = 0, vx = 0, vy = 0, energy = 0, ultk = 1, ultk_t = 0, guard_t = 0, strike_t = 0, anim = 0, kick_t = 0 }
   local score_you, score_cpu = 0, 0
   local serve_t, cpu_t, over, screen, built = 0, 0, false, nil, false
+  -- P3 tournament (rogue cup): climb ROUNDS single-elim rounds vs ever-tougher
+  -- CPUs; lose a match -> lose a heart and retry; 0 hearts -> run over; beat the
+  -- final round -> champion. cpu_buff scales CPU strength per round.
+  local ROUNDS = 4
+  local round, hearts, you_key, cpu_buff = 1, 3, "soba", 1
+  local round_won, round_lost, setup_match, show_banner, start_match   -- forward decls
+  local show_upgrades, ucards = nil, {}
+  -- Rogue-lite meta: after clearing a round, the player picks ONE buff that carries
+  -- for the rest of the run. perks holds cumulative levels; setup_match re-applies
+  -- them on top of the character's base stats each match (never mutating CHARS).
+  local perks = { dash = 0, size = 0, power = 0, ult = 0 }
+  local UPGRADES = {
+    { key = "dash",  name = "+DASH",  note = "faster strikes" },
+    { key = "size",  name = "+SIZE",  note = "bigger dumpling" },
+    { key = "power", name = "+POWER", note = "harder hits" },
+    { key = "ult",   name = "+ULT",   note = "meter fills faster" },
+    { key = "heart", name = "+HEART", note = "restore a life" },
+  }
   -- arena hazard state (set per court in start_match): bfric = ball friction,
   -- fric_mul = character-friction multiplier, htime = hazard clock.
   local htime, bfric, fric_mul = 0, 0.5, 1
@@ -57,7 +75,14 @@ function make_umami()
   local HW, HH, FL, FR, FT, FB = 0, 0, 0, 0, 0, 0
 
   local function hud()
-    game.set_text(string.format("YOU  %d  -  %d  CPU\nfirst to %d", score_you, score_cpu, WIN_SCORE))
+    local buffs = {}
+    if perks.dash > 0 then buffs[#buffs + 1] = "DASH+" .. perks.dash end
+    if perks.size > 0 then buffs[#buffs + 1] = "SIZE+" .. perks.size end
+    if perks.power > 0 then buffs[#buffs + 1] = "POW+" .. perks.power end
+    if perks.ult > 0 then buffs[#buffs + 1] = "ULT+" .. perks.ult end
+    local line3 = (#buffs > 0) and ("\n" .. table.concat(buffs, "  ")) or ""
+    game.set_text(string.format("ROUND %d/%d   LIVES %d\nYOU %d - %d CPU  (first to %d)%s",
+      round, ROUNDS, hearts, score_you, score_cpu, WIN_SCORE, line3))
   end
 
   local function serve(dir)
@@ -77,11 +102,11 @@ function make_umami()
       local nx, ny = dx / d, dy / d
       ball.x, ball.y = on.x + nx * (BR + on.pr), on.y + ny * (BR + on.pr)
       local cspd = math.sqrt(on.vx * on.vx + on.vy * on.vy)
-      local kick = (200 + cspd * 0.75) * on.def.kick * (on.ultk or 1)
+      local kick = (200 + cspd * 0.75) * on.kick * (on.ultk or 1)
       ball.vx = ball.vx * 0.3 + nx * kick + on.vx * 0.4
       ball.vy = ball.vy * 0.3 + ny * kick + on.vy * 0.4
       on.ultk, on.ultk_t, on.strike_t, on.kick_t = 1, 0, 0.12, KICK_T
-      on.energy = math.min(1, on.energy + ULT_GAIN)
+      on.energy = math.min(1, on.energy + on.ult_gain)
       game.play_sound("hit"); game.haptic("light"); game.shake(0.12)
     end
   end
@@ -98,14 +123,14 @@ function make_umami()
       p.x = clamp(ball.x, FL + p.pr, FR - p.pr)
       p.y = ball.y - diry * (BR + p.pr + 4)
       p.y = is_you and clamp(p.y, FB + p.pr, 0) or clamp(p.y, 0, FT - p.pr)
-      p.vx, p.vy = 0, diry * p.def.dash * 1.2
+      p.vx, p.vy = 0, diry * p.dash * 1.2
       p.ultk, p.ultk_t = 2.0, 0.7
       game.play_sound("hit"); game.haptic("heavy"); game.shake(0.35)
     else                                             -- rush / slam: homing power dash
       local ax, ay = ball.x - p.x, ball.y - p.y
       local m = math.sqrt(ax * ax + ay * ay) + 1e-6
-      p.vx = p.vx + ax / m * p.def.dash * 1.5
-      p.vy = p.vy + ay / m * p.def.dash * 1.5
+      p.vx = p.vx + ax / m * p.dash * 1.5
+      p.vy = p.vy + ay / m * p.dash * 1.5
       p.ultk, p.ultk_t = (u == "slam") and 3.0 or 2.0, 0.7
       game.play_sound("hit"); game.haptic("heavy"); game.shake(u == "slam" and 0.5 or 0.35)
     end
@@ -115,8 +140,8 @@ function make_umami()
   local function goal(who)
     if who == "you" then score_you = score_you + 1 else score_cpu = score_cpu + 1 end
     game.play_sound("score"); game.haptic("success"); game.shake(0.5); hud()
-    if score_you >= WIN_SCORE then over = true; game.set_text("YOU WIN THE CUP!\nTap to play again"); game.log("win")
-    elseif score_cpu >= WIN_SCORE then over = true; game.set_text("YOU LOSE\nTap to play again"); game.log("lose")
+    if score_you >= WIN_SCORE then over = true; round_won()
+    elseif score_cpu >= WIN_SCORE then over = true; round_lost()
     else serve() end
   end
 
@@ -147,13 +172,13 @@ function make_umami()
     -- dash into the ball (approach slightly from above so it knocks downward)
     if cpu_t <= 0 and attacking then
       local d = math.sqrt((ball.x - cpu.x) ^ 2 + (ball.y - cpu.y) ^ 2)
-      if d < CPU_REACH then
+      if d < CPU_REACH * cpu_buff then                 -- longer reach in later rounds
         local ax, ay = ball.x - cpu.x, (ball.y - 22) - cpu.y
         local m = math.sqrt(ax * ax + ay * ay) + 1e-6
-        cpu.vx = cpu.vx + ax / m * cpu.def.dash
-        cpu.vy = cpu.vy + ay / m * cpu.def.dash
+        cpu.vx = cpu.vx + ax / m * cpu.dash * cpu_buff   -- stronger dash too
+        cpu.vy = cpu.vy + ay / m * cpu.dash * cpu_buff
         cpu.kick_t = KICK_T                            -- kick/lunge pose
-        cpu_t = CPU_CD
+        cpu_t = CPU_CD / cpu_buff                       -- and reacts more often
       end
     end
   end
@@ -203,13 +228,27 @@ function make_umami()
     T.sprite(0, cy, GOAL_W + 30, 64, "u_torii")
   end
 
-  local function start_match(you_key)
+  -- opponent for the current round: cycle the roster (skipping the player) for variety
+  local function opponent_key()
+    local others = {}
+    for _, c in ipairs(CHARS) do if c.key ~= you_key then others[#others + 1] = c.key end end
+    return others[((round - 1) % #others) + 1]
+  end
+
+  -- Build/reset ONE match of the current round (reused when advancing or retrying).
+  setup_match = function()
     T.clear(); screen = "play"
-    you.def = char_by_key(you_key); you.pr = you.def.pr
-    -- CPU picks a different character
-    local ck = CHARS[1].key
-    for _, c in ipairs(CHARS) do if c.key ~= you_key then ck = c.key; break end end
-    cpu.def = char_by_key(ck); cpu.pr = cpu.def.pr
+    cpu_buff = 1 + (round - 1) * 0.18          -- CPU gets tougher each round
+    you.def = char_by_key(you_key); cpu.def = char_by_key(opponent_key())
+    -- Instance stats = base def each match; the CPU always runs on its base stats,
+    -- and the player's stats then get the accumulated rogue perks layered on top.
+    for _, p in ipairs({ you, cpu }) do
+      p.pr, p.dash, p.kick, p.ult_gain = p.def.pr, p.def.dash, p.def.kick, ULT_GAIN
+    end
+    you.pr = you.pr + perks.size * 6                 -- bigger dumpling
+    you.dash = you.dash * (1 + perks.dash * 0.18)    -- snappier slingshot + ult dashes
+    you.kick = you.kick * (1 + perks.power * 0.15)   -- harder strikes
+    you.ult_gain = ULT_GAIN * (1 + perks.ult * 0.35) -- ult meter fills faster
     you.energy, cpu.energy, you.ultk, cpu.ultk, you.guard_t, cpu.guard_t = 0, 0, 1, 1, 0, 0
     -- idle/standing uses walk-frame 2 (legs together) so the outfit matches the
     -- walk animation (both come from the same sprite sheet, not the older base art)
@@ -248,16 +287,92 @@ function make_umami()
       over = function() return over end, serving = function() return serve_t > 0 end,
       energy = function() return you.energy end, char = function() return you.def.key end,
       cpu_char = function() return cpu.def.key end,
+      round = function() return round end, hearts = function() return hearts end,
+      screen_now = function() return screen end,
       set_energy = function(e) you.energy = e end,
       fire_ult = function() return fire_ult(you, true) end,
       guard = function() return you.guard_t end,
+      cpu_guard = function() return cpu.guard_t end,
       set_ball = function(x, y, vx, vy) ball.x, ball.y, ball.vx, ball.vy = x, y, vx, vy end,
+      force_goal = function(who) if not over then goal(who or "you") end end,   -- test hook
       flick = function(dx, dy, p)
         local d = math.sqrt(dx * dx + dy * dy) + 1e-6
-        you.vx = you.vx + dx / d * you.def.dash * clamp(p, 0, 1)
-        you.vy = you.vy + dy / d * you.def.dash * clamp(p, 0, 1)
+        you.vx = you.vx + dx / d * you.dash * clamp(p, 0, 1)
+        you.vy = you.vy + dy / d * you.dash * clamp(p, 0, 1)
       end,
     }
+  end
+
+  -- A full-screen result banner (round cleared / heart lost / champion / run over).
+  -- Drawn over the frozen match; cleared by the next setup_match/show_select T.clear.
+  show_banner = function(title, sub)
+    T.spawn(0, 40, math.min(2 * HW - 40, 440), 240, 0.06, 0.10, 0.12, 0.9)
+    T.text(0, 96, 40, 1, 1, 1, 1, title)
+    T.text(0, 24, 22, 0.9, 0.95, 1.0, 1, sub)
+    T.text(0, -40, 18, 1, 0.9, 0.5, 1, "Tap to continue")
+  end
+
+  round_won = function()
+    game.play_sound("score"); game.haptic("success"); game.shake(0.6)
+    if round >= ROUNDS then
+      screen = "champion"; game.log("win")
+      show_banner("UMAMI CUP CHAMPION!", "You lifted the cup!")
+    else
+      round = round + 1; show_upgrades()          -- pick a buff, then next round
+    end
+  end
+
+  round_lost = function()
+    hearts = hearts - 1; game.play_sound("hit"); game.haptic("heavy"); game.shake(0.5)
+    if hearts <= 0 then
+      screen = "runover"; game.log("lose")
+      show_banner("OUT OF HEARTS", "The cup slips away...")
+    else
+      screen = "between"
+      show_banner("HEART LOST", "Lives left: " .. hearts .. "  -  retry round " .. round)
+    end
+  end
+
+  -- Apply a chosen buff (bumping its perk level, or +HEART restoring a life) and
+  -- roll into the next round's match.
+  local function pick_upgrade(u)
+    if u.key == "heart" then hearts = hearts + 1 else perks[u.key] = perks[u.key] + 1 end
+    game.play_sound("score"); game.haptic("success")
+    setup_match()
+  end
+
+  -- Round-cleared reward screen: offer 3 distinct buffs (rogue-lite). Picking one
+  -- carries it for the rest of the run; the CPU that awaits is previewed for context.
+  show_upgrades = function()
+    T.clear(); screen = "upgrade"; game.set_text("")
+    local pool = {}
+    for _, u in ipairs(UPGRADES) do pool[#pool + 1] = u end
+    for i = #pool, 2, -1 do local j = math.random(i); pool[i], pool[j] = pool[j], pool[i] end
+    T.text(0, HH - 150, 40, 1, 1, 1, 1, "ROUND CLEARED!")
+    T.text(0, HH - 196, 20, 1, 0.9, 0.5, 1,
+      "Next: round " .. round .. " of " .. ROUNDS .. "  vs  " .. char_by_key(opponent_key()).name)
+    T.text(0, HH - 244, 18, 0.9, 0.95, 1.0, 1, "Choose a buff to carry forward")
+    ucards = {}
+    local bw, bh, gap = 300, 84, 18
+    for i, u in ipairs(pool) do
+      if i > 3 then break end
+      local y = 40 - (i - 1) * (bh + gap)
+      T.spawn(0, y, bw, bh, 0.20, 0.28, 0.24, 0.95)
+      T.text(0, y + 16, 28, 1, 1, 0.6, 1, u.name)
+      T.text(0, y - 18, 16, 0.9, 0.95, 1.0, 1, u.note)
+      ucards[#ucards + 1] = { x = 0, y = y, w = bw, h = bh, u = u }
+    end
+    back = K.make_back(T, HW, HH)
+    DEBUG.screen = "upgrade"; DEBUG.back = back
+    DEBUG.upgrades = function() return #ucards end
+    DEBUG.pick_upgrade = function(i) pick_upgrade(ucards[i or 1].u) end
+  end
+
+  -- Begin a fresh tournament run with the chosen fighter.
+  start_match = function(key)
+    you_key = key; round = 1; hearts = 3
+    perks = { dash = 0, size = 0, power = 0, ult = 0 }   -- fresh run, no buffs
+    setup_match()
   end
 
   local function show_select()
@@ -305,8 +420,13 @@ function make_umami()
         for _, c in ipairs(cards) do if inr(c, x, y) then
           game.play_sound("hit"); game.haptic("light"); start_match(c.key); return
         end end
+      elseif screen == "upgrade" then
+        for _, c in ipairs(ucards) do if inr(c, x, y) then pick_upgrade(c.u); return end end
+      elseif screen == "between" then
+        game.play_sound("hit"); game.haptic("light"); setup_match()   -- next/retry round
+      elseif screen == "champion" or screen == "runover" then
+        show_select()                                                 -- new cup
       elseif screen == "play" then
-        if over then show_select(); return end
         if ult_btn and inr(ult_btn, x, y) then fire_ult(you, true) end
       end
     end,
@@ -331,8 +451,8 @@ function make_umami()
         else
           if charging and cpull and cpull.len > 10 then
             local p = math.min(cpull.len, MAXPULL) / MAXPULL
-            you.vx = you.vx + cpull.x / cpull.len * you.def.dash * p
-            you.vy = you.vy + cpull.y / cpull.len * you.def.dash * p
+            you.vx = you.vx + cpull.x / cpull.len * you.dash * p
+            you.vy = you.vy + cpull.y / cpull.len * you.dash * p
             you.kick_t = KICK_T                       -- kick/lunge pose
             game.play_sound("wall"); game.haptic("medium")
           end
