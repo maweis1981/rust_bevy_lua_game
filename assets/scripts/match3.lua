@@ -87,6 +87,7 @@ function make_match3()
   -- input + fx
   local press, sel, bounce, glow, fx, ov = nil, nil, nil, nil, {}, {}
   local buttons, back, bg_img = {}, nil, nil
+  local map_pin = nil                                  -- "you are here" marker on the map
   local hud_ids, hud_on, amb = {}, nil, {}
   local BG = { "bg_meadow", "bg_glade", "bg_dusk" }
   local function level_bg(i) return (i <= 3) and BG[1] or (i <= 6) and BG[2] or BG[3] end
@@ -128,6 +129,25 @@ function make_match3()
         size = psize * 0.5, r = col[1], g = col[2], b = col[3] }
     end
   end
+  -- A quick scale-up-and-fade sprite flash (sprites can scale/fade; text can't).
+  local function flash(x, y, sz, col)
+    local id = game.spawn_sprite(x, y, sz, sz, "sparkle")
+    game.set_color(id, col[1], col[2], col[3], 0.85)
+    fx[#fx + 1] = { kind = "flash", id = id, x = x, y = y, size = sz, grow = sz * 2.4,
+      life = 0.34, ttl = 0.34, r = col[1], g = col[2], b = col[3], a0 = 0.85 }
+  end
+  -- Big praise word-art (escalating with the combo) punched over the board, with a
+  -- gold flash behind it. Text can't scale/fade on device, so it drifts + wobbles.
+  local PRAISE = { [2] = "NICE!", [3] = "SWEET!", [4] = "TASTY!", [5] = "YUMMY!" }
+  local function praise(combo)
+    local word = PRAISE[combo] or (combo >= 6 and "WOW!") or "GOOD!"
+    local size = math.min(60, 34 + combo * 6)
+    local y = board_top + 30
+    flash(0, y, size * 1.5, { 1.0, 0.9, 0.42 })
+    fx[#fx + 1] = { kind = "praise", id = game.spawn_text(0, y, size, 1, 0.92, 0.32, 1, word),
+      x = 0, y = y, vy = 34, life = 0.8 }
+    if combo >= 3 then popup(0, y - size * 0.7, "CHAIN x" .. combo, 22) end
+  end
   local function update_fx(dt)
     local keep = {}
     for _, e in ipairs(fx) do
@@ -141,6 +161,12 @@ function make_match3()
           game.set_color(e.id, e.r, e.g, e.b, e.life / e.ttl)
         elseif e.kind == "beam" then
           game.set_color(e.id, e.r, e.g, e.b, (e.life / e.ttl) * 0.85)
+        elseif e.kind == "flash" then
+          e.size = e.size + e.grow * dt
+          game.set_size(e.id, e.size, e.size)
+          game.set_color(e.id, e.r, e.g, e.b, (e.life / e.ttl) * e.a0)
+        elseif e.kind == "praise" then
+          game.set_rotation(e.id, math.sin(clock * 16) * 0.05)   -- little wobble
         end
         keep[#keep + 1] = e
       end
@@ -454,7 +480,7 @@ function make_match3()
     for _, cc in ipairs(cleared) do local x, y = center(cc.c, cc.r); sx, sy = sx + x, sy + y end
     sx, sy = sx / #cleared, sy / #cleared
     popup(sx, sy, "+" .. gained, combo > 1 and 30 or 24)
-    if combo >= 2 then popup(0, board_top + 34, "COMBO x" .. combo, 34) end
+    if combo >= 2 then praise(combo) end
     game.play_sound(combo >= 3 and "score" or "hit")
     game.haptic(combo > 1 and "success" or "light")
     game.shake(math.min(0.55, 0.10 + 0.08 * combo + 0.02 * #cleared))
@@ -707,6 +733,7 @@ function make_match3()
     for _, a in ipairs(amb) do game.despawn(a.id) end; amb = {}
     if bg_img then game.despawn(bg_img); bg_img = nil end
     over, won, st, hud_on, ice_left = false, false, "idle", nil, 0
+    map_pin = nil
     press, sel, bounce, pending, next_seeds, swap_cells, combo = nil, nil, nil, nil, nil, nil, 0
   end
 
@@ -809,13 +836,16 @@ function make_match3()
       local nd = nodes[i]
       local unlocked = i <= progress.unlocked
       local done = (progress.stars[i] or 0) > 0
+      local current = unlocked and i == progress.unlocked        -- the frontier: "you are here"
       if unlocked then
-        local g = T.sprite(nd.x, nd.y, 96, 96, "sparkle")          -- soft circular halo
-        game.set_color(g, done and 1.0 or 0.55, done and 0.9 or 0.85, done and 0.45 or 0.55, done and 0.55 or 0.42)
-        T.sprite(nd.x, nd.y + 6, 58, 58, done and "gdaisy" or "gleaf")
-        T.text(nd.x, nd.y - 30, 26, 1, 1, 1, 1, tostring(i))
+        local hs = current and 126 or 96
+        local g = T.sprite(nd.x, nd.y, hs, hs, "sparkle")          -- soft halo (bigger on the current node)
+        game.set_color(g, done and 1.0 or 0.55, done and 0.9 or 0.85, done and 0.45 or 0.55, current and 0.72 or (done and 0.55 or 0.42))
+        T.sprite(nd.x, nd.y + 6, current and 66 or 58, current and 66 or 58, done and "gdaisy" or "gleaf")
+        T.text(nd.x, nd.y - 30, current and 30 or 26, 1, 1, 1, 1, tostring(i))
         local s = progress.stars[i] or 0
         T.text(nd.x, nd.y - 52, 15, 1, 0.9, 0.4, 1, string.rep("*", s) .. string.rep(".", 3 - s))
+        if current then map_pin = { id = T.sprite(nd.x, nd.y + 58, 46, 46, "mstar"), x = nd.x, y = nd.y + 58 } end
         buttons[#buttons + 1] = { x = nd.x, y = nd.y, w = 84, h = 84, act = "lvl" .. i }
       else
         local rk = T.sprite(nd.x, nd.y + 4, 50, 50, "rock")        -- faded = still locked
@@ -1057,6 +1087,9 @@ function make_match3()
       if screen == nil then game.set_bg_theme(1); show_start() end
       dt = math.min(dt, MAX_DT)
       if screen == "play" then update_play(dt) end
+      if screen == "map" and map_pin then                -- bob the "you are here" marker
+        game.move_to(map_pin.id, map_pin.x, map_pin.y + math.abs(math.sin(clock * 3)) * 9)
+      end
       update_ambient(dt)
       update_fx(dt)
     end,
