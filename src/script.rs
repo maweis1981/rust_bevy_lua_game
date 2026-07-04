@@ -56,6 +56,8 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use bevy::asset::{io::Reader, AssetLoader, LoadContext, LoadState};
+use bevy::core_pipeline::tonemapping::Tonemapping;
+use bevy::post_process::bloom::{Bloom, BloomPrefilter};
 use bevy::prelude::*;
 use bevy::sprite::Anchor;
 use mlua::{Function, Lua};
@@ -126,7 +128,20 @@ struct MusicTrack(Option<Entity>);
 struct TextureCache(HashMap<String, Handle<Image>>);
 
 fn setup_scene(mut commands: Commands, assets: Res<AssetServer>) {
-    commands.spawn((Camera2d, GameCamera));
+    // HDR + bloom so bright (>1.0) effect colours — sparkle flashes, combo pops,
+    // rocket beams — glow. Tonemapping::None keeps the pixel-art sprites faithful
+    // (no colour shift); a prefilter threshold of 1.0 means ONLY HDR effect colours
+    // bloom, never the base art. Adding `Bloom` auto-requires the `Hdr` component.
+    commands.spawn((
+        Camera2d,
+        Tonemapping::None,
+        Bloom {
+            intensity: 0.28,
+            prefilter: BloomPrefilter { threshold: 1.0, threshold_softness: 0.5 },
+            ..Bloom::NATURAL
+        },
+        GameCamera,
+    ));
 
     let hud = commands
         .spawn((

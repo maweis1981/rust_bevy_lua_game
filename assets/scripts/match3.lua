@@ -28,7 +28,7 @@ function make_match3()
   local SWAP_T, CLEAR_T, LERP, MAX_DT = 0.12, 0.16, 18, 1 / 30
   local HINT_T = 4.0
   local TEX = { "gberry", "gdaisy", "gbell", "gleaf", "gviola", "gmush" }
-  local NAME = { "BERRY", "DAISY", "BELL", "CLOVER", "VIOLET", "SHROOM" }
+  local NAME = { "BERRY", "SUNFLOWER", "BLUEBERRY", "CLOVER", "GRAPE", "SHROOM" }
   local PAL = {
     { 0.92, 0.25, 0.28 }, { 0.97, 0.82, 0.24 }, { 0.42, 0.55, 0.95 },
     { 0.40, 0.80, 0.36 }, { 0.68, 0.42, 0.86 }, { 0.96, 0.55, 0.25 },
@@ -119,22 +119,29 @@ function make_match3()
     fx[#fx + 1] = { kind = "text", id = game.spawn_text(x, y, size or 26, 1, 1, 1, 1, text),
       x = x, y = y, vy = 90, life = 0.7 }
   end
+  -- Effect colours are pushed above 1.0 (HDR) so the camera's bloom makes them
+  -- glow; base sprites stay in 0..1 and are untouched by bloom (threshold 1.0).
   local function burst(x, y, col, n)
+    local br = 1.7
+    local r, g, b = col[1] * br, col[2] * br, col[3] * br
     for i = 1, (n or 3) do
       local a = (i / (n or 3)) * 6.28 + clock
       local id = game.spawn_sprite(x, y, psize * 0.5, psize * 0.5, "sparkle")
-      game.set_color(id, col[1], col[2], col[3], 1)
+      game.set_color(id, r, g, b, 1)
       fx[#fx + 1] = { kind = "part", id = id, x = x, y = y,
         vx = math.cos(a) * 120, vy = math.sin(a) * 120 + 40, life = 0.45, ttl = 0.45,
-        size = psize * 0.5, r = col[1], g = col[2], b = col[3] }
+        size = psize * 0.5, r = r, g = g, b = b }
     end
   end
   -- A quick scale-up-and-fade sprite flash (sprites can scale/fade; text can't).
+  -- Bright HDR colour so it blooms into a soft glow.
   local function flash(x, y, sz, col)
+    local br = 3.0
+    local r, g, b = col[1] * br, col[2] * br, col[3] * br
     local id = game.spawn_sprite(x, y, sz, sz, "sparkle")
-    game.set_color(id, col[1], col[2], col[3], 0.85)
+    game.set_color(id, r, g, b, 0.9)
     fx[#fx + 1] = { kind = "flash", id = id, x = x, y = y, size = sz, grow = sz * 2.4,
-      life = 0.34, ttl = 0.34, r = col[1], g = col[2], b = col[3], a0 = 0.85 }
+      life = 0.34, ttl = 0.34, r = r, g = g, b = b, a0 = 0.9 }
   end
   -- Big praise word-art (escalating with the combo) punched over the board, with a
   -- gold flash behind it. Text can't scale/fade on device, so it drifts + wobbles.
@@ -176,7 +183,8 @@ function make_match3()
   -- A bright fading streak across a triggered rocket's row/column (or a burst
   -- for a colour bomb) so line-clears read clearly.
   local function beam_fx(f)
-    local id, x, y, r, g, b = nil, 0, 0, 1.0, 0.9, 0.42
+    -- bright HDR gold/white so the streak blooms
+    local id, x, y, r, g, b = nil, 0, 0, 2.2, 1.9, 0.9
     if f.sp == "row" then
       local _, cy = center(1, f.r); x, y = 0, cy
       id = game.spawn(0, cy, COLS * cell, cell * 0.92, r, g, b, 0.85)
@@ -184,8 +192,8 @@ function make_match3()
       x = (center(f.c, 1)); y = board_top - ROWS * cell * 0.5
       id = game.spawn(x, y, cell * 0.92, ROWS * cell, r, g, b, 0.85)
     else
-      x, y = center(f.c, f.r); r, g, b = 1, 1, 1
-      id = game.spawn_sprite(x, y, psize * 2.3, psize * 2.3, "sparkle"); game.set_color(id, 1, 1, 1, 0.9)
+      x, y = center(f.c, f.r); r, g, b = 2.4, 2.4, 2.4
+      id = game.spawn_sprite(x, y, psize * 2.3, psize * 2.3, "sparkle"); game.set_color(id, r, g, b, 0.9)
     end
     fx[#fx + 1] = { kind = "beam", id = id, x = x, y = y, life = 0.34, ttl = 0.34, r = r, g = g, b = b }
   end
