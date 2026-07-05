@@ -186,17 +186,41 @@ def gen_music():
 
 
 def gen_garden():
-    # Slower, sparser, higher "cozy garden" ambience (C - Am - F - G) — a gentle
-    # bell twinkle over a warm pad. Used by the Gem Match scene.
+    # Upbeat, lively Gem Match theme: a bouncy octave-up arpeggio + a plucked bass
+    # pulse (beats 1 & 3) over a thin pad, on a bright major I-V-vi-IV loop
+    # (C - G - Am - F). Faster tempo and light reverb so it stays crisp and cheerful
+    # rather than the old slow ambience.
     chords = [
-        (130.81, [523.25, 659.25, 783.99, 659.25]),   # C
-        (220.00, [523.25, 659.25, 880.00, 659.25]),   # Am
-        (174.61, [523.25, 698.46, 880.00, 698.46]),   # F
-        (196.00, [587.33, 783.99, 987.77, 783.99]),   # G
+        (130.81, [261.63, 329.63, 392.00, 523.25]),   # C
+        (196.00, [293.66, 392.00, 493.88, 587.33]),   # G
+        (220.00, [261.63, 329.63, 440.00, 523.25]),   # Am
+        (174.61, [349.23, 440.00, 523.25, 698.46]),   # F
     ]
-    buf = _loop(chords, bar=2.8, pattern=[0, None, 1, None, 2, None, 3, None],
-                arp_amp=0.08, bass_amp=0.10, peak=0.80)
-    write_wav(os.path.join(OUT, "garden.wav"), stereo_reverb(buf, 0.60, wet=0.40))
+    bar = 1.6
+    eighth = bar / 8.0
+    total = int(SR * bar * len(chords))
+    buf = [0.0] * total
+
+    def add(note, start):
+        for j, v in enumerate(note):
+            buf[(start + j) % total] += v            # wrap-around == seamless loop
+
+    pattern = [0, 2, 1, 3, 2, 3, 1, 2]               # a bouncy up-down arpeggio
+    pos = 0
+    for bass, arp in chords:
+        # plucked bass pulse on beats 1 and 3 for a lively bounce
+        add(soft_note(bass, eighth * 1.5, amp=0.13, attack=0.004), pos)
+        add(soft_note(bass * 1.5, eighth * 1.5, amp=0.09, attack=0.004),
+            pos + int(4 * eighth * SR))
+        # a thin sustaining pad root so it isn't dry
+        add(pad_note(bass, bar * 0.99, amp=0.05, attack=0.10), pos)
+        # bright, twinkly octave-up arpeggio lead
+        for step, idx in enumerate(pattern):
+            add(soft_note(arp[idx] * 2, eighth * 0.9, amp=0.085, attack=0.004),
+                pos + int(step * eighth * SR))
+        pos += int(bar * SR)
+    buf = normalize(buf, 0.82)
+    write_wav(os.path.join(OUT, "garden.wav"), stereo_reverb(buf, 0.55, wet=0.22))
 
 
 if __name__ == "__main__":

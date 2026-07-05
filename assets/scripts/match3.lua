@@ -678,19 +678,24 @@ function make_match3()
     bg_img = game.spawn_sprite(0, 0, 2 * HW + 120, 2 * HH + 360, name)
     game.set_color(bg_img, 1, 1, 1, 0.86)   -- slightly translucent so the aurora/motes show through
   end
-  -- A "garden plot" board: a dark frame + a soft two-tone green checkerboard of
-  -- planting cells (semi-transparent so the backdrop shows through). Every cell
-  -- gets a light border so the grid of planting squares reads clearly.
+  -- A framed "garden planter" board: a chunky two-tone wooden frame around a dark
+  -- inner board, so the glossy gems pop against it. The inner board is a soft
+  -- two-tone green checkerboard of planting cells with a light border each.
   local function draw_board()
-    local cy = board_top - ROWS * cell * 0.5
-    T.spawn(0, cy, COLS * cell + 22, ROWS * cell + 22, 0.05, 0.09, 0.07, 0.62)
-    local BW = 2                                        -- border thickness
+    local gw, gh = COLS * cell, ROWS * cell
+    local cy = board_top - gh * 0.5
+    local F = 15                                        -- frame thickness
+    -- wooden frame: dark outer rim -> lit bevel, then a dark inner board
+    T.spawn(0, cy, gw + 24 + F * 2, gh + 24 + F * 2, 0.30, 0.19, 0.12, 0.97)   -- outer rim (dark wood)
+    T.spawn(0, cy, gw + 24 + F,     gh + 24 + F,     0.54, 0.38, 0.23, 0.97)   -- lit wood bevel
+    T.spawn(0, cy, gw + 24,         gh + 24,         0.08, 0.14, 0.11, 0.96)   -- dark inner board
+    local BW = 2                                        -- cell border thickness
     for r = 1, ROWS do
       for c = 1, COLS do
         local cx, ccy = center(c, r)
-        T.spawn(cx, ccy, cell, cell, 0.86, 0.93, 0.72, 0.32)          -- cell border (light)
-        if (c + r) % 2 == 0 then T.spawn(cx, ccy, cell - 2 * BW, cell - 2 * BW, 0.24, 0.46, 0.29, 0.62)
-        else T.spawn(cx, ccy, cell - 2 * BW, cell - 2 * BW, 0.17, 0.37, 0.23, 0.62) end
+        T.spawn(cx, ccy, cell, cell, 0.80, 0.88, 0.66, 0.16)          -- soft cell border
+        if (c + r) % 2 == 0 then T.spawn(cx, ccy, cell - 2 * BW, cell - 2 * BW, 0.20, 0.36, 0.24, 0.62)
+        else T.spawn(cx, ccy, cell - 2 * BW, cell - 2 * BW, 0.13, 0.27, 0.19, 0.62) end
       end
     end
   end
