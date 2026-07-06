@@ -117,12 +117,18 @@ registry) before `on_update`, never hand Lua a `&World`.
 
 The bridge also exposes juice primitives that scripts drive:
 
-- **Audio.** `game.play_sound(name)` / `game.play_music(name)` map `name` to
-  `assets/audio/<name>.wav` and spawn a Bevy `AudioPlayer` (`DESPAWN` for one-shots,
-  `LOOP` for music; `MusicTrack` tracks the current loop so a new one replaces it). WAV
-  decoding is **not** in Bevy's defaults — the `wav` feature is enabled in `Cargo.toml`.
-  The clips are synthesized (no external assets) by `tools/gen_audio.py`; re-run it to
-  regenerate them.
+- **Audio — three channels (no track pile-ups).** All map `name` to
+  `assets/audio/<name>.wav`. **SFX**: `game.play_sound(name)` one-shots (`DESPAWN`) may
+  overlap, but the *same* sound is de-duplicated within a frame (a burst of identical
+  hits plays once). **Music**: `game.play_music(name)` is one looping track (tagged
+  `MusicSound`); re-requesting the track that's already playing is a no-op (`CurrentMusic`
+  remembers the name) so scene re-entry never restarts or doubles it. **Voice**:
+  `game.play_voice(name)` is a single dialogue channel (tagged `VoiceSound`) — it stops any
+  voice still playing before starting the new line so dialogue never overlaps;
+  `game.stop_voice()` clears it (call on scene exit). Web audio also needs a first user
+  gesture to un-suspend the AudioContext — handled in `web/index.html`. WAV decoding is
+  **not** in Bevy's defaults — the `wav` feature is enabled in `Cargo.toml`. Placeholder
+  clips come from `tools/gen_audio.py`; game BGM/voice come from the Floniks pipeline.
 - **Haptics.** `game.haptic("light"/"medium"/"heavy"/"success")` calls the C shim
   `hl_haptic` in `ios/Sources/haptics.m` (UIKit feedback generators). It's `#[cfg(target_os
   = "ios")]`-gated in Rust and a no-op on desktop, so desktop builds don't link it.
