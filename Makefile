@@ -9,8 +9,9 @@ BUNDLE_ID := com.ngmob.hollow
 CONFIG ?= Debug
 DEVICE_APP := build/DerivedData/Build/Products/$(CONFIG)-iphoneos/hollowlullaby.app
 
-.PHONY: run build check fmt clippy test test-lua ios-lib ios-project ios-build \
-        ios-run device-build device-run ios-archive ios-export ios-ipa clean
+.PHONY: run build check fmt clippy test test-lua web web-serve ios-lib \
+        ios-project ios-build ios-run device-build device-run ios-archive \
+        ios-export ios-ipa clean
 
 # Output locations for the App Store archive + exported IPA (TestFlight).
 ARCHIVE := build/hollowlullaby.xcarchive
@@ -45,6 +46,20 @@ test-lua:
 	@command -v $(LUA) >/dev/null 2>&1 \
 		&& $(LUA) tools/test_pong.lua \
 		|| echo "skip: $(LUA) not found (brew install lua) — gameplay tests not run"
+
+# --- Web (WebAssembly) -----------------------------------------------------
+# Build a static browser bundle into build/web/ (index.html + .js + .wasm +
+# assets/). The web build uses a pure-Rust Lua VM (ottavino) instead of mlua;
+# gameplay/scripts are identical. See docs/web-poc/.
+# One-time setup: rustup target add wasm32-unknown-unknown
+#                 cargo install wasm-bindgen-cli   (match the wasm-bindgen crate)
+#                 (optional) install binaryen for wasm-opt
+web:            ## Build the static web bundle into build/web/
+	bash web/build.sh
+
+web-serve: web  ## Build the web bundle and serve it at http://localhost:8080
+	@echo "serving build/web at http://localhost:8080 (Ctrl-C to stop)"
+	@cd build/web && python3 -m http.server 8080
 
 # --- iOS -------------------------------------------------------------------
 ios-lib:        ## Cross-compile the Rust static lib for the simulator

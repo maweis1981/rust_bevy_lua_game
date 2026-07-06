@@ -4,10 +4,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A 2D **mini-game collection**: **Rust + Bevy 0.19** engine, **Lua 5.4** (via `mlua`,
-vendored) for game logic, shipping to **macOS** (dev) and **iOS**. The Rust crate is the
-single source of truth, compiled as an `rlib` for the desktop binary and as a `staticlib`
-linked into an iOS UIKit app.
+A 2D **mini-game collection**: **Rust + Bevy 0.19** engine, **Lua 5.4** for game logic,
+shipping to **macOS** (dev), **iOS**, and the **web** (WebAssembly). The Rust crate is the
+single source of truth, compiled as an `rlib` for the desktop binary, a `staticlib`
+linked into an iOS UIKit app, and a wasm binary (via `wasm-bindgen`) for the browser.
+
+**The Lua VM host is chosen per platform** (`src/script.rs`, cfg-gated): **`mlua`** (C Lua,
+vendored) on desktop/iOS; **`ottavino`** (a pure-Rust Lua 5.4 VM) on the web, because
+winit's web backend only targets `wasm32-unknown-unknown`, which has no libc/setjmp for C
+Lua. Both backends expose an identical `LuaVm` surface, so the ECS systems and every `.lua`
+script are byte-for-byte the same across platforms — only the VM host differs. `make web` /
+`make web-serve` build the static browser bundle; see `docs/web-poc/` for the full rationale
+and validation, and `third_party/ottavino/PATCH_NOTES.md` for the one-line wasm fix we carry.
 
 `assets/scripts/main.lua` is a small **scene router**: a menu lists games and switches
 between them; each game is a closure returning `{ enter, update, tap, leave }` that tracks

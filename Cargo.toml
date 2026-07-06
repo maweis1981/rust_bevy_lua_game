@@ -19,13 +19,32 @@ path = "src/main.rs"
 [dependencies]
 # `wav` adds the WAV decoder (not in Bevy's defaults) for the game's SFX/music.
 bevy = { version = "0.19", features = ["wav"] }
-# Stock Lua 5.4, compiled from vendored C sources via the `cc` crate so it
-# cross-compiles cleanly to the iOS toolchain.
+
+# --- Lua backend, per platform ---------------------------------------------
+# Desktop/iOS use mlua (stock Lua 5.4, compiled from vendored C sources via `cc`).
+# The web build can't use C Lua: winit only supports wasm32-unknown-unknown,
+# which has no libc/setjmp for C Lua. So wasm uses `ottavino`, a pure-Rust Lua
+# 5.4 VM (piccolo fork with a full stdlib). See docs/web-poc/. The `game` API and
+# script behaviour are identical; only the VM host differs (src/script.rs).
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 mlua = { version = "0.11", features = ["lua54", "vendored"] }
 
-# Enable filesystem asset hot-reload during desktop development only.
-[target.'cfg(not(target_os = "ios"))'.dependencies]
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+ottavino = "0.4"
+# getrandom needs its wasm backend enabled explicitly (both 0.2 and 0.3 are in
+# the tree via different deps); paired with the rustflag in .cargo/config.toml.
+getrandom = { version = "0.3", features = ["wasm_js"] }
+getrandom_02 = { package = "getrandom", version = "0.2", features = ["js"] }
+
+# Enable filesystem asset hot-reload during desktop development only (not iOS,
+# not web — neither has a watchable filesystem).
+[target.'cfg(all(not(target_os = "ios"), not(target_arch = "wasm32")))'.dependencies]
 bevy = { version = "0.19", features = ["file_watcher"] }
+
+# Use our one-line-patched ottavino (fixes a 32-bit/wasm build error). See
+# third_party/ottavino/PATCH_NOTES.md.
+[patch.crates-io]
+ottavino = { path = "third_party/ottavino" }
 
 # Faster iteration: optimize dependencies (Bevy) even in dev builds.
 [profile.dev.package."*"]
@@ -33,3 +52,7 @@ opt-level = 3
 
 [profile.dev]
 opt-level = 1
+
+# Web ships Release; keep the wasm small.
+[profile.release]
+opt-level = "s"
