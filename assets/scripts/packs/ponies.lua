@@ -142,7 +142,7 @@ function make_ponies()
     elseif won then
       game.set_text(string.format("LEVEL %d CLEAR! TAP FOR NEXT", level))
     else
-      game.set_text(string.format("LV %d   HEARTS %d   PONIES LEFT %d", level, hearts, N - placed))
+      game.set_text(string.format("LV %d  HEARTS %d  LEFT %d", level, hearts, N - placed))
     end
   end
 
@@ -216,8 +216,10 @@ function make_ponies()
         local x, y = cell_center(r, c)
         -- Raw spawn (not via T): the board is rebuilt every level, so these are
         -- despawned by clear_board_entities; T only owns the back button + texts.
-        cells[r][c] = game.spawn(x, y, cell - 3, cell - 3, 1, 1, 1, 1)
-        tint(r, c)
+        -- Spawn with the region colour directly (tint() is only for restoring
+        -- after a mistake flash) so the board never depends on same-frame recolor.
+        local col = COLORS[((reg[r][c] - 1) % #COLORS) + 1]
+        cells[r][c] = game.spawn(x, y, cell - 3, cell - 3, col[1], col[2], col[3], 1)
       end
     end
     hud()
