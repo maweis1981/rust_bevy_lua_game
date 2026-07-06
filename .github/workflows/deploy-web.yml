@@ -37,12 +37,20 @@ jobs:
       - name: System deps (binaryen for wasm-opt)
         run: sudo apt-get update && sudo apt-get install -y binaryen
 
-      - name: Install wasm-bindgen-cli (match the wasm-bindgen crate version)
+      # wasm-bindgen-cli must match the wasm-bindgen *crate* version Bevy pulls.
+      - name: Detect wasm-bindgen version
+        id: wbg
         run: |
-          VER=$(cargo metadata --format-version=1 --filter-platform wasm32-unknown-unknown 2>/dev/null \
-            | grep -o '"wasm-bindgen [0-9.]*"' | head -1 | grep -o '[0-9.]*')
-          echo "wasm-bindgen crate version: ${VER:-unknown}"
-          cargo install wasm-bindgen-cli --version "${VER:-0.2.126}" --locked
+          VER=$(cargo metadata --format-version=1 \
+            | jq -r '[.packages[] | select(.name=="wasm-bindgen") | .version] | first // "0.2.100"')
+          echo "wasm-bindgen crate version: $VER"
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+
+      # Prebuilt binary (fast) instead of `cargo install` (slow compile).
+      - name: Install wasm-bindgen-cli
+        uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen-cli@${{ steps.wbg.outputs.version }}
 
       - name: Build web bundle
         run: bash web/build.sh
