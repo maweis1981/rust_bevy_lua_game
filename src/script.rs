@@ -1178,11 +1178,26 @@ fn apply_lua(
                     .id();
                 registry.0.insert(id, entity);
             }
+            // NOTE on the `else` branches below: entities spawned earlier in
+            // THIS drain don't exist in the World yet (Commands apply after the
+            // system), so the Query path misses them and the mutation would be
+            // silently dropped — a same-frame "spawn then tint/rotate" is the
+            // most natural thing for a script to write (the Pony Parade board
+            // shipped white because of exactly this). The fallback queues the
+            // mutation through Commands, which preserves ordering after Spawn.
             LuaCommand::MoveTo { id, x, y } => {
                 if let Some(&entity) = registry.0.get(&id) {
                     if let Ok(mut transform) = transforms.get_mut(entity) {
                         transform.translation.x = x;
                         transform.translation.y = y;
+                    } else {
+                        commands
+                            .entity(entity)
+                            .entry::<Transform>()
+                            .and_modify(move |mut t| {
+                                t.translation.x = x;
+                                t.translation.y = y;
+                            });
                     }
                 }
             }
@@ -1193,6 +1208,11 @@ fn apply_lua(
                 if let Some(&entity) = registry.0.get(&id) {
                     if let Ok(mut sprite) = sprites.get_mut(entity) {
                         sprite.color = Color::srgba(r, g, b, a);
+                    } else {
+                        commands
+                            .entity(entity)
+                            .entry::<Sprite>()
+                            .and_modify(move |mut s| s.color = Color::srgba(r, g, b, a));
                     }
                 }
             }
@@ -1200,6 +1220,11 @@ fn apply_lua(
                 if let Some(&entity) = registry.0.get(&id) {
                     if let Ok(mut sprite) = sprites.get_mut(entity) {
                         sprite.custom_size = Some(Vec2::new(w, h));
+                    } else {
+                        commands
+                            .entity(entity)
+                            .entry::<Sprite>()
+                            .and_modify(move |mut s| s.custom_size = Some(Vec2::new(w, h)));
                     }
                 }
             }
@@ -1207,17 +1232,28 @@ fn apply_lua(
                 if let Some(&entity) = registry.0.get(&id) {
                     if let Ok(mut transform) = transforms.get_mut(entity) {
                         transform.rotation = Quat::from_rotation_z(radians);
+                    } else {
+                        commands
+                            .entity(entity)
+                            .entry::<Transform>()
+                            .and_modify(move |mut t| t.rotation = Quat::from_rotation_z(radians));
                     }
                 }
             }
             LuaCommand::SetSpriteImage { id, image } => {
                 if let Some(&entity) = registry.0.get(&id) {
+                    let handle = tex_cache
+                        .0
+                        .entry(image.clone())
+                        .or_insert_with(|| assets.load(format!("textures/{image}.png")))
+                        .clone();
                     if let Ok(mut sprite) = sprites.get_mut(entity) {
-                        sprite.image = tex_cache
-                            .0
-                            .entry(image.clone())
-                            .or_insert_with(|| assets.load(format!("textures/{image}.png")))
-                            .clone();
+                        sprite.image = handle;
+                    } else {
+                        commands
+                            .entity(entity)
+                            .entry::<Sprite>()
+                            .and_modify(move |mut s| s.image = handle);
                     }
                 }
             }
