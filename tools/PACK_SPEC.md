@@ -30,7 +30,7 @@ within a tier. The menu is built automatically from PACKS — no other edits.
 - `game.move_to(id,x,y)` · `game.set_color(id,r,g,b,a)` · `game.set_size(id,w,h)`
 - `game.set_rotation(id, radians)` · `game.set_sprite_image(id, name)` · `game.despawn(id)`
 - `game.set_text(str)`                          top-left HUD line (respect SETTINGS.hud; router blanks it when off)
-- `game.shake(0..1)` · `game.play_sound("hit"|"wall"|"score")` · `game.haptic("light"|"medium"|"heavy"|"success")`
+- `game.shake(0..1)` · `game.zoom(0..1)` (camera punch-in, decays back) · `game.play_sound("hit"|"wall"|"score")` · `game.haptic("light"|"medium"|"heavy"|"success")`
 - reads: `game.pointer() -> x,y,down` · `game.key(name)` · `game.bounds() -> hw,hh`
 
 ## GAME_KIT helpers (shared)
@@ -43,7 +43,8 @@ within a tier. The menu is built automatically from PACKS — no other edits.
 orb, paddle, brick, tile, food, gem, hero, enemy, snakehead, snakebody, flower,
 villager, tree, rock, ship, alien, shot, sparkle, gberry, gdaisy, gbell, gleaf,
 gviola, gmush, pony, icon_heart, icon_coin, icon_bolt, icon_trophy, icon_clock, icon_bulb,
-icon_trash, icon_find, icon_eye, icon_pin. (`game.set_color` tints the grayscale ones: orb/paddle/brick/tile.)
+icon_trash, icon_find, icon_eye, icon_pin, rtile, rxmark, rpill, rcard (rounded UI, from
+tools/gen_ui_tiles.py). (`game.set_color` tints the grayscale/white ones: orb/paddle/brick/tile/rtile/rxmark/rpill/rcard.)
 
 ## Hard rules
 1. On-screen text: **ASCII is always safe**. CJK is allowed ONLY for glyphs already in

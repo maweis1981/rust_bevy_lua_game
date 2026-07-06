@@ -33,7 +33,7 @@ function make_ponies()
     { 0.90, 0.80, 0.55 }, -- sand
     { 0.80, 0.65, 0.85 }, -- mauve
   }
-  local START_N, MAX_N = 5, 10
+  local START_N, MAX_N = 8, 10
   local HEARTS0 = 2
   local FLASH_T = 0.45
 
@@ -49,7 +49,9 @@ function make_ponies()
   local won, dead = false, false
   local time_left, time_shown = 0, -1
   local flash = {}                -- red mistake flashes / yellow hint flashes
+  local anims = {}                -- pony pop-in tweens { id, t, dur, to }
   local ox, oy, cell = 0, 0, 0
+  local board_panel = nil
   local scr_hw, scr_hh = 215, 466
 
   -- HUD entity ids (text redrawn in place via despawn+respawn)
@@ -133,16 +135,91 @@ function make_ponies()
     return count
   end
 
-  local function gen_level(n)
-    for _ = 1, 30 do
-      local s = gen_solution(n)
-      for _ = 1, 8 do
-        local rg = gen_regions(n, s)
-        if count_solutions(n, rg, 2) == 1 then return s, rg end
+  -- Hill-climb a region layout toward uniqueness: reassign one boundary cell
+  -- to a neighbouring region (never a pony's own seed cell), keep the change
+  -- when it doesn't increase the solution count. Converges far faster than
+  -- blind re-rolls at N >= 8, and every step keeps regions contiguous-safe by
+  -- re-checking the donor region still connects through a flood fill.
+  local function region_cells(rg, n, k)
+    local out = {}
+    for r = 1, n do for c = 1, n do if rg[r][c] == k then out[#out + 1] = { r, c } end end end
+    return out
+  end
+
+  local function still_contiguous(rg, n, k)
+    local cellsk = region_cells(rg, n, k)
+    if #cellsk == 0 then return false end
+    local seen, stack, found = {}, { cellsk[1] }, 0
+    while #stack > 0 do
+      local p = table.remove(stack)
+      local r, c = p[1], p[2]
+      local key = r * 100 + c
+      if r >= 1 and r <= n and c >= 1 and c <= n and not seen[key] and rg[r][c] == k then
+        seen[key] = true; found = found + 1
+        stack[#stack + 1] = { r + 1, c }; stack[#stack + 1] = { r - 1, c }
+        stack[#stack + 1] = { r, c + 1 }; stack[#stack + 1] = { r, c - 1 }
       end
     end
-    local s = gen_solution(n)
-    return s, gen_regions(n, s)
+    return found == #cellsk
+  end
+
+  local function refine_to_unique(n, s, rg, steps)
+    -- true (capped) count gives the climb a gradient; limit keeps it cheap
+    local CAP = 400
+    local best = count_solutions(n, rg, CAP)
+    for _ = 1, steps do
+      if best <= 1 then return rg, best end
+      -- collect boundary cells (not pony seeds) that touch a different region
+      local opts = {}
+      for r = 1, n do
+        for c = 1, n do
+          if s[r] ~= c or rg[r][c] ~= r then -- never move a pony's seed cell
+            for _, d in ipairs(DIRS) do
+              local rr, cc = r + d[1], c + d[2]
+              if rr >= 1 and rr <= n and cc >= 1 and cc <= n and rg[rr][cc] ~= rg[r][c] then
+                opts[#opts + 1] = { r, c, rg[rr][cc] }
+                break
+              end
+            end
+          end
+        end
+      end
+      if #opts == 0 then break end
+      local pick = opts[math.random(#opts)]
+      local r, c, to = pick[1], pick[2], pick[3]
+      local from = rg[r][c]
+      -- a pony's cell must stay in its own region
+      if s[r] == c then goto continue end
+      rg[r][c] = to
+      if not still_contiguous(rg, n, from) or region_cells(rg, n, from)[1] == nil then
+        rg[r][c] = from
+      else
+        -- early-out at best+1: we only care whether this is an improvement
+        local cnt = count_solutions(n, rg, best + 1)
+        if cnt < best or (cnt == best and math.random() < 0.25) then
+          best = cnt
+        else
+          rg[r][c] = from
+        end
+      end
+      ::continue::
+    end
+    return rg, best
+  end
+
+  local function gen_level(n)
+    local fallback_s, fallback_rg = nil, nil
+    for _ = 1, 12 do
+      local s = gen_solution(n)
+      for _ = 1, 4 do
+        local rg = gen_regions(n, s)
+        local refined, cnt = refine_to_unique(n, s, rg, 240)
+        if cnt == 1 then return s, refined end
+        fallback_s, fallback_rg = s, refined
+      end
+    end
+    -- Capped fallback: still a valid, winnable board (may have siblings).
+    return fallback_s or gen_solution(n), fallback_rg or gen_regions(n, fallback_s or gen_solution(n))
   end
 
   ----------------------------------------------------------------------------
@@ -159,7 +236,7 @@ function make_ponies()
 
   local function clear_overlay_at(r, c)
     if xmarks[r][c] then
-      game.despawn(xmarks[r][c][1]); game.despawn(xmarks[r][c][2]); xmarks[r][c] = nil
+      game.despawn(xmarks[r][c][1]); xmarks[r][c] = nil
     end
     if ponies[r][c] then game.despawn(ponies[r][c]); ponies[r][c] = nil end
   end
@@ -168,12 +245,13 @@ function make_ponies()
     clear_overlay_at(r, c)
     local x, y = cell_center(r, c)
     if state[r][c] == 1 then
-      local a = game.spawn(x, y, cell * 0.58, cell * 0.15, 1, 1, 1, 0.95)
-      local b = game.spawn(x, y, cell * 0.58, cell * 0.15, 1, 1, 1, 0.95)
-      game.set_rotation(a, 0.785); game.set_rotation(b, -0.785)
-      xmarks[r][c] = { a, b }
+      local m = game.spawn_sprite(x, y, cell * 0.62, cell * 0.62, "rxmark")
+      game.set_color(m, 0.30, 0.32, 0.38, 0.92)
+      xmarks[r][c] = { m }
     elseif state[r][c] == 2 then
-      ponies[r][c] = game.spawn_sprite(x, y, cell * 0.88, cell * 0.88, "pony")
+      local id = game.spawn_sprite(x, y, cell * 0.30, cell * 0.30, "pony")
+      ponies[r][c] = id
+      anims[#anims + 1] = { id = id, t = 0, dur = 0.18, to = cell * 0.88 }
     end
   end
 
@@ -213,15 +291,15 @@ function make_ponies()
     dyn[key] = game.spawn_text(x, y, size, r, g, b, a, s)
   end
 
-  local function hud_level() retext("level", 0, scr_hh - 118, 30, 0.16, 0.18, 0.30, 1, "第" .. level .. "关") end
-  local function hud_streak() retext("streak", scr_hw - 78, scr_hh - 160, 17, 0.85, 0.15, 0.15, 1, "连胜：" .. streak) end
-  local function hud_left() retext("left", -scr_hw + 118, scr_hh - 212, 16, 0.85, 0.15, 0.15, 1, "剩余：" .. (N - placed)) end
-  local function hud_coins() retext("coins", -scr_hw + 96, scr_hh - 118, 16, 0.35, 0.30, 0.20, 1, tostring(coins)) end
+  local function hud_level() retext("level", 0, scr_hh - 114, 32, 0.16, 0.18, 0.30, 1, "第" .. level .. "关") end
+  local function hud_streak() retext("streak", scr_hw - 72, scr_hh - 152, 17, 0.85, 0.15, 0.15, 1, "连胜：" .. streak) end
+  local function hud_left() retext("left", -scr_hw + 120, scr_hh - 292, 16, 0.85, 0.15, 0.15, 1, "剩余：" .. (N - placed)) end
+  local function hud_coins() retext("coins", -scr_hw + 92, scr_hh - 210, 16, 1, 1, 1, 1, tostring(coins)) end
   local function hud_time()
     local t = math.max(0, math.ceil(time_left))
     if t == time_shown then return end
     time_shown = t
-    retext("time", scr_hw - 80, scr_hh - 212, 16, 0.85, 0.15, 0.15, 1, "剩余时间：" .. t)
+    retext("time", scr_hw - 88, scr_hh - 292, 16, 0.85, 0.15, 0.15, 1, "剩余时间：" .. t)
   end
   local function hud_hearts()
     for i = 1, HEARTS0 do
@@ -233,69 +311,84 @@ function make_ponies()
     end
   end
   local function hud_badges()
-    retext("findn", -70, -scr_hh + 64, 15, 1, 1, 1, 1, find_charges > 0 and tostring(find_charges) or "+")
-    retext("bulbn", 70, -scr_hh + 64, 15, 1, 1, 1, 1, bulb_charges > 0 and tostring(bulb_charges) or "+")
+    retext("findn", -70, -scr_hh + 62, 15, 1, 1, 1, 1, find_charges > 0 and tostring(find_charges) or "+")
+    retext("bulbn", 70, -scr_hh + 62, 15, 1, 1, 1, 1, bulb_charges > 0 and tostring(bulb_charges) or "+")
   end
 
   local BTN = {}  -- tap rects for toolbar buttons
+
+  local function pill(x, y, w, h, r, g, b, a)
+    local id = T.sprite(x, y, w, h, "rpill")
+    game.set_color(id, r, g, b, a)
+    return id
+  end
+
+  local function card(x, y, w, h, r, g, b, a)
+    local id = T.sprite(x, y, w, h, "rcard")
+    game.set_color(id, r, g, b, a)
+    return id
+  end
 
   local function build_hud()
     -- pale board-room backdrop, spawned first so everything draws over it
     T.spawn(0, 0, scr_hw * 2 + 4, scr_hh * 2 + 4, 0.80, 0.85, 0.91, 1)
     back = K.make_back(T, scr_hw, scr_hh)
 
-    -- coins + energy pills (top-left, under the back button)
-    T.spawn(-scr_hw + 78, scr_hh - 118, 120, 30, 0.62, 0.66, 0.74, 0.9)
-    T.sprite(-scr_hw + 32, scr_hh - 118, 26, 26, "icon_coin")
-    T.spawn(-scr_hw + 78, scr_hh - 156, 120, 30, 0.62, 0.66, 0.74, 0.9)
-    T.sprite(-scr_hw + 32, scr_hh - 156, 26, 26, "icon_bolt")
-    T.text(-scr_hw + 96, scr_hh - 156, 16, 0.35, 0.30, 0.20, 1, tostring(energy))
+    -- title with a soft drop shadow (rounded bold subset font)
+    T.text(2, scr_hh - 112, 32, 0.10, 0.12, 0.22, 0.25, "第" .. level .. "关")
 
-    -- hearts pill (centered) + streak pill (right)
-    T.spawn(0, scr_hh - 160, 128, 36, 1, 1, 1, 0.95)
-    dyn["heart1"] = game.spawn_sprite(-24, scr_hh - 160, 26, 26, "icon_heart")
-    dyn["heart2"] = game.spawn_sprite(24, scr_hh - 160, 26, 26, "icon_heart")
-    T.spawn(scr_hw - 92, scr_hh - 160, 150, 34, 1, 1, 1, 0.95)
-    T.sprite(scr_hw - 152, scr_hh - 160, 28, 28, "icon_trophy")
+    -- hearts pill (centered) + streak pill (right), same row as the back button
+    pill(0, scr_hh - 152, 132, 40, 1, 1, 1, 0.95)
+    dyn["heart1"] = game.spawn_sprite(-26, scr_hh - 152, 28, 28, "icon_heart")
+    dyn["heart2"] = game.spawn_sprite(26, scr_hh - 152, 28, 28, "icon_heart")
+    pill(scr_hw - 88, scr_hh - 152, 158, 38, 1, 1, 1, 0.95)
+    T.sprite(scr_hw - 152, scr_hh - 152, 28, 28, "icon_trophy")
 
-    -- remaining + countdown pills
-    T.spawn(-scr_hw + 108, scr_hh - 212, 190, 32, 1, 1, 1, 0.85)
-    T.sprite(-scr_hw + 34, scr_hh - 212, 26, 26, "pony")
-    T.spawn(scr_hw - 104, scr_hh - 212, 198, 32, 1, 1, 1, 0.85)
-    T.sprite(scr_hw - 190, scr_hh - 212, 24, 24, "icon_clock")
+    -- coins + energy pills (left column, under the back button)
+    pill(-scr_hw + 76, scr_hh - 210, 118, 32, 0.60, 0.64, 0.72, 0.9)
+    T.sprite(-scr_hw + 34, scr_hh - 210, 26, 26, "icon_coin")
+    pill(-scr_hw + 76, scr_hh - 246, 118, 32, 0.60, 0.64, 0.72, 0.9)
+    T.sprite(-scr_hw + 34, scr_hh - 246, 26, 26, "icon_bolt")
+    T.text(-scr_hw + 92, scr_hh - 246, 16, 1, 1, 1, 1, tostring(energy))
+
+    -- remaining + countdown pills (dashed row in the reference)
+    pill(-scr_hw + 106, scr_hh - 292, 194, 34, 1, 1, 1, 0.9)
+    T.sprite(-scr_hw + 32, scr_hh - 292, 26, 26, "pony")
+    pill(scr_hw - 106, scr_hh - 292, 200, 34, 1, 1, 1, 0.9)
+    T.sprite(scr_hw - 192, scr_hh - 292, 24, 24, "icon_clock")
 
     -- three-rule banner
-    T.spawn(0, scr_hh - 272, scr_hw * 2 - 24, 62, 1, 1, 1, 0.95)
-    T.text(-scr_hw * 0.62, scr_hh - 272, 13, 0.20, 0.22, 0.32, 1, "每种颜色1匹\n小马")
-    T.spawn(-scr_hw * 0.30, scr_hh - 272, 2, 46, 0.85, 0.87, 0.90, 1)
-    T.text(0, scr_hh - 272, 13, 0.20, 0.22, 0.32, 1, "每行每列均有且\n仅有1匹小马")
-    T.spawn(scr_hw * 0.30, scr_hh - 272, 2, 46, 0.85, 0.87, 0.90, 1)
-    T.text(scr_hw * 0.62, scr_hh - 272, 13, 0.20, 0.22, 0.32, 1, "小马不能相邻")
+    pill(0, scr_hh - 338, scr_hw * 2 - 20, 58, 1, 1, 1, 0.95)
+    T.text(-scr_hw * 0.62, scr_hh - 338, 13, 0.20, 0.22, 0.32, 1, "每种颜色1匹\n小马")
+    T.spawn(-scr_hw * 0.30, scr_hh - 338, 2, 40, 0.86, 0.88, 0.91, 1)
+    T.text(0, scr_hh - 338, 13, 0.20, 0.22, 0.32, 1, "每行每列均有且\n仅有1匹小马")
+    T.spawn(scr_hw * 0.30, scr_hh - 338, 2, 40, 0.86, 0.88, 0.91, 1)
+    T.text(scr_hw * 0.62, scr_hh - 338, 13, 0.20, 0.22, 0.32, 1, "小马不能相邻")
 
     -- bottom toolbar: clear · find tool · bulb tool · colourblind · coords
     local by = -scr_hh + 96
-    BTN.clear = { x = -scr_hw + 44, y = by, w = 84, h = 74 }
-    T.spawn(BTN.clear.x, BTN.clear.y, BTN.clear.w, BTN.clear.h, 0.62, 0.72, 0.84, 0.95)
+    BTN.clear = { x = -scr_hw + 46, y = by, w = 84, h = 76 }
+    card(BTN.clear.x, BTN.clear.y, BTN.clear.w, BTN.clear.h, 0.62, 0.72, 0.84, 0.95)
     T.sprite(BTN.clear.x, BTN.clear.y + 12, 30, 30, "icon_trash")
     T.text(BTN.clear.x, BTN.clear.y - 22, 14, 1, 1, 1, 1, "清除")
 
     BTN.find = { x = -70, y = by, w = 96, h = 96 }
-    T.spawn(BTN.find.x, BTN.find.y, BTN.find.w, BTN.find.h, 1, 1, 1, 0.95)
+    card(BTN.find.x, BTN.find.y, BTN.find.w, BTN.find.h, 1, 1, 1, 0.97)
     T.sprite(BTN.find.x, BTN.find.y + 8, 62, 62, "icon_find")
-    T.spawn(BTN.find.x, -scr_hh + 64, 84, 22, 0.15, 0.35, 0.80, 1)
+    pill(BTN.find.x, -scr_hh + 62, 84, 22, 0.15, 0.35, 0.80, 1)
 
     BTN.bulb = { x = 70, y = by, w = 96, h = 96 }
-    T.spawn(BTN.bulb.x, BTN.bulb.y, BTN.bulb.w, BTN.bulb.h, 1, 1, 1, 0.95)
+    card(BTN.bulb.x, BTN.bulb.y, BTN.bulb.w, BTN.bulb.h, 1, 1, 1, 0.97)
     T.sprite(BTN.bulb.x, BTN.bulb.y + 8, 58, 58, "icon_bulb")
-    T.spawn(BTN.bulb.x, -scr_hh + 64, 84, 22, 0.15, 0.35, 0.80, 1)
+    pill(BTN.bulb.x, -scr_hh + 62, 84, 22, 0.15, 0.35, 0.80, 1)
 
-    BTN.coord = { x = scr_hw - 42, y = by, w = 80, h = 74 }
-    T.spawn(BTN.coord.x, BTN.coord.y, BTN.coord.w, BTN.coord.h, 0.62, 0.72, 0.84, 0.95)
+    BTN.coord = { x = scr_hw - 44, y = by, w = 80, h = 76 }
+    card(BTN.coord.x, BTN.coord.y, BTN.coord.w, BTN.coord.h, 0.62, 0.72, 0.84, 0.95)
     T.sprite(BTN.coord.x, BTN.coord.y + 12, 28, 28, "icon_pin")
     T.text(BTN.coord.x, BTN.coord.y - 22, 14, 1, 1, 1, 1, "坐标")
 
-    BTN.cb = { x = scr_hw - 48, y = by + 108, w = 86, h = 76 }
-    T.spawn(BTN.cb.x, BTN.cb.y, BTN.cb.w, BTN.cb.h, 0.92, 0.94, 0.97, 0.95)
+    BTN.cb = { x = scr_hw - 50, y = by + 110, w = 86, h = 78 }
+    card(BTN.cb.x, BTN.cb.y, BTN.cb.w, BTN.cb.h, 0.94, 0.96, 0.99, 0.95)
     T.sprite(BTN.cb.x, BTN.cb.y + 14, 34, 34, "icon_eye")
     T.text(BTN.cb.x, BTN.cb.y - 22, 12, 0.85, 0.15, 0.15, 1, "色盲模式")
 
@@ -312,7 +405,11 @@ function make_ponies()
 
   local function show_overlay(title, subtitle, r, g, b)
     clear_overlay()
-    overlay[#overlay + 1] = game.spawn(0, 0, scr_hw * 1.7, 150, 1, 1, 1, 0.97)
+    overlay[#overlay + 1] = (function()
+      local id = game.spawn_sprite(0, 0, scr_hw * 1.7, 170, "rcard")
+      game.set_color(id, 1, 1, 1, 0.97)
+      return id
+    end)()
     overlay[#overlay + 1] = game.spawn_text(0, 26, 30, r, g, b, 1, title)
     overlay[#overlay + 1] = game.spawn_text(0, -30, 17, 0.35, 0.38, 0.48, 1, subtitle)
   end
@@ -358,6 +455,7 @@ function make_ponies()
   -- Level lifecycle
   ----------------------------------------------------------------------------
   local function clear_board_entities()
+    if board_panel then game.despawn(board_panel); board_panel = nil end
     if not cells then return end
     for r = 1, N do
       for c = 1, N do
@@ -374,17 +472,21 @@ function make_ponies()
     state, cells, xmarks, ponies = {}, {}, {}, {}
     hearts, placed, won, dead, flash = HEARTS0, 0, false, false, {}
     time_left, time_shown = N * 10, -1
-    local board = math.min(2 * scr_hw * 0.875, 2 * scr_hh * 0.44)
+    anims = {}
+    local board = math.min(2 * scr_hw * 0.875, 2 * scr_hh * 0.42)
     cell = board / N
     ox = -board / 2 + cell / 2
-    oy = -scr_hh * 0.02 + board / 2 - cell / 2
+    oy = (scr_hh - 372) - cell / 2
+    board_panel = game.spawn_sprite(0, oy - (N - 1) * cell / 2, board + 18, board + 18, "rcard")
+    game.set_color(board_panel, 1, 1, 1, 0.92)
     for r = 1, N do
       state[r], cells[r], xmarks[r], ponies[r] = {}, {}, {}, {}
       for c = 1, N do
         state[r][c] = 0
         local x, y = cell_center(r, c)
         local col = COLORS[((reg[r][c] - 1) % #COLORS) + 1]
-        cells[r][c] = game.spawn(x, y, cell - 3, cell - 3, col[1], col[2], col[3], 1)
+        cells[r][c] = game.spawn_sprite(x, y, cell - 4, cell - 4, "rtile")
+        game.set_color(cells[r][c], col[1], col[2], col[3], 1)
       end
     end
     hud_level(); hud_hearts(); hud_left(); hud_time()
@@ -397,7 +499,7 @@ function make_ponies()
     coins = coins + 20
     hud_streak(); hud_coins()
     show_overlay("恭喜过关！", "点击继续", 0.20, 0.65, 0.30)
-    game.play_sound("score"); game.haptic("success"); game.shake(0.5)
+    game.play_sound("score"); game.haptic("success"); game.shake(0.5); game.zoom(1.0)
   end
 
   local function fail_level(reason)
@@ -415,7 +517,7 @@ function make_ponies()
     draw_cell_state(r, c)
     recompute_marks()
     hud_left()
-    game.play_sound("hit"); game.haptic("medium"); game.shake(0.08)
+    game.play_sound("hit"); game.haptic("medium"); game.shake(0.08); game.zoom(0.3)
     if placed == N then win_level() end
   end
 
@@ -438,7 +540,7 @@ function make_ponies()
         hud_hearts()
         flash[#flash + 1] = { r = r, c = c, t = FLASH_T, red = true }
         game.set_color(cells[r][c], 0.92, 0.20, 0.18, 1)
-        game.play_sound("hit"); game.haptic("heavy"); game.shake(0.3)
+        game.play_sound("hit"); game.haptic("heavy"); game.shake(0.3); game.zoom(0.55)
         if hearts <= 0 then fail_level("爱心用完了") end
       end
     end
@@ -547,6 +649,19 @@ function make_ponies()
         time_left = time_left - dt
         hud_time()
         if time_left <= 0 then fail_level("时间到了") end
+      end
+      if #anims > 0 then
+        local keep = {}
+        for _, a in ipairs(anims) do
+          a.t = a.t + dt
+          local f = math.min(1, a.t / a.dur)
+          local sz
+          if f < 0.7 then sz = a.to * (0.34 + 0.94 * (f / 0.7))
+          else sz = a.to * (1.28 - 0.28 * ((f - 0.7) / 0.3)) end
+          game.set_size(a.id, sz, sz)
+          if f < 1 then keep[#keep + 1] = a end
+        end
+        anims = keep
       end
       if #flash > 0 then
         local keep = {}

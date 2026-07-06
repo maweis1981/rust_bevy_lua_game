@@ -23,7 +23,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, "..", "assets", "fonts", "game.ttf")
-TTC = "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"
+TTC = "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc"
 
 # Every non-ASCII string any script renders. ONE list = the font contract.
 STRINGS = [

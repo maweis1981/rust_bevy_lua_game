@@ -126,10 +126,11 @@ The bridge also exposes juice primitives that scripts drive:
 - **Haptics.** `game.haptic("light"/"medium"/"heavy"/"success")` calls the C shim
   `hl_haptic` in `ios/Sources/haptics.m` (UIKit feedback generators). It's `#[cfg(target_os
   = "ios")]`-gated in Rust and a no-op on desktop, so desktop builds don't link it.
-- **Screen shake.** `game.shake(0..1)` adds "trauma" to the `ScreenShake` resource; the
-  `camera_shake` system offsets the tagged `GameCamera` by a trauma² · sine jitter and
-  bleeds trauma back to zero, so effects decay smoothly (no manual per-frame camera math
-  in Lua).
+- **Screen shake + zoom punch.** `game.shake(0..1)` adds "trauma" to the `ScreenShake`
+  resource; the `camera_shake` system offsets the tagged `GameCamera` by a trauma² · sine
+  jitter and bleeds trauma back to zero. `game.zoom(0..1)` pushes the same resource's
+  `zoom` channel: the camera scale punches IN by `zoom_scale(z) = 1 − 0.06·z²` and eases
+  back — impacts feel weighty with no per-frame camera math in Lua.
 - **Recolor / resize.** `game.set_color(id, r,g,b,a)` mutates a sprite's color (ball-trail
   fade, paddle flash, green/red ball telegraph) and `game.set_size(id, w, h)` its
   `custom_size` (the player paddle grows/shrinks); `game.spawn` takes an optional 8th alpha
