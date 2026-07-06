@@ -44,3 +44,10 @@ project.yml           XcodeGen spec -> hollowlullaby.xcodeproj (git-ignored)
 ```
 
 Run `make` with no target list available — see the `Makefile` for all commands.
+
+## Documentation
+
+- [`docs/PROJECT_OVERVIEW.md`](./docs/PROJECT_OVERVIEW.md) — consolidated project
+  overview: layout, architecture, the full game roster & `game.*` API, build/test/ship.
+- [`CLAUDE.md`](./CLAUDE.md) — architecture & conventions (the deepest technical reference).
+- [`tools/PACK_SPEC.md`](./tools/PACK_SPEC.md) — how to author a new playable game pack.
