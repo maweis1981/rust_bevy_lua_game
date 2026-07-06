@@ -23,9 +23,11 @@ its own entities (despawned on leave) and exposes a `DEBUG` table for the tests.
 far: **Grow the Paddle** (Pong variant), **Breakout** (the Bevy example, ported), and
 **Snake**. Add a game by writing a `make_*` closure and adding it to `order`/`scenes`.
 
-**On-screen text is Latin-only.** Bevy's bundled `default_font` (Fira) has no CJK/emoji
-glyphs, so all `set_text` / `spawn_text` strings must be ASCII or they render as blank
-boxes (and spam `ICU4X ... segmentation model` errors). Keep UI copy in English.
+**Fonts: ASCII always works; CJK is subset-gated.** `assets/fonts/game.ttf` is a Noto Sans
+subset built by `tools/subset_font.py` (full printable ASCII + exactly the CJK strings
+registered in its STRINGS list — the Pony Parade UI is Chinese this way). Any NEW CJK
+string must be added to that list and the script re-run, or it renders as blank boxes.
+Emoji are still unsupported.
 
 ## Commands
 

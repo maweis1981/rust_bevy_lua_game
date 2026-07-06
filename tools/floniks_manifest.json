@@ -418,6 +418,86 @@
       "tol": 100,
       "bg": "alpha",
       "subject": "a cute chibi pony, chestnut-brown rounded body, cream blaze on the muzzle, big sparkly dark eyes, flowing caramel mane, tiny legs, side view facing left"
+    },
+    {
+      "name": "icon_heart",
+      "w": 40,
+      "h": 40,
+      "tol": 100,
+      "bg": "alpha",
+      "subject": "a glossy red heart game icon"
+    },
+    {
+      "name": "icon_coin",
+      "w": 40,
+      "h": 40,
+      "tol": 100,
+      "bg": "alpha",
+      "subject": "a glossy golden coin game icon with a plain smooth face"
+    },
+    {
+      "name": "icon_bolt",
+      "w": 40,
+      "h": 40,
+      "tol": 100,
+      "bg": "alpha",
+      "subject": "a glossy blue lightning bolt energy game icon"
+    },
+    {
+      "name": "icon_trophy",
+      "w": 40,
+      "h": 40,
+      "tol": 100,
+      "bg": "alpha",
+      "subject": "a glossy golden trophy cup game icon"
+    },
+    {
+      "name": "icon_clock",
+      "w": 40,
+      "h": 40,
+      "tol": 100,
+      "bg": "alpha",
+      "subject": "a cute orange alarm stopwatch clock game icon"
+    },
+    {
+      "name": "icon_bulb",
+      "w": 64,
+      "h": 64,
+      "tol": 100,
+      "bg": "alpha",
+      "subject": "a glowing warm yellow lightbulb hint game icon"
+    },
+    {
+      "name": "icon_trash",
+      "w": 40,
+      "h": 40,
+      "tol": 100,
+      "bg": "alpha",
+      "subject": "a cute pale blue-grey trash bin game icon"
+    },
+    {
+      "name": "icon_find",
+      "w": 64,
+      "h": 64,
+      "tol": 100,
+      "bg": "alpha",
+      "subject": "a cute chibi pony head peeking through a golden magnifying glass, search game icon"
+    },
+    {
+      "name": "icon_eye",
+      "w": 40,
+      "h": 40,
+      "tol": 100,
+      "bg": "alpha",
+      "subject": "a cute eye with a soft diagonal slash, colorblind-mode game icon"
+    },
+    {
+      "name": "icon_pin",
+      "w": 40,
+      "h": 40,
+      "tol": 100,
+      "bg": "alpha",
+      "subject": "a cute blue-grey map location pin game icon"
     }
   ]
 }

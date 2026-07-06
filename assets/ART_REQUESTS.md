@@ -46,6 +46,7 @@ and pixel size** — the game picks it up with no code change.
 | `food.png` | 24×24 | a cute shiny red apple with a small green leaf |
 | `gem.png` | 16×16 | a cute glowing teal gem/diamond |
 | `pony.png` | 48×48 | a cute chibi pony, chestnut-brown body, cream blaze, caramel mane, side view (Pony Parade piece + menu icon) |
+| `icon_*.png` | 40–64 | Pony Parade HUD icons (heart/coin/bolt/trophy/clock/bulb/trash/find/eye/pin) — see tools/floniks_manifest.json |
 
 ## Notes for generation
 - Prefer a **consistent art direction across all files** (same outline weight,
