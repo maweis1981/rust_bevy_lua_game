@@ -78,6 +78,7 @@ dofile("assets/scripts/world.lua")
 dofile("assets/scripts/match3.lua")
 dofile("assets/scripts/umami.lua")
 dofile("assets/scripts/packs/catch.lua")
+dofile("assets/scripts/packs/ponies.lua")
 dofile("assets/scripts/main.lua")
 
 -- Reseed the LCG each boot so every test scenario is deterministic and
@@ -98,7 +99,7 @@ local function step(dt) frame_events = {}; on_update(dt or DT) end
 ----------------------------------------------------------------------
 local function router_tests()
   boot()
-  for _, key in ipairs({ "grow", "breakout", "snake", "roguelike", "game2048", "shooter", "world", "match3", "umami", "catch" }) do
+  for _, key in ipairs({ "grow", "breakout", "snake", "roguelike", "game2048", "shooter", "world", "match3", "umami", "catch", "ponies" }) do
     local d = enter(key)
     check(d and d.game == key, "menu tile should enter game '" .. key .. "'")
     check(d.back ~= nil, "game '" .. key .. "' should expose a back button")
@@ -634,6 +635,131 @@ local function catch_tests()
   check(DEBUG.game == "menu", "catch: BACK returns to the menu")
 end
 
+-- Queens / Star Battle pack: generator validity, unique solution, tap cycle,
+-- mistake hearts, play-to-win, retry, and BACK — all through real taps.
+local function ponies_tests()
+  boot()
+  local d = enter("ponies")
+  check(d.game == "ponies", "ponies (AI pack) loads and enters")
+  check(d.back ~= nil, "ponies exposes a back button")
+  local n = d.n()
+  check(n == 5, "ponies level 1 is a 5x5 board")
+
+  -- Generator invariants: regions 1..n partition the grid, each contiguous.
+  local cnt = {}
+  for r = 1, n do
+    for c = 1, n do
+      local k = d.region(r, c)
+      check_once("ponies_regrange", k >= 1 and k <= n, "ponies: region id out of range")
+      cnt[k] = (cnt[k] or 0) + 1
+    end
+  end
+  for k = 1, n do
+    check((cnt[k] or 0) >= 1, "ponies: region " .. k .. " owns at least one cell")
+    local start = nil
+    for r = 1, n do for c = 1, n do
+      if d.region(r, c) == k and not start then start = { r, c } end
+    end end
+    local seen, stack, found = {}, { start }, 0
+    while #stack > 0 do
+      local p = table.remove(stack)
+      local rr, cc = p[1], p[2]
+      local key = rr * 100 + cc
+      if rr >= 1 and rr <= n and cc >= 1 and cc <= n and not seen[key] and d.region(rr, cc) == k then
+        seen[key] = true; found = found + 1
+        stack[#stack + 1] = { rr + 1, cc }; stack[#stack + 1] = { rr - 1, cc }
+        stack[#stack + 1] = { rr, cc + 1 }; stack[#stack + 1] = { rr, cc - 1 }
+      end
+    end
+    check(found == cnt[k], "ponies: region " .. k .. " is contiguous")
+  end
+
+  -- The stored solution obeys every rule (perm + one per region + no touching).
+  local usedc, usedk, solok = {}, {}, true
+  for r = 1, n do
+    local c = d.solution(r)
+    local k = d.region(r, c)
+    if usedc[c] or usedk[k] then solok = false end
+    usedc[c], usedk[k] = true, true
+    if r > 1 and math.abs(c - d.solution(r - 1)) < 2 then solok = false end
+  end
+  check(solok, "ponies: generated solution satisfies rows/cols/regions/adjacency")
+
+  -- Independent solver: the shipped board has exactly one solution.
+  local function count(rr, uc, uk, prev)
+    if rr > n then return 1 end
+    local total = 0
+    for c = 1, n do
+      local k = d.region(rr, c)
+      if not uc[c] and not uk[k] and (rr == 1 or math.abs(c - prev) >= 2) then
+        uc[c], uk[k] = true, true
+        total = total + count(rr + 1, uc, uk, c)
+        uc[c], uk[k] = nil, nil
+        if total >= 2 then return total end
+      end
+    end
+    return total
+  end
+  check(count(1, {}, {}, 0) == 1, "ponies: puzzle has a unique solution")
+
+  -- Tap cycle on a legal cell: empty -> X -> pony -> empty.
+  local sc = d.solution(1)
+  local x1, y1 = d.cell_center(1, sc)
+  on_tap(x1, y1); step()
+  check(d.state(1, sc) == 1, "ponies: first tap marks an X")
+  on_tap(x1, y1); step()
+  check(d.state(1, sc) == 2 and d.placed() == 1, "ponies: second tap places a pony")
+  on_tap(x1, y1); step()
+  check(d.state(1, sc) == 0 and d.placed() == 0, "ponies: third tap clears the cell")
+
+  -- Mistake: with a pony on row 1, a touching row-2 pony is rejected + costs a heart.
+  on_tap(x1, y1); on_tap(x1, y1); step()
+  local bc = math.max(1, sc - 1)          -- within one column of the row-1 pony
+  local h0 = d.hearts()
+  local bx, by = d.cell_center(2, bc)
+  on_tap(bx, by)                          -- X
+  on_tap(bx, by)                          -- rejected pony
+  check(d.hearts() == h0 - 1, "ponies: an illegal pony costs a heart")
+  check(d.state(2, bc) == 1, "ponies: the rejected pony stays an X mark")
+  check(d.placed() == 1, "ponies: a rejected pony is not placed")
+  check(events_have("haptic", "heavy"), "ponies: a mistake buzzes a heavy haptic")
+  step()
+
+  -- Play to win: tap out the full solution -> won, with a celebration.
+  boot(); d = enter("ponies"); n = d.n()
+  for r = 1, n do
+    local cx, cy = d.cell_center(r, d.solution(r))
+    on_tap(cx, cy); on_tap(cx, cy)
+  end
+  check(d.won(), "ponies: placing the full solution wins the level")
+  check(events_have("sound", "score"), "ponies: winning plays the score sound")
+  check(events_have("haptic", "success"), "ponies: winning fires the success haptic")
+  step()
+  on_tap(0, 0); step()
+  check(d.level() == 2 and not d.won() and d.placed() == 0,
+    "ponies: tap after a win deals the next level")
+
+  -- Hearts drain to a game over; tap deals a fresh board with full hearts.
+  boot(); d = enter("ponies")
+  local s1 = d.solution(1)
+  local px, py = d.cell_center(1, s1)
+  on_tap(px, py); on_tap(px, py)          -- legal pony on row 1
+  local wc = math.max(1, s1 - 1)
+  local wx, wy = d.cell_center(2, wc)
+  on_tap(wx, wy)                          -- X
+  on_tap(wx, wy); on_tap(wx, wy); on_tap(wx, wy) -- three rejects -> 0 hearts
+  check(d.dead(), "ponies: three mistakes end the round")
+  step()
+  on_tap(0, 0); step()
+  check(not d.dead() and d.hearts() == 3 and d.placed() == 0,
+    "ponies: tap after game over deals a fresh board with full hearts")
+
+  -- BACK returns to the menu.
+  boot(); d = enter("ponies")
+  on_tap(d.back.x, d.back.y); step()
+  check(DEBUG.game == "menu", "ponies: BACK returns to the menu")
+end
+
 local function settings_tests()
   boot()
   local opened = false
@@ -664,6 +790,7 @@ world_tests()
 match3_tests()
 umami_tests()
 catch_tests()
+ponies_tests()
 settings_tests()
 
 print(string.format("checks=%d", checks))

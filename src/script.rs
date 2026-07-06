@@ -248,7 +248,10 @@ fn discover_packs() -> Vec<String> {
 /// the normal asset pipeline. Keep in sync with `assets/scripts/packs/`.
 #[cfg(target_arch = "wasm32")]
 fn discover_packs() -> Vec<String> {
-    vec![format!("{PACKS_DIR}/catch.lua")]
+    vec![
+        format!("{PACKS_DIR}/catch.lua"),
+        format!("{PACKS_DIR}/ponies.lua"),
+    ]
 }
 
 /// All Lua chunks in execution order: extras first, then `main.lua` last.

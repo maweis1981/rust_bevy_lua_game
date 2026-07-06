@@ -41,7 +41,7 @@ within a tier. The menu is built automatically from PACKS — no other edits.
 ## Existing textures you may use (no new art)
 orb, paddle, brick, tile, food, gem, hero, enemy, snakehead, snakebody, flower,
 villager, tree, rock, ship, alien, shot, sparkle, gberry, gdaisy, gbell, gleaf,
-gviola, gmush. (`game.set_color` tints the grayscale ones: orb/paddle/brick/tile.)
+gviola, gmush, pony. (`game.set_color` tints the grayscale ones: orb/paddle/brick/tile.)
 
 ## Hard rules
 1. On-screen text is **ASCII only**.

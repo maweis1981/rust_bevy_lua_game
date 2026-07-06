@@ -4,66 +4,420 @@
   "_bg_blue": ", the subject is pure white and light grey ONLY (no coloured tint), isolated on a solid flat bright blue background (#1657ff), no gradient and no pattern",
   "_bg_none": ", fills the entire frame edge to edge, seamless tileable, no border, no subject, no vignette",
   "sprites": [
-    {"name": "food",        "w": 24, "h": 24, "tol": 40, "bg": "alpha", "subject": "a cute shiny red apple with a small glossy green leaf"},
-    {"name": "gem",         "w": 16, "h": 16, "tol": 40, "bg": "alpha", "subject": "a cute glowing teal diamond gem, faceted, glossy, bright cyan-teal core"},
-    {"name": "hero",        "w": 24, "h": 24, "tol": 40, "bg": "alpha", "subject": "a top-down view of a cute tiny round kawaii adventurer hero, round head, small sturdy body, simple happy face, warm cream and teal outfit"},
-    {"name": "enemy",       "w": 24, "h": 24, "tol": 40, "bg": "alpha", "subject": "a cute round kawaii slime monster, glossy jelly blob, big shiny eyes, small fangs, soft violet-purple"},
-    {"name": "snakehead",   "w": 32, "h": 32, "tol": 40, "bg": "alpha", "subject": "a cute kawaii snake head, round, big friendly eyes, tiny smile, soft leaf-green, small pink tongue"},
-    {"name": "snakebody",   "w": 32, "h": 32, "tol": 40, "bg": "alpha", "subject": "a cute kawaii round soft leaf-green snake body segment, glossy, simple, one round scale ball"},
-    {"name": "villager",    "w": 48, "h": 44, "tol": 40, "bg": "alpha", "subject": "a tiny round kawaii animal villager, big shiny eyes, rosy cheeks, small smile, little round ears, pastel blue-lilac body, facing the camera"},
-    {"name": "tree",        "w": 72, "h": 92, "tol": 40, "bg": "alpha", "subject": "a cute stylized fruit tree, fat rounded fluffy green canopy in soft clusters, short chubby brown trunk, three small red apples"},
-    {"name": "rock",        "w": 48, "h": 38, "tol": 40, "bg": "alpha", "subject": "a cute smooth grey boulder, softly rounded, subtle top highlight, one tiny green moss speck, friendly not sharp"},
-    {"name": "flower",      "w": 32, "h": 32, "tol": 40, "bg": "alpha", "subject": "a cute five-petal flower seen from above, soft pink petals, bright yellow center, glossy"},
-    {"name": "ship",        "w": 48, "h": 48, "tol": 40, "bg": "alpha", "subject": "a cute chunky retro player spaceship, metallic teal-blue, glowing cyan cockpit, small orange engine flame at the bottom, pointing straight up, top-down"},
-    {"name": "alien",       "w": 44, "h": 44, "tol": 40, "bg": "alpha", "subject": "a cute glowing green space cephalopod alien, bright yellow-green glowing core, wavy tentacle lobes, two little black eyes"},
-    {"name": "shot",        "w": 8,  "h": 22, "tol": 55, "bg": "alpha", "subject": "a single soft glowing cyan laser bolt, bright white core, vertical capsule shape, tall and thin"},
-
-    {"name": "orb",         "w": 32, "h": 32, "tol": 95, "bg": "blue", "subject": "a glossy smooth perfect sphere with a soft top-left highlight"},
-    {"name": "paddle",      "w": 24, "h": 24, "tol": 95, "bg": "blue", "subject": "a smooth glossy rounded-corner square tile with a soft top highlight"},
-    {"name": "brick",       "w": 32, "h": 16, "tol": 95, "bg": "blue", "subject": "a smooth glossy rounded-corner horizontal brick tile with a soft bevel"},
-    {"name": "tile",        "w": 40, "h": 40, "tol": 95, "bg": "blue", "subject": "a smooth glossy rounded-corner square tile with a soft bevel"},
-
-    {"name": "decor_fence",     "w": 42, "h": 30, "tol": 40, "bg": "alpha", "subject": "a cute short wooden fence segment, warm light-wood planks, rounded tops"},
-    {"name": "decor_lamp",      "w": 42, "h": 48, "tol": 40, "bg": "alpha", "subject": "a cozy little garden lamp post, warm glowing yellow lantern on top, soft metal pole, gentle warm glow"},
-    {"name": "decor_path",      "w": 42, "h": 30, "tol": 40, "bg": "alpha", "subject": "a cute stone path tile, pale rounded cobbles fitted together, soft"},
-    {"name": "decor_bench",     "w": 48, "h": 34, "tol": 40, "bg": "alpha", "subject": "a cute small wooden park bench, warm wood, rounded slats, side-on"},
-    {"name": "decor_flowerbed", "w": 44, "h": 30, "tol": 40, "bg": "alpha", "subject": "a cute flowerbed, cluster of tiny pink and yellow flowers in soft dark soil, top-down"},
-
-    {"name": "ground_grass",    "w": 64, "h": 64, "tol": 0,  "bg": "none", "subject": "a soft seamless cartoon grass texture, gentle warm green, subtle short blades and tiny speckles"},
-
-    {"name": "mheart",  "w": 64, "h": 64, "tol": 100, "bg": "alpha", "subject": "a cute glossy candy heart, bright cherry red"},
-    {"name": "mstar",   "w": 64, "h": 64, "tol": 100, "bg": "alpha", "subject": "a cute glossy five-point star candy, warm golden yellow"},
-    {"name": "mdrop",   "w": 64, "h": 64, "tol": 100, "bg": "alpha", "subject": "a cute glossy teardrop water gem, bright sky blue"},
-    {"name": "mclover", "w": 64, "h": 64, "tol": 100, "bg": "alpha", "subject": "a cute glossy four-leaf clover, fresh grass green"},
-    {"name": "mgem",    "w": 64, "h": 64, "tol": 100, "bg": "alpha", "subject": "a cute glossy faceted diamond gem, rich amethyst purple"},
-    {"name": "mcandy",  "w": 64, "h": 64, "tol": 100, "bg": "alpha", "subject": "a cute glossy round hard candy with a spiral swirl, bright orange"},
-
-    {"name": "gberry", "w": 64, "h": 64, "bg": "alpha", "subject": "a cute glossy red strawberry with a small green leafy top and tiny seeds"},
-    {"name": "gdaisy", "w": 64, "h": 64, "bg": "alpha", "subject": "a cute yellow daisy flower, many golden-yellow petals, pale center"},
-    {"name": "gbell",  "w": 64, "h": 64, "bg": "alpha", "subject": "a cute periwinkle-blue bluebell flower, rounded bell bloom"},
-    {"name": "gleaf",  "w": 64, "h": 64, "bg": "alpha", "subject": "a cute glossy green four-leaf clover"},
-    {"name": "gviola", "w": 64, "h": 64, "bg": "alpha", "subject": "a cute purple violet flower, five rounded petals, golden center"},
-    {"name": "gmush",  "w": 64, "h": 64, "bg": "alpha", "subject": "a cute orange toadstool mushroom with white spots"},
-    {"name": "sparkle","w": 48, "h": 48, "bg": "black", "subject": "a soft glowing four-point star twinkle, warm white and pale gold"},
-
-    {"name": "bg_meadow", "w": 720, "h": 1440, "bg": "none", "subject": "dreamy sunny flower-meadow garden backdrop"},
-    {"name": "bg_glade",  "w": 720, "h": 1440, "bg": "none", "subject": "dreamy forest-glade garden backdrop"},
-    {"name": "bg_dusk",   "w": 720, "h": 1440, "bg": "none", "subject": "dreamy twilight garden backdrop with fireflies"},
-
-    {"name": "u_soba",    "w": 120, "h": 120, "bg": "alpha", "subject": "toy figure girl athlete pink kimono"},
-    {"name": "u_chef",    "w": 130, "h": 130, "bg": "alpha", "subject": "toy figure ramen chef"},
-    {"name": "u_ninja",   "w": 110, "h": 110, "bg": "alpha", "subject": "toy figure ninja"},
-    {"name": "u_lantern", "w": 140, "h": 140, "bg": "alpha", "subject": "toy figure red paper lantern keeper"},
-    {"name": "u_ball",    "w": 96,  "h": 96,  "bg": "alpha", "subject": "glossy soy dumpling ball with face"},
-    {"name": "u_torii",   "w": 120, "h": 120, "bg": "alpha", "subject": "red torii gate toy"},
-    {"name": "spec_panda","w": 72,  "h": 72,  "bg": "alpha", "subject": "pixel panda"},
-    {"name": "spec_cat",  "w": 72,  "h": 72,  "bg": "alpha", "subject": "pixel cat"},
-    {"name": "spec_shiba","w": 72,  "h": 72,  "bg": "alpha", "subject": "pixel shiba"},
-    {"name": "spec_fox",  "w": 72,  "h": 72,  "bg": "alpha", "subject": "pixel fox"},
-    {"name": "spec_tanuki","w": 72, "h": 72,  "bg": "alpha", "subject": "pixel tanuki"},
-    {"name": "arena_teahouse", "w": 500, "h": 760, "bg": "none", "subject": "top-down tatami court"},
-    {"name": "arena_beach",    "w": 500, "h": 760, "bg": "none", "subject": "top-down beach court"},
-    {"name": "arena_ramen",    "w": 500, "h": 760, "bg": "none", "subject": "top-down ramen-bowl court"},
-    {"name": "arena_sushi",    "w": 500, "h": 760, "bg": "none", "subject": "top-down sushi-bar court"}
+    {
+      "name": "food",
+      "w": 24,
+      "h": 24,
+      "tol": 40,
+      "bg": "alpha",
+      "subject": "a cute shiny red apple with a small glossy green leaf"
+    },
+    {
+      "name": "gem",
+      "w": 16,
+      "h": 16,
+      "tol": 40,
+      "bg": "alpha",
+      "subject": "a cute glowing teal diamond gem, faceted, glossy, bright cyan-teal core"
+    },
+    {
+      "name": "hero",
+      "w": 24,
+      "h": 24,
+      "tol": 40,
+      "bg": "alpha",
+      "subject": "a top-down view of a cute tiny round kawaii adventurer hero, round head, small sturdy body, simple happy face, warm cream and teal outfit"
+    },
+    {
+      "name": "enemy",
+      "w": 24,
+      "h": 24,
+      "tol": 40,
+      "bg": "alpha",
+      "subject": "a cute round kawaii slime monster, glossy jelly blob, big shiny eyes, small fangs, soft violet-purple"
+    },
+    {
+      "name": "snakehead",
+      "w": 32,
+      "h": 32,
+      "tol": 40,
+      "bg": "alpha",
+      "subject": "a cute kawaii snake head, round, big friendly eyes, tiny smile, soft leaf-green, small pink tongue"
+    },
+    {
+      "name": "snakebody",
+      "w": 32,
+      "h": 32,
+      "tol": 40,
+      "bg": "alpha",
+      "subject": "a cute kawaii round soft leaf-green snake body segment, glossy, simple, one round scale ball"
+    },
+    {
+      "name": "villager",
+      "w": 48,
+      "h": 44,
+      "tol": 40,
+      "bg": "alpha",
+      "subject": "a tiny round kawaii animal villager, big shiny eyes, rosy cheeks, small smile, little round ears, pastel blue-lilac body, facing the camera"
+    },
+    {
+      "name": "tree",
+      "w": 72,
+      "h": 92,
+      "tol": 40,
+      "bg": "alpha",
+      "subject": "a cute stylized fruit tree, fat rounded fluffy green canopy in soft clusters, short chubby brown trunk, three small red apples"
+    },
+    {
+      "name": "rock",
+      "w": 48,
+      "h": 38,
+      "tol": 40,
+      "bg": "alpha",
+      "subject": "a cute smooth grey boulder, softly rounded, subtle top highlight, one tiny green moss speck, friendly not sharp"
+    },
+    {
+      "name": "flower",
+      "w": 32,
+      "h": 32,
+      "tol": 40,
+      "bg": "alpha",
+      "subject": "a cute five-petal flower seen from above, soft pink petals, bright yellow center, glossy"
+    },
+    {
+      "name": "ship",
+      "w": 48,
+      "h": 48,
+      "tol": 40,
+      "bg": "alpha",
+      "subject": "a cute chunky retro player spaceship, metallic teal-blue, glowing cyan cockpit, small orange engine flame at the bottom, pointing straight up, top-down"
+    },
+    {
+      "name": "alien",
+      "w": 44,
+      "h": 44,
+      "tol": 40,
+      "bg": "alpha",
+      "subject": "a cute glowing green space cephalopod alien, bright yellow-green glowing core, wavy tentacle lobes, two little black eyes"
+    },
+    {
+      "name": "shot",
+      "w": 8,
+      "h": 22,
+      "tol": 55,
+      "bg": "alpha",
+      "subject": "a single soft glowing cyan laser bolt, bright white core, vertical capsule shape, tall and thin"
+    },
+    {
+      "name": "orb",
+      "w": 32,
+      "h": 32,
+      "tol": 95,
+      "bg": "blue",
+      "subject": "a glossy smooth perfect sphere with a soft top-left highlight"
+    },
+    {
+      "name": "paddle",
+      "w": 24,
+      "h": 24,
+      "tol": 95,
+      "bg": "blue",
+      "subject": "a smooth glossy rounded-corner square tile with a soft top highlight"
+    },
+    {
+      "name": "brick",
+      "w": 32,
+      "h": 16,
+      "tol": 95,
+      "bg": "blue",
+      "subject": "a smooth glossy rounded-corner horizontal brick tile with a soft bevel"
+    },
+    {
+      "name": "tile",
+      "w": 40,
+      "h": 40,
+      "tol": 95,
+      "bg": "blue",
+      "subject": "a smooth glossy rounded-corner square tile with a soft bevel"
+    },
+    {
+      "name": "decor_fence",
+      "w": 42,
+      "h": 30,
+      "tol": 40,
+      "bg": "alpha",
+      "subject": "a cute short wooden fence segment, warm light-wood planks, rounded tops"
+    },
+    {
+      "name": "decor_lamp",
+      "w": 42,
+      "h": 48,
+      "tol": 40,
+      "bg": "alpha",
+      "subject": "a cozy little garden lamp post, warm glowing yellow lantern on top, soft metal pole, gentle warm glow"
+    },
+    {
+      "name": "decor_path",
+      "w": 42,
+      "h": 30,
+      "tol": 40,
+      "bg": "alpha",
+      "subject": "a cute stone path tile, pale rounded cobbles fitted together, soft"
+    },
+    {
+      "name": "decor_bench",
+      "w": 48,
+      "h": 34,
+      "tol": 40,
+      "bg": "alpha",
+      "subject": "a cute small wooden park bench, warm wood, rounded slats, side-on"
+    },
+    {
+      "name": "decor_flowerbed",
+      "w": 44,
+      "h": 30,
+      "tol": 40,
+      "bg": "alpha",
+      "subject": "a cute flowerbed, cluster of tiny pink and yellow flowers in soft dark soil, top-down"
+    },
+    {
+      "name": "ground_grass",
+      "w": 64,
+      "h": 64,
+      "tol": 0,
+      "bg": "none",
+      "subject": "a soft seamless cartoon grass texture, gentle warm green, subtle short blades and tiny speckles"
+    },
+    {
+      "name": "mheart",
+      "w": 64,
+      "h": 64,
+      "tol": 100,
+      "bg": "alpha",
+      "subject": "a cute glossy candy heart, bright cherry red"
+    },
+    {
+      "name": "mstar",
+      "w": 64,
+      "h": 64,
+      "tol": 100,
+      "bg": "alpha",
+      "subject": "a cute glossy five-point star candy, warm golden yellow"
+    },
+    {
+      "name": "mdrop",
+      "w": 64,
+      "h": 64,
+      "tol": 100,
+      "bg": "alpha",
+      "subject": "a cute glossy teardrop water gem, bright sky blue"
+    },
+    {
+      "name": "mclover",
+      "w": 64,
+      "h": 64,
+      "tol": 100,
+      "bg": "alpha",
+      "subject": "a cute glossy four-leaf clover, fresh grass green"
+    },
+    {
+      "name": "mgem",
+      "w": 64,
+      "h": 64,
+      "tol": 100,
+      "bg": "alpha",
+      "subject": "a cute glossy faceted diamond gem, rich amethyst purple"
+    },
+    {
+      "name": "mcandy",
+      "w": 64,
+      "h": 64,
+      "tol": 100,
+      "bg": "alpha",
+      "subject": "a cute glossy round hard candy with a spiral swirl, bright orange"
+    },
+    {
+      "name": "gberry",
+      "w": 64,
+      "h": 64,
+      "bg": "alpha",
+      "subject": "a cute glossy red strawberry with a small green leafy top and tiny seeds"
+    },
+    {
+      "name": "gdaisy",
+      "w": 64,
+      "h": 64,
+      "bg": "alpha",
+      "subject": "a cute yellow daisy flower, many golden-yellow petals, pale center"
+    },
+    {
+      "name": "gbell",
+      "w": 64,
+      "h": 64,
+      "bg": "alpha",
+      "subject": "a cute periwinkle-blue bluebell flower, rounded bell bloom"
+    },
+    {
+      "name": "gleaf",
+      "w": 64,
+      "h": 64,
+      "bg": "alpha",
+      "subject": "a cute glossy green four-leaf clover"
+    },
+    {
+      "name": "gviola",
+      "w": 64,
+      "h": 64,
+      "bg": "alpha",
+      "subject": "a cute purple violet flower, five rounded petals, golden center"
+    },
+    {
+      "name": "gmush",
+      "w": 64,
+      "h": 64,
+      "bg": "alpha",
+      "subject": "a cute orange toadstool mushroom with white spots"
+    },
+    {
+      "name": "sparkle",
+      "w": 48,
+      "h": 48,
+      "bg": "black",
+      "subject": "a soft glowing four-point star twinkle, warm white and pale gold"
+    },
+    {
+      "name": "bg_meadow",
+      "w": 720,
+      "h": 1440,
+      "bg": "none",
+      "subject": "dreamy sunny flower-meadow garden backdrop"
+    },
+    {
+      "name": "bg_glade",
+      "w": 720,
+      "h": 1440,
+      "bg": "none",
+      "subject": "dreamy forest-glade garden backdrop"
+    },
+    {
+      "name": "bg_dusk",
+      "w": 720,
+      "h": 1440,
+      "bg": "none",
+      "subject": "dreamy twilight garden backdrop with fireflies"
+    },
+    {
+      "name": "u_soba",
+      "w": 120,
+      "h": 120,
+      "bg": "alpha",
+      "subject": "toy figure girl athlete pink kimono"
+    },
+    {
+      "name": "u_chef",
+      "w": 130,
+      "h": 130,
+      "bg": "alpha",
+      "subject": "toy figure ramen chef"
+    },
+    {
+      "name": "u_ninja",
+      "w": 110,
+      "h": 110,
+      "bg": "alpha",
+      "subject": "toy figure ninja"
+    },
+    {
+      "name": "u_lantern",
+      "w": 140,
+      "h": 140,
+      "bg": "alpha",
+      "subject": "toy figure red paper lantern keeper"
+    },
+    {
+      "name": "u_ball",
+      "w": 96,
+      "h": 96,
+      "bg": "alpha",
+      "subject": "glossy soy dumpling ball with face"
+    },
+    {
+      "name": "u_torii",
+      "w": 120,
+      "h": 120,
+      "bg": "alpha",
+      "subject": "red torii gate toy"
+    },
+    {
+      "name": "spec_panda",
+      "w": 72,
+      "h": 72,
+      "bg": "alpha",
+      "subject": "pixel panda"
+    },
+    {
+      "name": "spec_cat",
+      "w": 72,
+      "h": 72,
+      "bg": "alpha",
+      "subject": "pixel cat"
+    },
+    {
+      "name": "spec_shiba",
+      "w": 72,
+      "h": 72,
+      "bg": "alpha",
+      "subject": "pixel shiba"
+    },
+    {
+      "name": "spec_fox",
+      "w": 72,
+      "h": 72,
+      "bg": "alpha",
+      "subject": "pixel fox"
+    },
+    {
+      "name": "spec_tanuki",
+      "w": 72,
+      "h": 72,
+      "bg": "alpha",
+      "subject": "pixel tanuki"
+    },
+    {
+      "name": "arena_teahouse",
+      "w": 500,
+      "h": 760,
+      "bg": "none",
+      "subject": "top-down tatami court"
+    },
+    {
+      "name": "arena_beach",
+      "w": 500,
+      "h": 760,
+      "bg": "none",
+      "subject": "top-down beach court"
+    },
+    {
+      "name": "arena_ramen",
+      "w": 500,
+      "h": 760,
+      "bg": "none",
+      "subject": "top-down ramen-bowl court"
+    },
+    {
+      "name": "arena_sushi",
+      "w": 500,
+      "h": 760,
+      "bg": "none",
+      "subject": "top-down sushi-bar court"
+    },
+    {
+      "name": "pony",
+      "w": 48,
+      "h": 48,
+      "tol": 100,
+      "bg": "alpha",
+      "subject": "a cute chibi pony, chestnut-brown rounded body, cream blaze on the muzzle, big sparkly dark eyes, flowing caramel mane, tiny legs, side view facing left"
+    }
   ]
 }
