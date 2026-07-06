@@ -53,3 +53,19 @@ and pixel size** — the game picks it up with no code change.
   palette, lighting) so the collection feels unified.
 - Keep important detail away from the very edges (a few px margin).
 - If a tool outputs a background, remove it (true alpha, not white).
+
+## Midnight Gallery (game #12 — mild-horror interrogation VN)
+Portraits are a different pipeline from the kawaii bible: Floniks nano-banana-pro
+text-to-image base portraits, then **image_to_image** expression variants (calm /
+tense / frightened) off each base for character consistency; the eerie backdrop is
+an i2i of the clean gallery scene. Voice: Floniks minimax TTS, one **fixed per-character
+timbre** (pitch/formant profile) so each witness sounds distinct. Ambient loop: Floniks
+Lyria 2.
+| file | notes |
+|------|-------|
+| `vn_coach{,_t,_f}.png` | 林薇 网球教练 — calm / tense / frightened |
+| `vn_ol{,_t,_f}.png` | 苏晴 会计 — calm / tense / frightened |
+| `vn_teacher{,_t,_f}.png` | 陈墨 讲师 — calm / tense / frightened |
+| `vn_gallery.png` / `vn_gallery_dark.png` | clean scene / the "凝视者" appears |
+| `audio/vo_{coach,ol,teacher}.wav` | fixed-timbre witness voice (opening lines) |
+| `audio/gallery.wav` | dark-ambient BGM loop |
