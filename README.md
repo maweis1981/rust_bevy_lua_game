@@ -5,9 +5,11 @@ logic written in **Lua 5.4**, targeting **macOS** (for development), **iOS**, an
 the **web** (WebAssembly).
 
 **Play it in your browser:** <https://maweis.com/rust_bevy_lua_game/> — the
-`main` branch auto-deploys to GitHub Pages. The newest pack, **Pony Parade**
-(a Queens/Star Battle logic puzzle), ships with AI-generated sprites, HUD
-icons and a background-music loop produced through the Floniks pipeline.
+`main` branch auto-deploys to GitHub Pages. The newest pack, **Midnight Gallery**
+(深夜画廊), is a mild-horror interrogation visual novel: question three witnesses,
+probe their testimony, and name the culprit. Its portraits, per-character voices
+and dark-ambient music are all produced through the Floniks pipeline — the same
+pipeline that gives **Pony Parade** its sprites, HUD icons and BGM.
 
 ## Quick start
 
