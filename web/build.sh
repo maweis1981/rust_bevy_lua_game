@@ -26,7 +26,12 @@ wasm-bindgen --target web --no-typescript \
 
 if command -v wasm-opt >/dev/null 2>&1; then
   echo ">> wasm-opt -Os"
-  wasm-opt -Os -o "$OUT/hollowlullaby_bg.wasm" "$OUT/hollowlullaby_bg.wasm"
+  # --enable-reference-types + --enable-bulk-memory are REQUIRED: wasm-bindgen
+  # emits an externref table and bulk-memory ops; without these flags wasm-opt
+  # silently corrupts them and the module traps at init
+  # (WebAssembly.Table.grow failed / __wbindgen_init_externref_table).
+  wasm-opt -Os --enable-reference-types --enable-bulk-memory \
+    -o "$OUT/hollowlullaby_bg.wasm" "$OUT/hollowlullaby_bg.wasm"
 else
   echo ">> (wasm-opt not found; skipping size optimization)"
 fi
