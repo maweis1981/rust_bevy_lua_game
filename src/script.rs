@@ -112,6 +112,9 @@ struct GameCamera;
 #[derive(Resource, Default)]
 pub(crate) struct ScreenShake {
     pub(crate) trauma: f32,
+    /// Camera zoom "punch" 0..1: impacts push it up, `camera_shake` eases it
+    /// back to zero; the camera scales by `zoom_scale(zoom)` (punch-IN).
+    pub(crate) zoom: f32,
 }
 
 /// Per-scene background palette selector, set from Lua via `game.set_bg_theme`.
@@ -341,6 +344,7 @@ enum LuaCommand {
     },
     SetText(String),
     Shake(f32),
+    Zoom(f32),
     SetBgTheme(f32),
     PlaySound(String),
     PlayMusic(String),
@@ -654,6 +658,16 @@ fn register_api(lua: &Lua) -> mlua::Result<()> {
     )?;
 
     game.set(
+        "zoom",
+        lua.create_function(|lua, intensity: f32| {
+            if let Some(mut bridge) = lua.app_data_mut::<Bridge>() {
+                bridge.queue.push(LuaCommand::Zoom(intensity));
+            }
+            Ok(())
+        })?,
+    )?;
+
+    game.set(
         "set_bg_theme",
         lua.create_function(|lua, theme: f32| {
             if let Some(mut bridge) = lua.app_data_mut::<Bridge>() {
@@ -940,6 +954,13 @@ fn register_api(lua: &mut Lua, bridge: Rc<RefCell<Bridge>>) {
         game.set(ctx, "shake", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
             let intensity: f32 = stack.consume(ctx)?;
             b.borrow_mut().queue.push(LuaCommand::Shake(intensity));
+            Ok(CallbackReturn::Return)
+        })).unwrap();
+
+        let b = bridge.clone();
+        game.set(ctx, "zoom", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let intensity: f32 = stack.consume(ctx)?;
+            b.borrow_mut().queue.push(LuaCommand::Zoom(intensity));
             Ok(CallbackReturn::Return)
         })).unwrap();
 
@@ -1322,6 +1343,9 @@ fn apply_lua(
             LuaCommand::Shake(intensity) => {
                 shake.trauma = (shake.trauma + intensity).clamp(0.0, 1.0);
             }
+            LuaCommand::Zoom(intensity) => {
+                shake.zoom = shake.zoom.max(intensity.clamp(0.0, 1.0));
+            }
             LuaCommand::SetBgTheme(theme) => {
                 bg_theme.target = theme.clamp(0.0, 1.0);
             }
@@ -1357,14 +1381,22 @@ fn camera_shake(
     let Ok(mut transform) = cameras.single_mut() else {
         return;
     };
+    shake.zoom = (shake.zoom - time.delta_secs() * 2.5).max(0.0);
     let (x, y) = shake_offset(shake.trauma, time.elapsed_secs());
     transform.translation.x = x;
     transform.translation.y = y;
+    transform.scale = Vec3::splat(zoom_scale(shake.zoom));
+}
+
+/// Camera scale for a zoom punch: quadratic ease (light taps barely move it),
+/// capped punch-IN so UI never leaves the screen. 0 -> exactly 1.0.
+fn zoom_scale(zoom: f32) -> f32 {
+    1.0 - 0.06 * zoom * zoom
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{haptic_style, shake_offset};
+    use super::{haptic_style, shake_offset, zoom_scale};
 
     #[test]
     fn haptic_kinds_map_to_styles() {
@@ -1392,5 +1424,12 @@ mod tests {
             assert!(x.abs() <= 24.0 + 1e-3, "x={x} out of range");
             assert!(y.abs() <= 24.0 + 1e-3, "y={y} out of range");
         }
+    }
+
+    #[test]
+    fn zoom_scale_is_identity_at_rest_and_bounded() {
+        assert_eq!(zoom_scale(0.0), 1.0);
+        let z = zoom_scale(1.0);
+        assert!(z < 1.0 && z >= 0.90, "full punch stays a gentle push-in: {z}");
     }
 }

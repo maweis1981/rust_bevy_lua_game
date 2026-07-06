@@ -45,6 +45,7 @@ game = {
   despawn = function(id) pos[id] = nil; dims[id] = nil end,
   set_text = function() end,
   shake = function(v) record("shake", v) end,
+  zoom = function(v) record("zoom", v) end,
   set_bg_theme = function(v) record("bg_theme", v) end,
   set_native_bg = function(n) record("native_bg", n) end,
   play_sound = function(n) record("sound", n) end,
@@ -644,7 +645,7 @@ local function ponies_tests()
   check(d.game == "ponies", "ponies (AI pack) loads and enters")
   check(d.back ~= nil, "ponies exposes a back button")
   local n = d.n()
-  check(n == 5, "ponies level 1 is a 5x5 board")
+  check(n == 8, "ponies level 1 is an 8x8 board (video parity)")
   check(d.hearts() == 2, "ponies starts with 2 hearts (video parity)")
 
   -- Generator invariants: regions 1..n partition the grid, each contiguous.
@@ -794,6 +795,7 @@ local function ponies_tests()
   end
   check(d.won(), "ponies: placing the full solution wins the level")
   check(events_have("sound", "score"), "ponies: winning plays the score sound")
+  check(events_have("zoom"), "ponies: winning punches the camera zoom")
   check(d.streak() == streak0 + 1, "ponies: winning bumps the streak")
   check(d.coins() == coins0 + 20, "ponies: winning pays 20 coins")
   step()
@@ -805,7 +807,7 @@ local function ponies_tests()
   boot(); d = enter("ponies")
   check(d.time_left() > 0, "ponies: the countdown starts positive")
   local timed_out = false
-  for _ = 1, 1700 do
+  for _ = 1, 2600 do
     step(1 / 30)
     if d.dead() then timed_out = true; break end
   end
