@@ -641,7 +641,13 @@ end
 -- clear / find / bulb tools, colourblind + coordinate toggles.
 local function ponies_tests()
   boot()
-  local d = enter("ponies")
+  clear_input()
+  for _, t in ipairs(DEBUG.tiles) do
+    if t.key == "ponies" then frame_events = {}; on_tap(t.x, t.y); break end
+  end
+  check(events_have("music", "ponies"), "ponies: entering starts its own BGM loop")
+  on_update(DT)
+  local d = DEBUG
   check(d.game == "ponies", "ponies (AI pack) loads and enters")
   check(d.back ~= nil, "ponies exposes a back button")
   local n = d.n()

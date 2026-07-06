@@ -584,8 +584,12 @@ function make_ponies()
   end
 
   return {
-    enter = function() built = false end,
+    enter = function()
+      built = false
+      game.play_music("ponies")   -- the Floniks-generated kawaii loop
+    end,
     leave = function()
+      game.play_music("music")    -- restore the collection's menu loop
       clear_board_entities(); clear_overlay(); clear_toggles()
       for _, id in pairs(dyn) do game.despawn(id) end
       dyn = {}
