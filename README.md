@@ -4,6 +4,11 @@ A 2D game built with **Rust + [Bevy](https://bevyengine.org) 0.19**, with game
 logic written in **Lua 5.4**, targeting **macOS** (for development), **iOS**, and
 the **web** (WebAssembly).
 
+**Play it in your browser:** <https://maweis.com/rust_bevy_lua_game/> — the
+`main` branch auto-deploys to GitHub Pages. The newest pack, **Pony Parade**
+(a Queens/Star Battle logic puzzle), ships with AI-generated sprites, HUD
+icons and a background-music loop produced through the Floniks pipeline.
+
 ## Quick start
 
 ```bash
