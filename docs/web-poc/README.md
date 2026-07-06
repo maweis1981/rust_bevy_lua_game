@@ -94,11 +94,36 @@ GitHub Pages 可托管，注意：
 - **体积**：Bevy 的 release wasm（`wasm-opt` 后）~10–20MB，Pages 单文件上限 100MB，OK；
   Web 版必须用 **release** 构建（debug wasm 巨大且卡）。
 
-## 下一阶段（工程集成，非研究）
+## 实证 ④：整个游戏在浏览器里跑起来并可玩 ✅
 
-1. wasm 专用 `ScriptPlugin`（ottavino 版）——`Rc<RefCell<Bridge>>` 让 `'static` 回调持有
-   命令队列；`LuaCommand→ECS` 与 native 共享。**mlua（native/iOS）完全 cfg 隔离，不改。**
-2. 接入真实 crate → 编整个游戏到 wasm；处理 `assets/` 相对加载、`file_watcher`/`std::fs`
-   的 wasm gate（`discover_packs` 在 wasm 上改用静态清单）。
-3. serve + 截真实菜单 → 证明菜单 + preset 游戏在浏览器可玩。
-4. GitHub Pages 部署 CI（push 自动上线）。
+把 ottavino 版 `LuaVm`（`Rc<RefCell<Bridge>>` 让 `'static` 回调持有命令队列；
+`LuaCommand→ECS` 逻辑与 native 共享）接进真实 crate 的副本，编成 wasm，
+无头 Chromium 加载：
+
+- **完整菜单**：11 个游戏、图标（sprite）、自定义字体文本、极光背景 shader 全部渲染。
+  见 [`browser-menu.png`](./browser-menu.png)。控制台确认 ottavino VM 跑了 `on_start`
+  （`[lua] Mini-game collection — started`）、`loaded 8 Lua scripts`。
+- **可交互**：点「Grow」进入 Pong——球拍/球/HUD（`9%` 每帧更新）全部由 wasm 里的
+  ottavino Lua 驱动。见 [`browser-gameplay.png`](./browser-gameplay.png)。
+
+这也顺带解掉了实证③里"软件 WebGL 下测试精灵未显示"的疑问：**真实游戏的 sprite 渲染正常**
+（菜单里每个图标都是 sprite）。
+
+### 集成阶段发现的两个 polish 点
+- **`.meta` 404 噪音**：Bevy 会先探测每个资源的可选 `<asset>.meta` sidecar，Web 上不存在
+  就 404（但会回退到默认 meta 并正常加载真实资源——所以画面完全正常）。用
+  `AssetPlugin { meta_check: AssetMetaCheck::Never, .. }` 静音即可。
+- **FPS**：截图里 FPS≈4 是因为 CI 容器**无 GPU**、走 SwiftShader 软件 WebGL；真机/带 GPU
+  的浏览器有硬件 WebGL2 会流畅。
+
+## 下一阶段：落地到仓库（productionize）
+
+PoC 已在 scratchpad 的 crate 副本里跑通。把它正式落进仓库还需：
+
+1. **cfg 隔离**：`script.rs` 拆成 `#[cfg(not(wasm))]` mlua 后端 + `#[cfg(wasm)]` ottavino 后端，
+   共享 `LuaCommand`/`Bridge`/systems。**native/iOS 一行不改**（保证 `cargo check` 恒绿）。
+2. **携带打补丁的 ottavino**：`getrandom` 种子那一行补丁——可选 vendor 进仓库、或指向 fork
+   的 git 依赖、或等上游合并 PR。（PR 体积 vs 自包含的取舍，需拍板。）
+3. **构建工具**：`make web`（`cargo build --release --target wasm32-unknown-unknown` →
+   `wasm-bindgen` → 拷 `assets/`），release + `wasm-opt` 压体积；相对 asset base（Pages 子路径）。
+4. **GitHub Pages 部署 CI**：push 自动编 wasm 并发布到 `…github.io/<repo>/`。
