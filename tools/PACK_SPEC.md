@@ -25,7 +25,8 @@ within a tier. The menu is built automatically from PACKS — no other edits.
 ## The `game` API (the ONLY host calls allowed)
 - `game.spawn(x,y,w,h, r,g,b,a) -> id`         solid colour rect
 - `game.spawn_sprite(x,y,w,h, name) -> id`     textured; `assets/textures/<name>.png` MUST already exist
-- `game.spawn_text(x,y,size, r,g,b,a, str) -> id`   ASCII-only text (no CJK/emoji — renders blank otherwise)
+- `game.spawn_text(x,y,size, r,g,b,a, str) -> id`   text; ASCII always safe. CJK renders ONLY if the
+  glyphs are registered in tools/subset_font.py (game.ttf is a Noto Sans subset) — then re-run it
 - `game.move_to(id,x,y)` · `game.set_color(id,r,g,b,a)` · `game.set_size(id,w,h)`
 - `game.set_rotation(id, radians)` · `game.set_sprite_image(id, name)` · `game.despawn(id)`
 - `game.set_text(str)`                          top-left HUD line (respect SETTINGS.hud; router blanks it when off)
@@ -41,10 +42,12 @@ within a tier. The menu is built automatically from PACKS — no other edits.
 ## Existing textures you may use (no new art)
 orb, paddle, brick, tile, food, gem, hero, enemy, snakehead, snakebody, flower,
 villager, tree, rock, ship, alien, shot, sparkle, gberry, gdaisy, gbell, gleaf,
-gviola, gmush, pony. (`game.set_color` tints the grayscale ones: orb/paddle/brick/tile.)
+gviola, gmush, pony, icon_heart, icon_coin, icon_bolt, icon_trophy, icon_clock, icon_bulb,
+icon_trash, icon_find, icon_eye, icon_pin. (`game.set_color` tints the grayscale ones: orb/paddle/brick/tile.)
 
 ## Hard rules
-1. On-screen text is **ASCII only**.
+1. On-screen text: **ASCII is always safe**. CJK is allowed ONLY for glyphs already in
+   `tools/subset_font.py`'s STRINGS list (add yours + re-run it); unregistered glyphs render blank.
 2. Only reference textures that already exist (list above).
 3. Errors are non-fatal (logged) — but a broken pack is rejected. Don't rely on that.
 4. `update` runs on the main thread every frame — keep it O(few hundred) ops; no busy loops.

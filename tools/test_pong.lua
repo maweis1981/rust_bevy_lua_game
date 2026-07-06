@@ -635,8 +635,9 @@ local function catch_tests()
   check(DEBUG.game == "menu", "catch: BACK returns to the menu")
 end
 
--- Queens / Star Battle pack: generator validity, unique solution, tap cycle,
--- mistake hearts, play-to-win, retry, and BACK — all through real taps.
+-- Queens / Star Battle pack (video-clone mechanics): tap places a pony
+-- directly, exclusions auto-X, wrong pony costs a heart (2), countdown timer,
+-- clear / find / bulb tools, colourblind + coordinate toggles.
 local function ponies_tests()
   boot()
   local d = enter("ponies")
@@ -644,6 +645,7 @@ local function ponies_tests()
   check(d.back ~= nil, "ponies exposes a back button")
   local n = d.n()
   check(n == 5, "ponies level 1 is a 5x5 board")
+  check(d.hearts() == 2, "ponies starts with 2 hearts (video parity)")
 
   -- Generator invariants: regions 1..n partition the grid, each contiguous.
   local cnt = {}
@@ -662,8 +664,8 @@ local function ponies_tests()
     end end
     local seen, stack, found = {}, { start }, 0
     while #stack > 0 do
-      local p = table.remove(stack)
-      local rr, cc = p[1], p[2]
+      local pp = table.remove(stack)
+      local rr, cc = pp[1], pp[2]
       local key = rr * 100 + cc
       if rr >= 1 and rr <= n and cc >= 1 and cc <= n and not seen[key] and d.region(rr, cc) == k then
         seen[key] = true; found = found + 1
@@ -674,7 +676,7 @@ local function ponies_tests()
     check(found == cnt[k], "ponies: region " .. k .. " is contiguous")
   end
 
-  -- The stored solution obeys every rule (perm + one per region + no touching).
+  -- The stored solution obeys every rule.
   local usedc, usedk, solok = {}, {}, true
   for r = 1, n do
     local c = d.solution(r)
@@ -685,7 +687,7 @@ local function ponies_tests()
   end
   check(solok, "ponies: generated solution satisfies rows/cols/regions/adjacency")
 
-  -- Independent solver: the shipped board has exactly one solution.
+  -- Independent solver: exactly one solution.
   local function count(rr, uc, uk, prev)
     if rr > n then return 1 end
     local total = 0
@@ -702,57 +704,112 @@ local function ponies_tests()
   end
   check(count(1, {}, {}, 0) == 1, "ponies: puzzle has a unique solution")
 
-  -- Tap cycle on a legal cell: empty -> X -> pony -> empty.
-  local sc = d.solution(1)
-  local x1, y1 = d.cell_center(1, sc)
+  -- Correct tap places a pony DIRECTLY and auto-marks every excluded cell.
+  local s1 = d.solution(1)
+  local x1, y1 = d.cell_center(1, s1)
   on_tap(x1, y1); step()
-  check(d.state(1, sc) == 1, "ponies: first tap marks an X")
-  on_tap(x1, y1); step()
-  check(d.state(1, sc) == 2 and d.placed() == 1, "ponies: second tap places a pony")
-  on_tap(x1, y1); step()
-  check(d.state(1, sc) == 0 and d.placed() == 0, "ponies: third tap clears the cell")
+  check(d.state(1, s1) == 2 and d.placed() == 1, "ponies: tapping the solution cell places a pony")
+  local marks_ok = true
+  for r = 1, n do
+    for c = 1, n do
+      if d.state(r, c) ~= 2 then
+        local excl = (r == 1) or (c == s1) or (d.region(r, c) == d.region(1, s1))
+          or (math.abs(r - 1) <= 1 and math.abs(c - s1) <= 1)
+        local want = excl and 1 or 0
+        if d.state(r, c) ~= want then marks_ok = false end
+      end
+    end
+  end
+  check(marks_ok, "ponies: auto-X marks exactly the excluded cells")
 
-  -- Mistake: with a pony on row 1, a touching row-2 pony is rejected + costs a heart.
-  on_tap(x1, y1); on_tap(x1, y1); step()
-  local bc = math.max(1, sc - 1)          -- within one column of the row-1 pony
+  -- Tapping an auto-X cell is inert (no heart loss, no state change).
+  local xc = (s1 % n) + 1                    -- some other column in row 1 (excluded)
+  local ix, iy = d.cell_center(1, xc)
   local h0 = d.hearts()
-  local bx, by = d.cell_center(2, bc)
-  on_tap(bx, by)                          -- X
-  on_tap(bx, by)                          -- rejected pony
-  check(d.hearts() == h0 - 1, "ponies: an illegal pony costs a heart")
-  check(d.state(2, bc) == 1, "ponies: the rejected pony stays an X mark")
-  check(d.placed() == 1, "ponies: a rejected pony is not placed")
+  on_tap(ix, iy); step()
+  check(d.hearts() == h0 and d.state(1, xc) == 1, "ponies: tapping an X cell does nothing")
+
+  -- Removing the pony un-marks what only it excluded.
+  on_tap(x1, y1); step()
+  check(d.placed() == 0 and d.state(1, s1) == 0, "ponies: tapping a pony removes it")
+  check(d.state(1, xc) == 0, "ponies: removal clears its auto-X marks")
+
+  -- A wrong pony (open cell, not the solution) flashes and costs a heart.
+  local wrongc = nil
+  for c = 1, n do if c ~= s1 and d.state(1, c) == 0 then wrongc = c break end end
+  local wx, wy = d.cell_center(1, wrongc)
+  on_tap(wx, wy)
+  check(d.hearts() == 1, "ponies: a wrong pony costs a heart")
+  check(d.state(1, wrongc) == 0 and d.placed() == 0, "ponies: the wrong pony is not placed")
   check(events_have("haptic", "heavy"), "ponies: a mistake buzzes a heavy haptic")
   step()
 
-  -- Play to win: tap out the full solution -> won, with a celebration.
-  boot(); d = enter("ponies"); n = d.n()
+  -- Second mistake -> fail; tap deals a fresh board with 2 hearts, streak 0.
+  on_tap(wx, wy)
+  check(d.dead(), "ponies: two mistakes fail the level")
+  step()
+  on_tap(0, 0); step()
+  check(not d.dead() and d.hearts() == 2 and d.placed() == 0,
+    "ponies: tap after a fail redeals with full hearts")
+  check(d.streak() == 0, "ponies: failing resets the streak")
+
+  -- Clear button removes all ponies (and their marks) without penalty.
+  local cx, cy = d.cell_center(1, d.solution(1))
+  on_tap(cx, cy); step()
+  check(d.placed() == 1, "ponies: setup pony for the clear test")
+  local cb = d.btn("clear")
+  on_tap(cb.x, cb.y); step()
+  local anyx = false
+  for r = 1, n do for c = 1, n do if d.state(r, c) ~= 0 then anyx = true end end end
+  check(d.placed() == 0 and not anyx and d.hearts() == 2,
+    "ponies: clear wipes ponies and marks at no cost")
+
+  -- Find tool places one correct pony and burns its charge.
+  check(d.find_charges() == 1, "ponies: find tool starts with 1 charge")
+  local fb = d.btn("find")
+  on_tap(fb.x, fb.y); step()
+  check(d.placed() == 1 and d.find_charges() == 0, "ponies: find tool places a correct pony")
+  on_tap(fb.x, fb.y); step()
+  check(d.placed() == 1, "ponies: an empty find tool is a no-op")
+
+  -- Bulb tool burns a charge without placing.
+  check(d.bulb_charges() == 1, "ponies: bulb starts with 1 charge")
+  local bb = d.btn("bulb")
+  on_tap(bb.x, bb.y); step()
+  check(d.placed() == 1 and d.bulb_charges() == 0, "ponies: bulb hints without placing")
+
+  -- Colourblind + coordinate toggles flip their state.
+  on_tap(d.btn("cb").x, d.btn("cb").y); step()
+  check(d.cb_on(), "ponies: colourblind mode toggles on")
+  on_tap(d.btn("coord").x, d.btn("coord").y); step()
+  check(d.coord_on(), "ponies: coordinates toggle on")
+
+  -- Play to win: tap out the remaining solution -> won, streak+1, coins+20.
+  local streak0, coins0 = d.streak(), d.coins()
   for r = 1, n do
-    local cx, cy = d.cell_center(r, d.solution(r))
-    on_tap(cx, cy); on_tap(cx, cy)
+    if d.state(r, d.solution(r)) ~= 2 then
+      local px, py = d.cell_center(r, d.solution(r))
+      on_tap(px, py)
+    end
   end
   check(d.won(), "ponies: placing the full solution wins the level")
   check(events_have("sound", "score"), "ponies: winning plays the score sound")
-  check(events_have("haptic", "success"), "ponies: winning fires the success haptic")
+  check(d.streak() == streak0 + 1, "ponies: winning bumps the streak")
+  check(d.coins() == coins0 + 20, "ponies: winning pays 20 coins")
   step()
   on_tap(0, 0); step()
   check(d.level() == 2 and not d.won() and d.placed() == 0,
     "ponies: tap after a win deals the next level")
 
-  -- Hearts drain to a game over; tap deals a fresh board with full hearts.
+  -- Countdown: a fresh 5x5 board fails after N*10 seconds of inaction.
   boot(); d = enter("ponies")
-  local s1 = d.solution(1)
-  local px, py = d.cell_center(1, s1)
-  on_tap(px, py); on_tap(px, py)          -- legal pony on row 1
-  local wc = math.max(1, s1 - 1)
-  local wx, wy = d.cell_center(2, wc)
-  on_tap(wx, wy)                          -- X
-  on_tap(wx, wy); on_tap(wx, wy); on_tap(wx, wy) -- three rejects -> 0 hearts
-  check(d.dead(), "ponies: three mistakes end the round")
-  step()
-  on_tap(0, 0); step()
-  check(not d.dead() and d.hearts() == 3 and d.placed() == 0,
-    "ponies: tap after game over deals a fresh board with full hearts")
+  check(d.time_left() > 0, "ponies: the countdown starts positive")
+  local timed_out = false
+  for _ = 1, 1700 do
+    step(1 / 30)
+    if d.dead() then timed_out = true; break end
+  end
+  check(timed_out, "ponies: running out the clock fails the level")
 
   -- BACK returns to the menu.
   boot(); d = enter("ponies")
