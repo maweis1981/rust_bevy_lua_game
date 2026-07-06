@@ -1,0 +1,5 @@
+# The web build (wasm32-unknown-unknown) needs getrandom's JS backend enabled;
+# see Cargo.toml. This flag only applies when building for that target, so
+# desktop/iOS builds are unaffected.
+[target.wasm32-unknown-unknown]
+rustflags = ['--cfg', 'getrandom_backend="wasm_js"']

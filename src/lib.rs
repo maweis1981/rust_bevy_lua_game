@@ -4,6 +4,7 @@
 //! (`src/main.rs`) and the iOS app (which links the `staticlib` and calls the
 //! `main_rs` C entrypoint defined at the bottom of this file).
 
+use bevy::asset::AssetMetaCheck;
 use bevy::diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
 use bevy::prelude::*;
 
@@ -29,7 +30,13 @@ pub fn run() {
                 ..default()
             })
             // Nearest sampling keeps the pixel-art sprites crisp when scaled up.
-            .set(ImagePlugin::default_nearest()),
+            .set(ImagePlugin::default_nearest())
+            // Don't probe for `<asset>.meta` sidecars: we ship none, and on the
+            // web each probe is a 404 (harmless but noisy in the console).
+            .set(AssetPlugin {
+                meta_check: AssetMetaCheck::Never,
+                ..default()
+            }),
     )
     // A garden green (not black) so any strip the camera viewport doesn't cover
     // — e.g. the iOS home-indicator safe area — reads as the grassy background

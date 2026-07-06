@@ -53,12 +53,21 @@
 //!   function on_tap(x, y)         -- world coords of a touch / left click
 
 use std::collections::HashMap;
+#[cfg(not(target_arch = "wasm32"))]
 use std::path::PathBuf;
+#[cfg(target_arch = "wasm32")]
+use std::{cell::RefCell, rc::Rc};
 
 use bevy::asset::{io::Reader, AssetLoader, LoadContext, LoadState};
 use bevy::prelude::*;
 use bevy::sprite::Anchor;
+// The Lua VM host differs per platform (see Cargo.toml): mlua (C Lua) on
+// desktop/iOS, ottavino (pure-Rust Lua) on the web. Both expose an identical
+// `LuaVm` surface, so every system below is backend-agnostic.
+#[cfg(not(target_arch = "wasm32"))]
 use mlua::{Function, Lua};
+#[cfg(target_arch = "wasm32")]
+use ottavino::{Callback, CallbackReturn, Closure, Executor, Function, Lua, Table, Value};
 
 const MAIN_SCRIPT_PATH: &str = "scripts/main.lua";
 
@@ -205,6 +214,7 @@ const PACKS_DIR: &str = "scripts/packs";
 /// LIST names; each is then loaded through the normal asset pipeline (so
 /// hot-reload still works). Checks the working dir (`assets/…`, desktop) and the
 /// executable's bundle (`<app>/assets/…`, iOS). Returns asset-relative paths.
+#[cfg(not(target_arch = "wasm32"))]
 fn discover_packs() -> Vec<String> {
     let mut roots: Vec<PathBuf> = vec![PathBuf::from("assets")];
     if let Ok(exe) = std::env::current_exe() {
@@ -231,6 +241,14 @@ fn discover_packs() -> Vec<String> {
     found.sort();
     found.dedup();
     found
+}
+
+/// On the web there is no filesystem to scan — assets are fetched over HTTP — so
+/// packs can't be auto-discovered. List them explicitly; each still loads through
+/// the normal asset pipeline. Keep in sync with `assets/scripts/packs/`.
+#[cfg(target_arch = "wasm32")]
+fn discover_packs() -> Vec<String> {
+    vec![format!("{PACKS_DIR}/catch.lua")]
 }
 
 /// All Lua chunks in execution order: extras first, then `main.lua` last.
@@ -346,12 +364,14 @@ struct Bridge {
 // The VM
 // ---------------------------------------------------------------------------
 
+#[cfg(not(target_arch = "wasm32"))]
 pub struct LuaVm {
     lua: Lua,
     has_update: bool,
     has_tap: bool,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl LuaVm {
     fn new() -> Self {
         let lua = Lua::new();
@@ -434,6 +454,7 @@ impl LuaVm {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn register_api(lua: &Lua) -> mlua::Result<()> {
     let game = lua.create_table()?;
 
@@ -673,6 +694,283 @@ fn register_api(lua: &Lua) -> mlua::Result<()> {
 
     lua.globals().set("game", game)?;
     Ok(())
+}
+
+#[cfg(target_arch = "wasm32")]
+pub struct LuaVm {
+    lua: Lua,
+    bridge: Rc<RefCell<Bridge>>,
+    has_update: bool,
+    has_tap: bool,
+}
+
+#[cfg(target_arch = "wasm32")]
+impl LuaVm {
+    fn new() -> Self {
+        let mut lua = Lua::full();
+        let bridge = Rc::new(RefCell::new(Bridge::default()));
+        register_api(&mut lua, bridge.clone());
+        Self {
+            lua,
+            bridge,
+            has_update: false,
+            has_tap: false,
+        }
+    }
+
+    fn exec_chunk(&mut self, source: &str, name: &str) -> Result<(), String> {
+        let ex = self
+            .lua
+            .try_enter(|ctx| {
+                let closure = Closure::load(ctx, Some(name), source.as_bytes())?;
+                Ok(ctx.stash(Executor::start(ctx, closure.into(), ())))
+            })
+            .map_err(|e| e.to_string())?;
+        self.lua.execute::<()>(&ex).map_err(|e| e.to_string())
+    }
+
+    fn finish_reload(&mut self) -> Result<(), String> {
+        self.has_update = self.global_is_fn("on_update");
+        self.has_tap = self.global_is_fn("on_tap");
+        if self.global_is_fn("on_start") {
+            self.call0("on_start")?;
+        }
+        Ok(())
+    }
+
+    fn global_is_fn(&mut self, name: &'static str) -> bool {
+        self.lua
+            .enter(|ctx| matches!(ctx.get_global_value(name), Value::Function(_)))
+    }
+
+    fn call0(&mut self, name: &'static str) -> Result<(), String> {
+        let ex = self
+            .lua
+            .try_enter(|ctx| {
+                let f: Function = ctx.get_global(name)?;
+                Ok(ctx.stash(Executor::start(ctx, f, ())))
+            })
+            .map_err(|e| e.to_string())?;
+        self.lua.execute::<()>(&ex).map_err(|e| e.to_string())
+    }
+
+    fn set_screen(&mut self, half_w: f32, half_h: f32) {
+        self.bridge.borrow_mut().screen = (half_w, half_h);
+    }
+
+    fn set_input(
+        &mut self,
+        pointer: Option<(f32, f32)>,
+        pointer_down: bool,
+        keys: std::collections::HashSet<&'static str>,
+    ) {
+        let mut b = self.bridge.borrow_mut();
+        b.pointer = pointer;
+        b.pointer_down = pointer_down;
+        b.keys = keys;
+    }
+
+    fn on_tap(&mut self, x: f32, y: f32) {
+        if !self.has_tap {
+            return;
+        }
+        let res = (|| -> Result<(), String> {
+            let ex = self
+                .lua
+                .try_enter(|ctx| {
+                    let f: Function = ctx.get_global("on_tap")?;
+                    Ok(ctx.stash(Executor::start(ctx, f, (x as f64, y as f64))))
+                })
+                .map_err(|e| e.to_string())?;
+            self.lua.execute::<()>(&ex).map_err(|e| e.to_string())
+        })();
+        if let Err(err) = res {
+            error!("lua on_tap error: {err}");
+        }
+    }
+
+    fn update(&mut self, dt: f32) {
+        if !self.has_update {
+            return;
+        }
+        let res = (|| -> Result<(), String> {
+            let ex = self
+                .lua
+                .try_enter(|ctx| {
+                    let f: Function = ctx.get_global("on_update")?;
+                    Ok(ctx.stash(Executor::start(ctx, f, dt as f64)))
+                })
+                .map_err(|e| e.to_string())?;
+            self.lua.execute::<()>(&ex).map_err(|e| e.to_string())
+        })();
+        if let Err(err) = res {
+            error!("lua on_update error: {err}");
+        }
+    }
+
+    fn drain(&mut self) -> Vec<LuaCommand> {
+        std::mem::take(&mut self.bridge.borrow_mut().queue)
+    }
+}
+
+/// Register the global `game` table. Each callback captures a clone of the shared
+/// `Bridge` `Rc` and pushes `LuaCommand`s / reads the input snapshot. (piccolo/
+/// ottavino has no `app_data` like mlua, and its callbacks are `'static`, so the
+/// bridge is shared via `Rc<RefCell<_>>` — sound because the VM is single-threaded.)
+#[cfg(target_arch = "wasm32")]
+fn register_api(lua: &mut Lua, bridge: Rc<RefCell<Bridge>>) {
+    lua.enter(|ctx| {
+        let game = Table::new(&ctx);
+
+        game.set(ctx, "log", Callback::from_fn(&ctx, |_ctx, _, mut stack| {
+            if let Value::String(s) = stack.get(0) {
+                info!("[lua] {}", String::from_utf8_lossy(s.as_bytes()));
+            }
+            stack.clear();
+            Ok(CallbackReturn::Return)
+        })).unwrap();
+
+        let b = bridge.clone();
+        game.set(ctx, "bounds", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let (hw, hh) = b.borrow().screen;
+            stack.replace(ctx, (hw as f64, hh as f64));
+            Ok(CallbackReturn::Return)
+        })).unwrap();
+
+        let b = bridge.clone();
+        game.set(ctx, "pointer", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let (p, down) = { let br = b.borrow(); (br.pointer, br.pointer_down) };
+            match p {
+                Some((x, y)) => stack.replace(ctx, (x as f64, y as f64, down)),
+                None => stack.replace(ctx, (Value::Nil, Value::Nil, down)),
+            }
+            Ok(CallbackReturn::Return)
+        })).unwrap();
+
+        let b = bridge.clone();
+        game.set(ctx, "key", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let name: ottavino::String = stack.consume(ctx)?;
+            let held = b.borrow().keys.contains(name.to_str().unwrap_or(""));
+            stack.replace(ctx, held);
+            Ok(CallbackReturn::Return)
+        })).unwrap();
+
+        let b = bridge.clone();
+        game.set(ctx, "spawn", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let (x, y, w, h, r, g, bl, a): (f32, f32, f32, f32, f32, f32, f32, Option<f32>) =
+                stack.consume(ctx)?;
+            let id = { let mut br = b.borrow_mut(); br.next_id += 1; let id = br.next_id;
+                br.queue.push(LuaCommand::Spawn { id, x, y, w, h, color: (r, g, bl, a.unwrap_or(1.0)) }); id };
+            stack.replace(ctx, id as i64);
+            Ok(CallbackReturn::Return)
+        })).unwrap();
+
+        let b = bridge.clone();
+        game.set(ctx, "move_to", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let (id, x, y): (u32, f32, f32) = stack.consume(ctx)?;
+            b.borrow_mut().queue.push(LuaCommand::MoveTo { id, x, y });
+            Ok(CallbackReturn::Return)
+        })).unwrap();
+
+        let b = bridge.clone();
+        game.set(ctx, "set_color", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let (id, r, g, bl, a): (u32, f32, f32, f32, f32) = stack.consume(ctx)?;
+            b.borrow_mut().queue.push(LuaCommand::SetColor { id, color: (r, g, bl, a) });
+            Ok(CallbackReturn::Return)
+        })).unwrap();
+
+        let b = bridge.clone();
+        game.set(ctx, "set_size", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let (id, w, h): (u32, f32, f32) = stack.consume(ctx)?;
+            b.borrow_mut().queue.push(LuaCommand::SetSize { id, w, h });
+            Ok(CallbackReturn::Return)
+        })).unwrap();
+
+        let b = bridge.clone();
+        game.set(ctx, "set_rotation", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let (id, radians): (u32, f32) = stack.consume(ctx)?;
+            b.borrow_mut().queue.push(LuaCommand::SetRotation { id, radians });
+            Ok(CallbackReturn::Return)
+        })).unwrap();
+
+        let b = bridge.clone();
+        game.set(ctx, "set_sprite_image", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let (id, image): (u32, ottavino::String) = stack.consume(ctx)?;
+            b.borrow_mut().queue.push(LuaCommand::SetSpriteImage { id, image: image.to_str().unwrap_or("").to_string() });
+            Ok(CallbackReturn::Return)
+        })).unwrap();
+
+        let b = bridge.clone();
+        game.set(ctx, "spawn_text", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let (x, y, size, r, g, bl, a, text): (f32, f32, f32, f32, f32, f32, f32, ottavino::String) =
+                stack.consume(ctx)?;
+            let id = { let mut br = b.borrow_mut(); br.next_id += 1; let id = br.next_id;
+                br.queue.push(LuaCommand::SpawnText { id, x, y, size, color: (r, g, bl, a), text: text.to_str().unwrap_or("").to_string() }); id };
+            stack.replace(ctx, id as i64);
+            Ok(CallbackReturn::Return)
+        })).unwrap();
+
+        let b = bridge.clone();
+        game.set(ctx, "spawn_sprite", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let (x, y, w, h, image): (f32, f32, f32, f32, ottavino::String) = stack.consume(ctx)?;
+            let id = { let mut br = b.borrow_mut(); br.next_id += 1; let id = br.next_id;
+                br.queue.push(LuaCommand::SpawnSprite { id, x, y, w, h, image: image.to_str().unwrap_or("").to_string() }); id };
+            stack.replace(ctx, id as i64);
+            Ok(CallbackReturn::Return)
+        })).unwrap();
+
+        let b = bridge.clone();
+        game.set(ctx, "despawn", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let id: u32 = stack.consume(ctx)?;
+            b.borrow_mut().queue.push(LuaCommand::Despawn { id });
+            Ok(CallbackReturn::Return)
+        })).unwrap();
+
+        let b = bridge.clone();
+        game.set(ctx, "set_text", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let text: ottavino::String = stack.consume(ctx)?;
+            b.borrow_mut().queue.push(LuaCommand::SetText(text.to_str().unwrap_or("").to_string()));
+            Ok(CallbackReturn::Return)
+        })).unwrap();
+
+        let b = bridge.clone();
+        game.set(ctx, "shake", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let intensity: f32 = stack.consume(ctx)?;
+            b.borrow_mut().queue.push(LuaCommand::Shake(intensity));
+            Ok(CallbackReturn::Return)
+        })).unwrap();
+
+        let b = bridge.clone();
+        game.set(ctx, "set_bg_theme", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let theme: f32 = stack.consume(ctx)?;
+            b.borrow_mut().queue.push(LuaCommand::SetBgTheme(theme));
+            Ok(CallbackReturn::Return)
+        })).unwrap();
+
+        let b = bridge.clone();
+        game.set(ctx, "play_sound", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let name: ottavino::String = stack.consume(ctx)?;
+            b.borrow_mut().queue.push(LuaCommand::PlaySound(name.to_str().unwrap_or("").to_string()));
+            Ok(CallbackReturn::Return)
+        })).unwrap();
+
+        let b = bridge.clone();
+        game.set(ctx, "play_music", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let name: ottavino::String = stack.consume(ctx)?;
+            b.borrow_mut().queue.push(LuaCommand::PlayMusic(name.to_str().unwrap_or("").to_string()));
+            Ok(CallbackReturn::Return)
+        })).unwrap();
+
+        let b = bridge.clone();
+        game.set(ctx, "haptic", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let kind: ottavino::String = stack.consume(ctx)?;
+            let style = haptic_style(kind.to_str().unwrap_or(""));
+            b.borrow_mut().queue.push(LuaCommand::Haptic(style));
+            Ok(CallbackReturn::Return)
+        })).unwrap();
+
+        ctx.set_global("game", game);
+    });
 }
 
 /// Map a Lua haptic kind name to the integer style `hl_haptic` expects.

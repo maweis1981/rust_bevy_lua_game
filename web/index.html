@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>hollowlullaby</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #5c8f57; overflow: hidden; }
+    /* Center the game canvas; Bevy sizes it from the window resolution. */
+    canvas { display: block; margin: 0 auto; max-width: 100%; max-height: 100%; }
+    #loading { position: fixed; inset: 0; display: grid; place-items: center;
+               color: #eef; font: 600 20px/1.4 system-ui, sans-serif; }
+  </style>
+</head>
+<body>
+  <div id="loading">Loading…</div>
+  <script type="module">
+    // Relative import so it works under a GitHub Pages sub-path (…/<repo>/).
+    import init from './hollowlullaby.js';
+    init()
+      .then(() => document.getElementById('loading')?.remove())
+      .catch((e) => {
+        // winit unwinds its event loop via a JS exception on the web; that's normal.
+        if (!`${e}`.includes('Using exceptions for control flow')) {
+          console.error(e);
+        } else {
+          document.getElementById('loading')?.remove();
+        }
+      });
+  </script>
+</body>
+</html>
