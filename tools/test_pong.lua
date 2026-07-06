@@ -80,6 +80,7 @@ dofile("assets/scripts/match3.lua")
 dofile("assets/scripts/umami.lua")
 dofile("assets/scripts/packs/catch.lua")
 dofile("assets/scripts/packs/ponies.lua")
+dofile("assets/scripts/packs/gallery.lua")
 dofile("assets/scripts/main.lua")
 
 -- Reseed the LCG each boot so every test scenario is deterministic and
@@ -100,7 +101,7 @@ local function step(dt) frame_events = {}; on_update(dt or DT) end
 ----------------------------------------------------------------------
 local function router_tests()
   boot()
-  for _, key in ipairs({ "grow", "breakout", "snake", "roguelike", "game2048", "shooter", "world", "match3", "umami", "catch", "ponies" }) do
+  for _, key in ipairs({ "grow", "breakout", "snake", "roguelike", "game2048", "shooter", "world", "match3", "umami", "catch", "ponies", "gallery" }) do
     local d = enter(key)
     check(d and d.game == key, "menu tile should enter game '" .. key .. "'")
     check(d.back ~= nil, "game '" .. key .. "' should expose a back button")
@@ -825,6 +826,97 @@ local function ponies_tests()
   check(DEBUG.game == "menu", "ponies: BACK returns to the menu")
 end
 
+-- Midnight Gallery: a mild-horror interrogation VN. Drives the full flow
+-- (select -> three interviews -> accuse), clue collection, and both endings.
+local function gallery_tests()
+  boot()
+  local d = enter("gallery")
+  check(d.game == "gallery", "gallery (VN pack) loads and enters")
+  check(d.scene() == "select", "gallery opens on the witness-select screen")
+  check(d.back ~= nil, "gallery exposes a back button")
+  for _, k in ipairs({ "coach", "ol", "teacher" }) do
+    check(d.select_btn(k) ~= nil, "gallery select screen has witness " .. k)
+  end
+
+  -- Tapping a witness lunges her forward then opens her interview.
+  local r = d.select_btn("coach")
+  on_tap(r.x, r.y)
+  for _ = 1, 20 do step() end
+  check(d.scene() == "talk" and d.current() == "coach", "tapping a witness opens her interview")
+
+  -- Full playthrough: interview all three, always probing an uncollected clue,
+  -- and assert every clue can be surfaced and each witness gets marked done.
+  local function settle()
+    for _ = 1, 200 do step(); if d.scene() ~= "talk" or not d.typing() then break end end
+  end
+  local function interview(key)
+    local sr = d.select_btn(key)
+    on_tap(sr.x, sr.y)
+    for _ = 1, 20 do step() end
+    check(d.scene() == "talk" and d.current() == key, "interview opens for " .. key)
+    for _ = 1, 12 do
+      settle()
+      if d.scene() == "select" then break end
+      local ch = d.choices()
+      check(#ch > 0, "gallery: choices present for " .. key)
+      local pick = ch[1]
+      for _, c in ipairs(ch) do
+        if c.clue and not d.has_clue(c.clue) then pick = c; break end
+      end
+      on_tap(pick.rect.x, pick.rect.y)
+    end
+    check(d.scene() == "select" and d.done(key), "gallery: " .. key .. " interview completes")
+  end
+  -- coach already opened above; finish it, then the other two.
+  local function finish_open(key)
+    for _ = 1, 12 do
+      settle()
+      if d.scene() == "select" then break end
+      local ch = d.choices(); local pick = ch[1]
+      for _, c in ipairs(ch) do if c.clue and not d.has_clue(c.clue) then pick = c; break end end
+      on_tap(pick.rect.x, pick.rect.y)
+    end
+    check(d.scene() == "select" and d.done(key), "gallery: " .. key .. " (already open) completes")
+  end
+  finish_open("coach")
+  interview("ol")
+  interview("teacher")
+  check(d.clue_count() == 3, "gallery: probing surfaces all three clues")
+
+  -- Accuse the culprit with the clues -> good ending.
+  local ab = d.accuse_btn()
+  check(ab ~= nil, "gallery: accuse button appears once all three are interviewed")
+  on_tap(ab.x, ab.y)
+  check(d.scene() == "accuse", "gallery: accuse screen opens")
+  local tr = d.accuse_of("teacher")
+  on_tap(tr.x, tr.y)
+  check(d.scene() == "end", "gallery: accusing the culprit reaches an ending")
+
+  -- Back from an ending returns to the select screen; BACK from select exits.
+  on_tap(d.back.x, d.back.y)
+  check(d.scene() == "select", "gallery: BACK from the ending returns to select")
+  on_tap(d.back.x, d.back.y); step()
+  check(DEBUG.game == "menu", "gallery: BACK from select returns to the menu")
+
+  -- A wrong accusation still resolves to an ending (no dead-end).
+  boot()
+  d = enter("gallery")
+  local function quick(key)
+    local sr = d.select_btn(key); on_tap(sr.x, sr.y)
+    for _ = 1, 20 do step() end
+    for _ = 1, 12 do
+      for _ = 1, 200 do step(); if d.scene() ~= "talk" or not d.typing() then break end end
+      if d.scene() == "select" then break end
+      local ch = d.choices(); on_tap(ch[1].rect.x, ch[1].rect.y)
+    end
+  end
+  quick("coach"); quick("ol"); quick("teacher")
+  on_tap(d.accuse_btn().x, d.accuse_btn().y)
+  local cr = d.accuse_of("coach")
+  on_tap(cr.x, cr.y)
+  check(d.scene() == "end", "gallery: a wrong accusation also resolves to an ending")
+end
+
 local function settings_tests()
   boot()
   local opened = false
@@ -856,6 +948,7 @@ match3_tests()
 umami_tests()
 catch_tests()
 ponies_tests()
+gallery_tests()
 settings_tests()
 
 print(string.format("checks=%d", checks))
