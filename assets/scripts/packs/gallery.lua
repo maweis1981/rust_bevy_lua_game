@@ -40,11 +40,11 @@ function make_gallery()
   -- Portrait image keys per expression.
   local SUS = {
     { key = "coach",   name = "林薇", role = "网球教练", accent = { 0.30, 0.70, 0.66 },
-      img = { calm = "vn_coach", tense = "vn_coach_t", fear = "vn_coach_f" }, voice = "vo_coach" },
+      img = { calm = "vg_coach", tense = "vg_coach_t", fear = "vg_coach_f" }, voice = "vo_coach" },
     { key = "ol",      name = "苏晴", role = "会计",     accent = { 0.90, 0.66, 0.30 },
-      img = { calm = "vn_ol", tense = "vn_ol_t", fear = "vn_ol_f" }, voice = "vo_ol" },
+      img = { calm = "vg_ol", tense = "vg_ol_t", fear = "vg_ol_f" }, voice = "vo_ol" },
     { key = "teacher", name = "陈墨", role = "美术史讲师", accent = { 0.82, 0.28, 0.30 },
-      img = { calm = "vn_teacher", tense = "vn_teacher_t", fear = "vn_teacher_f" }, voice = "vo_teacher" },
+      img = { calm = "vg_teacher", tense = "vg_teacher_t", fear = "vg_teacher_f" }, voice = "vo_teacher" },
   }
   local function sus_by_key(k) for _, s in ipairs(SUS) do if s.key == k then return s end end end
 
@@ -184,7 +184,7 @@ function make_gallery()
 
   local function build_select()
     wipe(); sel_btns = {}; accuse_btn = nil
-    spr(0, 0, scr_hw * 2 + 4, scr_hh * 2 + 4, "vn_gallery")
+    spr(0, 0, scr_hw * 2 + 4, scr_hh * 2 + 4, "vg_gallery")
     rect(0, 0, scr_hw * 2 + 4, scr_hh * 2 + 4, 0.04, 0.05, 0.09, 0.45) -- darken
     back = K.make_back(T, scr_hw, scr_hh)
     txt(0, scr_hh - 120, 30, 0.93, 0.90, 0.86, 1, "深夜画廊")
@@ -236,7 +236,7 @@ function make_gallery()
   local function build_talk(s)
     wipe()
     cur = s
-    spr(0, 40, scr_hw * 2 + 4, scr_hh * 2 + 4, "vn_gallery_dark")
+    spr(0, 40, scr_hw * 2 + 4, scr_hh * 2 + 4, "vg_gallery_dark")
     rect(0, 0, scr_hw * 2 + 4, scr_hh * 2 + 4, 0.03, 0.04, 0.08, 0.5)
     back = K.make_back(T, scr_hw, scr_hh)
     portrait_id = spr(0, 96, 300, 450, s.img.calm)
@@ -298,7 +298,7 @@ function make_gallery()
   local acc_btns = {}
   local function build_accuse()
     wipe(); acc_btns = {}
-    spr(0, 0, scr_hw * 2 + 4, scr_hh * 2 + 4, "vn_gallery_dark")
+    spr(0, 0, scr_hw * 2 + 4, scr_hh * 2 + 4, "vg_gallery_dark")
     rect(0, 0, scr_hw * 2 + 4, scr_hh * 2 + 4, 0.03, 0.03, 0.06, 0.6)
     back = K.make_back(T, scr_hw, scr_hh)
     txt(0, scr_hh - 150, 24, 0.95, 0.92, 0.88, 1, "凶手是谁？")
@@ -317,17 +317,17 @@ function make_gallery()
 
   local function build_end(win)
     wipe()
-    spr(0, 0, scr_hw * 2 + 4, scr_hh * 2 + 4, "vn_gallery_dark")
+    spr(0, 0, scr_hw * 2 + 4, scr_hh * 2 + 4, "vg_gallery_dark")
     rect(0, 0, scr_hw * 2 + 4, scr_hh * 2 + 4, 0.02, 0.02, 0.05, 0.72)
     back = K.make_back(T, scr_hw, scr_hh)
     if win then
-      spr(0, 150, 300, 336, "vn_teacher_f")
+      spr(0, 150, 300, 336, "vg_teacher_f")
       txt(0, -60, 26, 0.55, 0.95, 0.60, 1, "真相大白")
       txt(0, -120, 15, 0.92, 0.92, 0.95, 1,
         gv_wrap("陈墨用讲座做掩护，九点十四制造停电、取走《凝视者》，" ..
              "撞见的保安被她锁进地下室。她说漏的那声喊，出卖了她。", 16))
     else
-      spr(0, 150, 300, 336, "vn_gallery_dark")
+      spr(0, 150, 300, 336, "vg_gallery_dark")
       txt(0, -60, 26, 0.95, 0.35, 0.32, 1, "指认错误")
       txt(0, -120, 15, 0.92, 0.90, 0.92, 1,
         gv_wrap("天亮了，真凶带着《凝视者》消失在城里。墙上的挂钩空着，" ..
@@ -499,4 +499,4 @@ end
 
 -- Self-register this game pack (see main.lua: the menu builds from PACKS).
 PACKS = PACKS or {}
-PACKS["gallery"] = { slot = 22, key = "gallery", label = "Midnight Gallery", short = "Mystery", icon = "vn_teacher", color = { 0.55, 0.30, 0.55 }, tier = "ai", make = make_gallery }
+PACKS["gallery"] = { slot = 22, key = "gallery", label = "Midnight Gallery", short = "Mystery", icon = "vg_teacher", color = { 0.55, 0.30, 0.55 }, tier = "ai", make = make_gallery }

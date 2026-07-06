@@ -43,8 +43,8 @@ within a tier. The menu is built automatically from PACKS — no other edits.
 orb, paddle, brick, tile, food, gem, hero, enemy, snakehead, snakebody, flower,
 villager, tree, rock, ship, alien, shot, sparkle, gberry, gdaisy, gbell, gleaf,
 gviola, gmush, pony, icon_heart, icon_coin, icon_bolt, icon_trophy, icon_clock, icon_bulb,
-icon_trash, icon_find, icon_eye, icon_pin, rtile, rxmark, rpill, rcard, vn_coach{,_t,_f},
-vn_ol{,_t,_f}, vn_teacher{,_t,_f}, vn_gallery, vn_gallery_dark (rounded UI + VN art, from
+icon_trash, icon_find, icon_eye, icon_pin, rtile, rxmark, rpill, rcard, vg_coach{,_t,_f},
+vg_ol{,_t,_f}, vg_teacher{,_t,_f}, vg_gallery, vg_gallery_dark (rounded UI + VN art, from
 tools/gen_ui_tiles.py). (`game.set_color` tints the grayscale/white ones: orb/paddle/brick/tile/rtile/rxmark/rpill/rcard.)
 
 ## Hard rules

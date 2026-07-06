@@ -63,9 +63,9 @@ timbre** (pitch/formant profile) so each witness sounds distinct. Ambient loop: 
 Lyria 2.
 | file | notes |
 |------|-------|
-| `vn_coach{,_t,_f}.png` | 林薇 网球教练 — calm / tense / frightened |
-| `vn_ol{,_t,_f}.png` | 苏晴 会计 — calm / tense / frightened |
-| `vn_teacher{,_t,_f}.png` | 陈墨 讲师 — calm / tense / frightened |
-| `vn_gallery.png` / `vn_gallery_dark.png` | clean scene / the "凝视者" appears |
+| `vg_coach{,_t,_f}.png` | 林薇 网球教练 — calm / tense / frightened |
+| `vg_ol{,_t,_f}.png` | 苏晴 会计 — calm / tense / frightened |
+| `vg_teacher{,_t,_f}.png` | 陈墨 讲师 — calm / tense / frightened |
+| `vg_gallery.png` / `vg_gallery_dark.png` | clean scene / the "凝视者" appears |
 | `audio/vo_{coach,ol,teacher}.wav` | fixed-timbre witness voice (opening lines) |
 | `audio/gallery.wav` | dark-ambient BGM loop |
