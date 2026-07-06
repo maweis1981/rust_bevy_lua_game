@@ -24,16 +24,19 @@ rm -rf "$OUT"; mkdir -p "$OUT"
 wasm-bindgen --target web --no-typescript \
   --out-dir "$OUT" --out-name hollowlullaby "$WASM"
 
-if command -v wasm-opt >/dev/null 2>&1; then
-  echo ">> wasm-opt -Os"
-  # --enable-reference-types + --enable-bulk-memory are REQUIRED: wasm-bindgen
-  # emits an externref table and bulk-memory ops; without these flags wasm-opt
-  # silently corrupts them and the module traps at init
-  # (WebAssembly.Table.grow failed / __wbindgen_init_externref_table).
+# wasm-opt is OPT-IN (WASM_OPT=1), and off by default. wasm-bindgen emits an
+# externref table; older binaryen (e.g. Ubuntu's 108) corrupts it during
+# optimization so the module traps at init with
+#   RangeError: WebAssembly.Table.grow() failed / __wbindgen_init_externref_table
+# even with --enable-reference-types. Ship the un-optimized wasm (it works;
+# Pages gzips it on the wire). Enable only with a binaryen new enough to keep
+# reference types intact: WASM_OPT=1 make web.
+if [ "${WASM_OPT:-0}" = 1 ] && command -v wasm-opt >/dev/null 2>&1; then
+  echo ">> wasm-opt -Os (WASM_OPT=1; needs a recent binaryen)"
   wasm-opt -Os --enable-reference-types --enable-bulk-memory \
     -o "$OUT/hollowlullaby_bg.wasm" "$OUT/hollowlullaby_bg.wasm"
 else
-  echo ">> (wasm-opt not found; skipping size optimization)"
+  echo ">> skipping wasm-opt (set WASM_OPT=1 with a recent binaryen to enable)"
 fi
 
 echo ">> copying index.html + assets/"
