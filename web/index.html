@@ -14,6 +14,33 @@
 </head>
 <body>
   <div id="loading">Loading…</div>
+  <script>
+    // Web audio starts SUSPENDED until a user gesture, and cpal (Bevy's wasm
+    // audio backend) creates its AudioContext inside the wasm module before any
+    // click happens — so game sound stays silent. Patch the AudioContext ctor to
+    // collect every instance, then resume them all on the first pointer/key/touch.
+    (function () {
+      var Orig = window.AudioContext || window.webkitAudioContext;
+      if (!Orig) return;
+      var ctxs = [];
+      function Patched() {
+        var c = arguments.length ? new Orig(arguments[0]) : new Orig();
+        ctxs.push(c);
+        return c;
+      }
+      Patched.prototype = Orig.prototype;
+      window.AudioContext = Patched;
+      if (window.webkitAudioContext) window.webkitAudioContext = Patched;
+      function resume() {
+        for (var i = 0; i < ctxs.length; i++) {
+          if (ctxs[i].state !== 'running') ctxs[i].resume().catch(function () {});
+        }
+      }
+      ['pointerdown', 'touchstart', 'keydown', 'click'].forEach(function (ev) {
+        window.addEventListener(ev, resume, { passive: true });
+      });
+    })();
+  </script>
   <script type="module">
     // Relative import so it works under a GitHub Pages sub-path (…/<repo>/).
     import init from './hollowlullaby.js';
