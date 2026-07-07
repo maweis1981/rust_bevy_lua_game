@@ -45,6 +45,10 @@
 //!                                               down = button/finger held)
 //!   game.key(name) -> bool                     (held keys: "up"/"down"/"left"/
 //!                                               "right"/"w"/"a"/"s"/"d"/"space")
+//!   game.touches() -> { {x,y,id}, ... }        (ALL active touches in world
+//!                                               coords, for multi-touch play;
+//!                                               desktop maps a held left click
+//!                                               to a single touch, id 0)
 //!   game.save(key, value) -> ok                (persist a string/number/boolean
 //!                                               across sessions; desktop+iOS
 //!                                               write ~/.hollowlullaby/save.txt,
@@ -397,6 +401,10 @@ struct Bridge {
     pointer_down: bool,
     /// Names of the keys held this frame (see `key_snapshot`).
     keys: std::collections::HashSet<&'static str>,
+    /// All active touches this frame in world coords (multi-touch read path).
+    /// On desktop a held left mouse button appears as a single touch with
+    /// id 0 so multi-touch code paths stay exercisable during development.
+    touches: Vec<(f32, f32, u64)>,
     /// Persistent KV store backing `game.save`/`game.load`. Values are stored
     /// pre-encoded (`s:`/`n:`/`b:` type prefix) so the file codec and the Lua
     /// boundary share one representation. Loaded from disk once at VM creation;
@@ -472,11 +480,13 @@ impl LuaVm {
         pointer: Option<(f32, f32)>,
         pointer_down: bool,
         keys: std::collections::HashSet<&'static str>,
+        touches: Vec<(f32, f32, u64)>,
     ) {
         if let Some(mut bridge) = self.lua.app_data_mut::<Bridge>() {
             bridge.pointer = pointer;
             bridge.pointer_down = pointer_down;
             bridge.keys = keys;
+            bridge.touches = touches;
         }
     }
 
@@ -548,6 +558,25 @@ fn register_api(lua: &Lua) -> mlua::Result<()> {
                 Some((None, down)) => Ok((None, None, down)),
                 None => Ok((None, None, false)),
             }
+        })?,
+    )?;
+
+    game.set(
+        "touches",
+        lua.create_function(|lua, ()| {
+            let touches = lua
+                .app_data_ref::<Bridge>()
+                .map(|b| b.touches.clone())
+                .unwrap_or_default();
+            let list = lua.create_table()?;
+            for (i, (x, y, id)) in touches.iter().enumerate() {
+                let t = lua.create_table()?;
+                t.set("x", *x)?;
+                t.set("y", *y)?;
+                t.set("id", *id)?;
+                list.set(i + 1, t)?;
+            }
+            Ok(list)
         })?,
     )?;
 
@@ -892,11 +921,13 @@ impl LuaVm {
         pointer: Option<(f32, f32)>,
         pointer_down: bool,
         keys: std::collections::HashSet<&'static str>,
+        touches: Vec<(f32, f32, u64)>,
     ) {
         let mut b = self.bridge.borrow_mut();
         b.pointer = pointer;
         b.pointer_down = pointer_down;
         b.keys = keys;
+        b.touches = touches;
     }
 
     fn on_tap(&mut self, x: f32, y: f32) {
@@ -980,6 +1011,21 @@ fn register_api(lua: &mut Lua, bridge: Rc<RefCell<Bridge>>) {
                 Some((x, y)) => stack.replace(ctx, (x as f64, y as f64, down)),
                 None => stack.replace(ctx, (Value::Nil, Value::Nil, down)),
             }
+            Ok(CallbackReturn::Return)
+        })).unwrap();
+
+        let b = bridge.clone();
+        game.set(ctx, "touches", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let touches = b.borrow().touches.clone();
+            let list = Table::new(&ctx);
+            for (i, (x, y, id)) in touches.iter().enumerate() {
+                let t = Table::new(&ctx);
+                t.set(ctx, "x", *x as f64).unwrap();
+                t.set(ctx, "y", *y as f64).unwrap();
+                t.set(ctx, "id", *id as i64).unwrap();
+                list.set(ctx, (i + 1) as i64, t).unwrap();
+            }
+            stack.replace(ctx, list);
             Ok(CallbackReturn::Return)
         })).unwrap();
 
@@ -1427,7 +1473,25 @@ fn tick_lua(
         .and_then(|p| camera.viewport_to_world_2d(cam_transform, p).ok())
         .map(|w| (w.x, w.y));
 
-    vm.set_input(pointer_world, pointer_down, key_snapshot(&keyboard));
+    // Multi-touch snapshot: every active touch in world coords. On desktop a
+    // held left click doubles as touch id 0 so two-finger code paths can at
+    // least be single-finger-exercised without a touchscreen.
+    let mut touch_list: Vec<(f32, f32, u64)> = touches
+        .iter()
+        .filter_map(|t| {
+            camera
+                .viewport_to_world_2d(cam_transform, t.position())
+                .ok()
+                .map(|w| (w.x, w.y, t.id()))
+        })
+        .collect();
+    if touch_list.is_empty() && mouse.pressed(MouseButton::Left) {
+        if let Some((x, y)) = pointer_world {
+            touch_list.push((x, y, 0));
+        }
+    }
+
+    vm.set_input(pointer_world, pointer_down, key_snapshot(&keyboard), touch_list);
     vm.update(time.delta_secs());
 }
 
