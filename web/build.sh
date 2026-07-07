@@ -39,7 +39,7 @@ wasm-bindgen --target web --no-typescript \
 # (npm i -g binaryen ships a current wasm-opt), then PATH. On by default;
 # set WASM_OPT=0 to skip. A too-old PATH wasm-opt is refused, not shipped broken.
 pick_wasm_opt() {
-  for c in "$WASM_OPT" \
+  for c in "${WASM_OPT:-}" \
            "$(command -v wasm-opt 2>/dev/null)" \
            /opt/node22/lib/node_modules/binaryen/bin/wasm-opt \
            "$(npm root -g 2>/dev/null)/binaryen/bin/wasm-opt"; do
@@ -52,10 +52,19 @@ pick_wasm_opt() {
 if [ "${WASM_OPT:-1}" != 0 ] && WO=$(pick_wasm_opt); then
   before=$(wc -c < "$PLAY/hollowlullaby_bg.wasm")
   echo ">> wasm-opt -Oz with $("$WO" --version | head -1)"
-  "$WO" -Oz --enable-reference-types --enable-bulk-memory \
-    -o "$PLAY/hollowlullaby_bg.wasm" "$PLAY/hollowlullaby_bg.wasm"
-  after=$(wc -c < "$PLAY/hollowlullaby_bg.wasm")
-  echo ">> wasm-opt: $((before/1048576))MB -> $((after/1048576))MB"
+  # Enable every wasm feature rustc's default target emits (sign-ext,
+  # nontrapping-fptoint, bulk-memory, reference-types, mutable-globals, …) or
+  # wasm-opt rejects the module at load. On any failure we keep the (valid)
+  # un-opt wasm and continue — a binaryen quirk must never break the build.
+  if "$WO" -Oz --all-features \
+       -o "$PLAY/hollowlullaby_bg.wasm.opt" "$PLAY/hollowlullaby_bg.wasm" 2>/tmp/wasmopt.err; then
+    mv "$PLAY/hollowlullaby_bg.wasm.opt" "$PLAY/hollowlullaby_bg.wasm"
+    after=$(wc -c < "$PLAY/hollowlullaby_bg.wasm")
+    echo ">> wasm-opt: $((before/1048576))MB -> $((after/1048576))MB"
+  else
+    rm -f "$PLAY/hollowlullaby_bg.wasm.opt"
+    echo ">> wasm-opt failed (kept un-opt wasm): $(tail -1 /tmp/wasmopt.err)"
+  fi
 else
   echo ">> skipping wasm-opt (no binaryen >= 116 found; set WASM_OPT=/path/wasm-opt)"
 fi
