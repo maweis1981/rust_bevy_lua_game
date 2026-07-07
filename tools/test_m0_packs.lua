@@ -73,6 +73,7 @@ game = {
   end,
   load = function(k) return game._store[k] end,
   _touches = {},
+  date_utc = function() return 2026, 7, 7 end,
   touches = function() return game._touches end,
   haptic = function(k) record("haptic", k) end,
   pointer = function() return game._px, game._py, game._down end,

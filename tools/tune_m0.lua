@@ -39,6 +39,7 @@ game = {
   stop_music = noop, set_volume = noop, track = noop, haptic = noop,
   _store = {}, save = function(k, v) game._store[k] = v; return true end,
   load = function(k) return game._store[k] end,
+  date_utc = function() return 2026, 7, 7 end,
   touches = function() return {} end,
   pointer = function() return game._px, game._py, game._down end,
   key = function() return false end,
