@@ -1054,18 +1054,18 @@ local function timedodge_tests()
   d = DEBUG
   check(d.mode() == "run" and d.trial() == nil, "timedodge: ENDLESS starts an endless run")
 
-  -- Frozen: hold the pointer ON the player -> no player motion -> the
-  -- timescale floors and world time (stolen score) crawls over 3 sim seconds.
-  local p0 = pos[d.player]
-  game._down, game._px, game._py = true, p0.x, p0.y
-  for _ = 1, 180 do step(); game._px, game._py = pos[d.player].x, pos[d.player].y end
-  check(d.timescale() <= 0.1, "timedodge: standing still floors the timescale")
+  -- Frozen: nothing touching (finger up, no keys) -> the timescale floors
+  -- and world time (stolen score) crawls over 3 sim seconds.
+  clear_input()
+  for _ = 1, 180 do step() end
+  check(d.timescale() <= 0.1, "timedodge: releasing floors the timescale")
   check(d.score() < 0.5, string.format("timedodge: frozen world time crawls (%.2fs)", d.score()))
 
-  -- Dash: circle the pointer fast -> timescale rises, world time accrues.
+  -- Dash: press and circle the pointer -> timescale rises, world time accrues.
   -- 90 frames is inside the safe window: the first foe spawns ~1 world-second
   -- in and still needs ~1s+ of world time to cross to the player.
   local t = 0
+  game._down = true
   for _ = 1, 90 do
     t = t + DT
     game._px, game._py = 120 * math.cos(t * 6), 260 * math.sin(t * 6)
@@ -1082,9 +1082,9 @@ local function timedodge_tests()
   end
   check(d.alive() and d.bullet_count() > 0, "timedodge: bullets spawn while time flows")
 
-  -- Freeze again: live bullets must be near-stationary between frames.
-  game._px, game._py = pos[d.player].x, pos[d.player].y
-  for _ = 1, 60 do step(); game._px, game._py = pos[d.player].x, pos[d.player].y end
+  -- Freeze again (release): live bullets must be near-stationary between frames.
+  game._down = false
+  for _ = 1, 60 do step() end
   local frozen = {}
   for _, id in ipairs(d.bullet_ids()) do frozen[id] = { x = pos[id].x, y = pos[id].y } end
   step()
@@ -1156,12 +1156,12 @@ local function timedodge_tests()
   check(d.gate() ~= nil, "timedodge: a trial spawns its first time gate")
 
   -- The trial clock counts REAL seconds even while frozen (freeze is safe
-  -- but never free) — hold still for 1s and the clock must advance ~1s.
+  -- but never free) — release for 1s and the clock must advance ~1s.
   local e0 = d.elapsed()
-  game._down, game._px, game._py = true, pos[d.player].x, pos[d.player].y
-  for _ = 1, 60 do step(); game._px, game._py = pos[d.player].x, pos[d.player].y end
+  clear_input()
+  for _ = 1, 60 do step() end
   check(d.elapsed() - e0 > 0.9, "timedodge: the trial clock keeps counting while frozen")
-  check(d.timescale() <= 0.1, "timedodge: freezing still stops the world in a trial")
+  check(d.timescale() <= 0.1, "timedodge: releasing still freezes the world in a trial")
 
   -- Autopilot: beeline to each gate; retry on death; must clear in budget.
   local cleared, attempts = false, 0
@@ -1219,6 +1219,17 @@ local function settings_tests()
   check(DEBUG.game == "menu", "Settings BACK returns to the menu")
 end
 
+-- Single-game builds: AUTOBOOT boots straight into one game and BACK
+-- re-enters it (the lobby menu never shows). See tools/export_web_games.sh.
+local function autoboot_tests()
+  AUTOBOOT = "snake"
+  boot()
+  check(DEBUG.game == "snake", "autoboot: boots straight into the configured game")
+  on_tap(DEBUG.back.x, DEBUG.back.y); step()
+  check(DEBUG.game == "snake", "autoboot: BACK re-enters the game instead of the menu")
+  AUTOBOOT = nil
+end
+
 ----------------------------------------------------------------------
 router_tests()
 grow_physics(12000, DT)
@@ -1238,6 +1249,7 @@ ponies_tests()
 gallery_tests()
 timedodge_tests()
 settings_tests()
+autoboot_tests()
 
 ----------------------------------------------------------------------
 -- game.touches() multi-touch contract (roadmap P0.2 acceptance):

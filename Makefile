@@ -9,7 +9,7 @@ BUNDLE_ID := com.ngmob.hollow
 CONFIG ?= Debug
 DEVICE_APP := build/DerivedData/Build/Products/$(CONFIG)-iphoneos/hollowlullaby.app
 
-.PHONY: run build check fmt clippy test test-lua web web-serve ios-lib \
+.PHONY: run build check fmt clippy test test-lua web web-games web-serve ios-lib \
         ios-project ios-build ios-run device-build device-run ios-archive \
         ios-export ios-ipa clean
 
@@ -56,6 +56,9 @@ test-lua:
 #                 (optional) install binaryen for wasm-opt
 web:            ## Build the static web bundle into build/web/
 	bash web/build.sh
+
+web-games:      ## Export one standalone web bundle per game (run 'make web' first)
+	bash tools/export_web_games.sh
 
 web-serve: web  ## Build the web bundle and serve it at http://localhost:8080
 	@echo "serving build/web at http://localhost:8080 (Ctrl-C to stop)"

@@ -223,7 +223,7 @@ if MODE == "trial" then
     local threats, _, nd = think(px, py)
     local g = DEBUG.gate()
     if t2 > 1.0 and (t2 % 4.0) < 0.55 and nd > 110 then  -- a freeze beat for drama
-      game._down = true                              -- finger held still
+      game._down = false                             -- release: the world freezes
       cx, cy = px, py
     elseif nd < 95 then                              -- emergency sidestep
       local dxn, dyn = dodge_vector(px, py, threats)
@@ -280,7 +280,7 @@ for step = 1, math.floor(26 / DT) do
   else
     local threats, _, nd = think(px, py)
     if freeze_beat(t, nd) then
-      game._down = true                              -- finger held still: freeze
+      game._down = false                             -- release: the world freezes
     else
       -- steer toward the weave point blended with the avoidance vector; pure
       -- sideways dodge when a foe is about to connect. Relative drag: deltas.
