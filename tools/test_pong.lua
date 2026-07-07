@@ -63,6 +63,7 @@ game = {
   stop_voice = function() record("stopvoice") end,
   stop_music = function() record("stopmusic") end,
   set_volume = function(c, v) record("volume", c) end,
+  track = function(e) record("track", e) end,
   _store = {},
   save = function(k, v)
     local t = type(v)
