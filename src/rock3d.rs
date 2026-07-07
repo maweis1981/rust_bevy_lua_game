@@ -1,0 +1,286 @@
+//! True-3D render path for Lua games: procedural rock meshes + a lazily
+//! bootstrapped 3D camera/light rig that composites UNDER the existing 2D layer.
+//!
+//! Driven from Lua through the command bridge in `src/script.rs`:
+//!   game.rock3d(x, y, z, size) -> id   spawn a rock (unit-diameter mesh,
+//!                                      uniformly scaled so scale == size)
+//!   game.move3d(id, x, y, z)           set translation
+//!   game.rot3d(id, rx, ry, rz)         set absolute rotation (Lua drives spin
+//!                                      per frame, so a time-freeze in the game
+//!                                      sim freezes the tumble for free)
+//!   game.color3d(id, r, g, b)          tint this rock's own StandardMaterial
+//!   game.scale3d(id, s)                uniform world size (s = diameter)
+//!   game.despawn(id)                   works unchanged (same EntityRegistry)
+//!
+//! Coexistence with the 2D game (the whole point):
+//!   * The 3D camera renders FIRST (`order = -1`) and clears to deep space
+//!     navy; at bootstrap the 2D `GameCamera` is patched to `order = 1` with
+//!     `ClearColorConfig::None`, so sprites/HUD/menus composite on top.
+//!   * The animated aurora background (`src/background.rs`) is an OPAQUE
+//!     full-screen 2D quad that would hide the 3D scene — while any rock is
+//!     alive it is `Visibility::Hidden`, and it comes back automatically when
+//!     the last rock despawns (so the menu/other games look unchanged).
+//!   * The 3D camera's perspective FOV is fitted every frame so the z = 0
+//!     plane maps 1:1 onto 2D world pixels — Lua keeps thinking in the same
+//!     coordinates it uses for sprites.
+//!
+//! The rock mesh is generated ONCE (icosphere, 2 subdivisions, per-vertex
+//! radial displacement from a deterministic position hash) and cached as a
+//! `Handle<Mesh>`; every rock shares it. Each rock gets its OWN
+//! `StandardMaterial` so `color3d` tints entities independently.
+
+use bevy::mesh::VertexAttributeValues;
+use bevy::prelude::*;
+use std::collections::HashMap;
+
+use crate::background::BackgroundQuad;
+use crate::script::{shake_offset, ScreenShake};
+
+/// Camera distance from the z = 0 gameplay plane. Lua's depth mapping
+/// (`-420 * z`) keeps rocks well inside the near/far range.
+const CAM_DIST: f32 = 900.0;
+
+/// Deep space navy the 3D camera clears to (replaces the hidden aurora).
+const CLEAR_3D: Color = Color::srgb(0.03, 0.04, 0.10);
+
+/// Radial displacement amplitude as a fraction of the sphere radius.
+const ROCK_NOISE: f32 = 0.22;
+
+pub struct Rock3dPlugin;
+
+impl Plugin for Rock3dPlugin {
+    fn build(&self, app: &mut App) {
+        app.init_resource::<Rock3dState>()
+            .add_systems(Update, (sync_rock3d_camera, toggle_2d_backdrop));
+    }
+}
+
+/// Shared state of the 3D path. `materials` doubles as the live-rock set:
+/// entries are added by `game.rock3d` and removed by `game.despawn`
+/// synchronously during the command drain, so systems reading it this frame
+/// agree with what Lua just did.
+#[derive(Resource, Default)]
+pub(crate) struct Rock3dState {
+    /// The one shared unit-diameter rock mesh (built on first use).
+    pub(crate) mesh: Option<Handle<Mesh>>,
+    /// Per-Lua-id material — each rock owns its material so tints are per-entity.
+    pub(crate) materials: HashMap<u32, Handle<StandardMaterial>>,
+    /// Whether the 3D camera/light rig has been spawned (first `rock3d` call).
+    pub(crate) booted: bool,
+}
+
+/// Tags the (single) 3D camera so it can be resized/shaken/toggled.
+#[derive(Component)]
+pub(crate) struct Rock3dCamera;
+
+/// Spawn the 3D rig: perspective camera at (0, 0, CAM_DIST) looking at the
+/// origin (renders under the 2D camera), a key light from upper-left-front,
+/// and a dim cool ambient (attached to the camera; overrides the global).
+/// Called once from the command drain on the first `game.rock3d`.
+pub(crate) fn spawn_3d_rig(commands: &mut Commands) {
+    commands.spawn((
+        Camera3d::default(),
+        Camera {
+            order: -1,
+            clear_color: ClearColorConfig::Custom(CLEAR_3D),
+            ..default()
+        },
+        // `far` must exceed CAM_DIST + the deepest rock (420) with margin.
+        Projection::Perspective(PerspectiveProjection {
+            far: 4000.0,
+            ..default()
+        }),
+        Transform::from_xyz(0.0, 0.0, CAM_DIST).looking_at(Vec3::ZERO, Vec3::Y),
+        AmbientLight {
+            color: Color::srgb(0.65, 0.75, 1.0),
+            brightness: 120.0,
+            affects_lightmapped_meshes: true,
+        },
+        Rock3dCamera,
+    ));
+    commands.spawn((
+        DirectionalLight {
+            illuminance: 10_000.0,
+            ..default()
+        },
+        Transform::from_xyz(-600.0, 800.0, 900.0).looking_at(Vec3::ZERO, Vec3::Y),
+    ));
+}
+
+/// The vertical FOV that makes the z = 0 plane span exactly the window height
+/// at `CAM_DIST` — so 2D world coordinates map 1:1 onto the gameplay plane.
+fn fov_for_window_height(height: f32) -> f32 {
+    2.0 * (height.max(1.0) * 0.5 / CAM_DIST).atan()
+}
+
+/// Keep the 3D camera fitted to the window (1:1 plane mapping survives
+/// resizes) and mirror the 2D screen-shake jitter so both layers move as one.
+fn sync_rock3d_camera(
+    time: Res<Time>,
+    shake: Res<ScreenShake>,
+    windows: Query<&Window>,
+    mut cameras: Query<(&mut Transform, &mut Projection), With<Rock3dCamera>>,
+) {
+    let Ok((mut transform, mut projection)) = cameras.single_mut() else {
+        return;
+    };
+    if let Ok(window) = windows.single() {
+        let fov = fov_for_window_height(window.height());
+        // Only write on real change to avoid dirtying the projection per frame.
+        if let Projection::Perspective(p) = projection.as_ref() {
+            if (p.fov - fov).abs() > 1e-5 {
+                if let Projection::Perspective(p) = &mut *projection {
+                    p.fov = fov;
+                }
+            }
+        }
+    }
+    let (x, y) = shake_offset(shake.trauma, time.elapsed_secs());
+    transform.translation.x = x;
+    transform.translation.y = y;
+}
+
+/// While any rock is alive, hide the opaque aurora quad (it would cover the 3D
+/// scene) and keep the 3D camera active; when the last rock despawns, restore
+/// the aurora and put the 3D camera to sleep — the menu and every 2D game look
+/// exactly as before.
+fn toggle_2d_backdrop(
+    state: Res<Rock3dState>,
+    mut backdrop: Query<&mut Visibility, With<BackgroundQuad>>,
+    mut cameras: Query<&mut Camera, With<Rock3dCamera>>,
+) {
+    if !state.booted {
+        return;
+    }
+    let live = !state.materials.is_empty();
+    let desired = if live {
+        Visibility::Hidden
+    } else {
+        Visibility::Inherited
+    };
+    for mut vis in &mut backdrop {
+        if *vis != desired {
+            *vis = desired;
+        }
+    }
+    for mut cam in &mut cameras {
+        if cam.is_active != live {
+            cam.is_active = live;
+        }
+    }
+}
+
+/// Deterministic noise in [-1, 1] from a vertex position. Positions are
+/// quantized first, so the icosphere's UV-seam duplicate vertices (identical
+/// positions, different indices) displace identically — no cracks.
+fn vertex_noise(p: [f32; 3]) -> f32 {
+    let q = |v: f32| (v * 512.0).round() as i64;
+    let h = (q(p[0]).wrapping_mul(0x9E37_79B9_7F4A_7C15u64 as i64))
+        ^ (q(p[1]).wrapping_mul(0xC2B2_AE3D_27D4_EB4Fu64 as i64))
+        ^ (q(p[2]).wrapping_mul(0x1656_67B1_9E37_79F9u64 as i64));
+    let mut h = h as u64;
+    h ^= h >> 33;
+    h = h.wrapping_mul(0xFF51_AFD7_ED55_8CCD);
+    h ^= h >> 33;
+    ((h & 0xFF_FFFF) as f32 / 16_777_216.0) * 2.0 - 1.0
+}
+
+/// Build the shared rock mesh: a unit-DIAMETER icosphere (radius 0.5, two
+/// subdivisions) with per-vertex radial displacement from `vertex_noise`,
+/// then angle-weighted smooth normals so lighting reads the lumps. Unit
+/// diameter means a rock's `Transform::scale` IS its world size.
+pub(crate) fn rock_mesh() -> Mesh {
+    let mut mesh = Sphere::new(0.5)
+        .mesh()
+        .ico(2)
+        .expect("2 subdivisions is far below the icosphere vertex limit");
+    if let Some(VertexAttributeValues::Float32x3(positions)) =
+        mesh.attribute_mut(Mesh::ATTRIBUTE_POSITION)
+    {
+        for p in positions.iter_mut() {
+            let s = 1.0 + ROCK_NOISE * vertex_noise(*p);
+            p[0] *= s;
+            p[1] *= s;
+            p[2] *= s;
+        }
+    }
+    // Recompute normals for the displaced surface (the sphere's own normals
+    // would light it as a smooth ball). The ico mesh is an indexed TriangleList,
+    // which is exactly what this requires.
+    mesh.compute_smooth_normals();
+    mesh
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{fov_for_window_height, rock_mesh, vertex_noise, CAM_DIST, ROCK_NOISE};
+    use bevy::mesh::{Mesh, VertexAttributeValues};
+
+    #[test]
+    fn vertex_noise_is_deterministic_and_bounded() {
+        for i in 0..500 {
+            let p = [
+                i as f32 * 0.013 - 3.0,
+                (i as f32 * 0.007).sin(),
+                0.5 - i as f32 * 0.001,
+            ];
+            let a = vertex_noise(p);
+            let b = vertex_noise(p);
+            assert_eq!(a, b, "same position must displace identically");
+            assert!((-1.0..=1.0).contains(&a), "noise out of range: {a}");
+        }
+        // Quantization: positions closer than half a quantum hash the same, so
+        // seam-duplicated vertices (bit-identical) can never crack apart.
+        assert_eq!(
+            vertex_noise([0.25, -0.125, 0.5]),
+            vertex_noise([0.25, -0.125, 0.5])
+        );
+    }
+
+    #[test]
+    fn rock_mesh_is_a_displaced_unit_sphere_with_normals() {
+        let mesh = rock_mesh();
+        let Some(VertexAttributeValues::Float32x3(positions)) =
+            mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+        else {
+            panic!("rock mesh must have float3 positions");
+        };
+        assert!(!positions.is_empty());
+        let (mut min_r, mut max_r) = (f32::MAX, 0.0f32);
+        for p in positions {
+            let r = (p[0] * p[0] + p[1] * p[1] + p[2] * p[2]).sqrt();
+            min_r = min_r.min(r);
+            max_r = max_r.max(r);
+        }
+        // Radii stay inside the displacement envelope around radius 0.5
+        // (unit diameter — so Transform scale == world size)…
+        assert!(
+            min_r >= 0.5 * (1.0 - ROCK_NOISE) - 1e-4,
+            "min radius {min_r}"
+        );
+        assert!(
+            max_r <= 0.5 * (1.0 + ROCK_NOISE) + 1e-4,
+            "max radius {max_r}"
+        );
+        // …and the surface is actually lumpy, not a repainted sphere.
+        assert!(max_r - min_r > 0.02, "displacement had no effect");
+        assert!(
+            mesh.attribute(Mesh::ATTRIBUTE_NORMAL).is_some(),
+            "displaced mesh must carry recomputed normals"
+        );
+        assert!(mesh.indices().is_some());
+    }
+
+    #[test]
+    fn fov_fits_the_window_onto_the_plane() {
+        // tan(fov/2) * CAM_DIST must equal the window half-height, so 2D world
+        // units map 1:1 onto the z = 0 plane.
+        for h in [400.0f32, 932.0, 1200.0] {
+            let fov = fov_for_window_height(h);
+            let half = (fov * 0.5).tan() * CAM_DIST;
+            assert!((half - h * 0.5).abs() < 1e-2, "h={h}: {half}");
+        }
+        // Degenerate window height must not produce a degenerate FOV.
+        assert!(fov_for_window_height(0.0) > 0.0);
+    }
+}
