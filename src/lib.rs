@@ -9,6 +9,7 @@ use bevy::diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
 use bevy::prelude::*;
 
 mod background;
+mod rig;
 mod script;
 
 pub use script::ScriptPlugin;
