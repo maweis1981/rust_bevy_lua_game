@@ -49,7 +49,11 @@ local order = {}
 local current = nil
 local booted = false
 
+-- Single-game builds (tools/export_web_games.sh) prepend `AUTOBOOT = "<key>"`
+-- to this file: the router then boots straight into that game and any
+-- "back to menu" becomes a re-enter of the same game — the menu never shows.
 local function switch(key)
+  if AUTOBOOT and key == "menu" then key = AUTOBOOT end
   if current and current.leave then current.leave() end
   current = scenes[key]
   if current and current.enter then current.enter() end
@@ -550,7 +554,10 @@ function on_start()
   table.sort(list, function(a, b)
     local pa, pb = prio[a.tier or "preset"] or 9, prio[b.tier or "preset"] or 9
     if pa ~= pb then return pa < pb end
-    return (a.slot or 99) < (b.slot or 99)
+    local sa, sb = a.slot or 99, b.slot or 99
+    if sa ~= sb then return sa < sb end
+    return (a.key or "") < (b.key or "")   -- stable order on slot ties
+
   end)
   order = {}
   for _, g in ipairs(list) do
@@ -568,7 +575,7 @@ end
 function on_update(dt)
   local hw, hh = game.bounds()
   if hw <= 0 then return end
-  if not booted then switch("menu"); booted = true end
+  if not booted then switch(AUTOBOOT or "menu"); booted = true end
   if current and current.update then current.update(dt, hw, hh) end
   if not SETTINGS.hud then game.set_text("") end   -- global HUD toggle (Settings)
 end
