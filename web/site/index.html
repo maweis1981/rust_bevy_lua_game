@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>hollowlullaby · AI-native 2D 游戏引擎（Rust + Bevy + Lua）</title>
+  <meta name="description" content="hollowlullaby（rust_bevy_lua_game）是一个 AI-native 的 2D 小游戏引擎：Rust + Bevy 内核，Lua 写玩法，一份代码发布 macOS / iOS / Web。为 agent 设计，没有编辑器，素材全 AIGC。浏览器直接试玩 14 款小游戏。" />
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 100 100%27><text y=%27.9em%27 font-size=%2790%27>🎮</text></svg>" />
+  <link rel="stylesheet" href="assets/site.css" />
+</head>
+<body>
+  <nav class="nav">
+    <div class="nav-inner">
+      <a class="brand" href="./">hollowlullaby</a>
+      <a class="item" href="#games">游戏作品</a>
+      <a class="item" href="blog/">博客</a>
+      <a class="item" href="docs/">文档</a>
+      <a class="item" href="https://github.com/maweis1981/rust_bevy_lua_game">GitHub</a>
+      <span class="spacer"></span>
+      <a class="play" href="play/">▶ 立即试玩</a>
+    </div>
+  </nav>
+
+  <header class="hero">
+    <div class="hero-inner">
+      <div>
+        <h1><span class="en">hollowlullaby</span><br />AI 时代的 2D 小游戏引擎</h1>
+        <p class="tagline">
+          Rust + Bevy 内核，Lua 写玩法，一份代码发布 macOS / iOS / Web（WebAssembly）。
+          为 agent 设计：上下文写进仓库、测试当眼睛、素材全 AIGC——没有编辑器，是设计使然。
+        </p>
+        <div class="cta">
+          <a class="btn primary" href="play/">▶ 在浏览器里玩（无需安装）</a>
+          <a class="btn" href="docs/">📖 使用文档</a>
+          <a class="btn" href="blog/">✍️ 开发博客</a>
+        </div>
+      </div>
+      <img class="keyart" src="assets/keyart.png" alt="Engine Showcase 主视觉（Floniks AIGC 生成）" />
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section class="block" id="intro">
+      <h2>这是什么</h2>
+      <p class="lead">
+        一个开源的 2D 小游戏引擎 + 脚手架（仓库名 <code>rust_bevy_lua_game</code>）。
+        它相信 AI 时代应该有 AI 时代的游戏开发方式：
+      </p>
+      <div class="grid cols3">
+        <div class="card">
+          <span class="tag">ARCHITECTURE</span>
+          <h3>Rust 管引擎，Lua 管玩法</h3>
+          <p>Bevy 0.19 ECS 内核负责渲染 / 音频 / 跨平台；玩法全在 Lua 5.4 里，桌面端保存即热重载。Lua 从不直接触碰 ECS——命令队列桥保证两层可以独立演化。</p>
+        </div>
+        <div class="card">
+          <span class="tag">CROSS-PLATFORM</span>
+          <h3>一份代码，三个平台</h3>
+          <p>同一份 Rust crate 编成桌面二进制、iOS 静态库（120Hz ProMotion）和 WASM。Web 端用纯 Rust 的 Lua VM（ottavino），脚本与原生逐字节相同。</p>
+        </div>
+        <div class="card">
+          <span class="tag">AI-NATIVE</span>
+          <h3>为 agent 设计，没有编辑器</h3>
+          <p>架构契约写在 CLAUDE.md，关卡是数据、素材是 Floniks AIGC 管线（文生图 / 图生图 / TTS / 文生音乐），13 万+ 条无头测试断言让 agent 敢自主迭代。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="block" id="games">
+      <h2>游戏作品</h2>
+      <p class="lead">
+        全部游戏在同一个 WASM 包里——点任意一个进入试玩，然后在主菜单选择对应卡片。
+        每款游戏都是引擎的一次真实验收，玩法逻辑各是一个 Lua 文件。
+      </p>
+      <div class="games">
+        <a class="chip" href="play/">Pony Parade<span class="zh">小马拼图 · Queens 解谜</span></a>
+        <a class="chip" href="play/">Midnight Gallery<span class="zh">深夜画廊 · 悬疑视觉小说</span></a>
+        <a class="chip" href="play/">Engine Showcase<span class="zh">九站能力跑分</span></a>
+        <a class="chip" href="play/">Time Dodge<span class="zh">你动时间才动</span></a>
+        <a class="chip" href="play/">Craft World<span class="zh">采集合成沙盒</span></a>
+        <a class="chip" href="play/">Roguelike<span class="zh">地牢爬行</span></a>
+        <a class="chip" href="play/">Space Shooter<span class="zh">太空射击</span></a>
+        <a class="chip" href="play/">2048</a>
+        <a class="chip" href="play/">Gem Match<span class="zh">三消</span></a>
+        <a class="chip" href="play/">Snake<span class="zh">贪吃蛇</span></a>
+        <a class="chip" href="play/">Breakout<span class="zh">打砖块</span></a>
+        <a class="chip" href="play/">Grow Paddle<span class="zh">Pong 变体</span></a>
+        <a class="chip" href="play/">Fruit Catch<span class="zh">接水果</span></a>
+        <a class="chip" href="play/">Cozy Isle<span class="zh">治愈小岛</span></a>
+      </div>
+    </section>
+
+    <section class="block" id="blog">
+      <h2>开发博客</h2>
+      <p class="lead">记录我们如何用纯 vibe coding（Claude Code + Floniks + 本引擎）做 AI 时代的游戏——每篇都来自真实的 git 历史，可照着复现。</p>
+      <div class="grid cols2">
+        <a class="card" href="blog/post.html?p=2026-07-07-vibe-coding-game-dev">
+          <span class="tag">OVERVIEW</span>
+          <h3>纯 Vibe Coding：用 Claude Code + Floniks 做 AI 时代的游戏</h3>
+          <p>7 步方法论总览：从一句话加一个游戏，到多模态素材管线，到系统性 debug 与一键发布。</p>
+        </a>
+        <a class="card" href="blog/post.html?p=2026-07-07-engine-showcase-devlog">
+          <span class="tag">DEVLOG</span>
+          <h3>Engine Showcase：把 feature list 做成游戏</h3>
+          <p>九个能力站 + 逐站现场 benchmark；全 AIGC 素材；47 行 JSON 的骨骼动画。</p>
+        </a>
+        <a class="card" href="blog/post.html?p=2026-07-07-tutorial-part1-pony-parade">
+          <span class="tag">TUTORIAL · 上篇</span>
+          <h3>《小马拼图》：一张截图、一段视频，复刻一款解谜手游</h3>
+          <p>玩法调研、任务分解、素材生成全部由 agent 统筹——没写过一条复杂提示词。</p>
+        </a>
+        <a class="card" href="blog/post.html?p=2026-07-07-tutorial-part2-midnight-gallery">
+          <span class="tag">TUTORIAL · 下篇</span>
+          <h3>《深夜画廊》：一句题材词，做出有声有色的视觉小说</h3>
+          <p>文生图 + 图生图派生表情、TTS 一人一音色、文生音乐铺氛围，五种生成能力一条链路。</p>
+        </a>
+      </div>
+      <p style="margin-top: 1rem"><a href="blog/">→ 全部文章</a></p>
+    </section>
+
+    <section class="block" id="docs">
+      <h2>介绍与文档</h2>
+      <div class="grid cols3">
+        <a class="card" href="docs/page.html?p=product-intro">
+          <span class="tag">INTRO</span>
+          <h3>产品介绍</h3>
+          <p>30 秒看懂引擎的技术底座，以及 Engine Showcase 为什么是它的自证明 demo。</p>
+        </a>
+        <a class="card" href="docs/page.html?p=user-manual">
+          <span class="tag">MANUAL</span>
+          <h3>使用手册</h3>
+          <p>各平台怎么启动、九个能力站怎么玩、benchmark 怎么跑分。</p>
+        </a>
+        <a class="card" href="docs/page.html?p=use-cases">
+          <span class="tag">RECIPES</span>
+          <h3>场景应用</h3>
+          <p>按"你想做什么"索引到"抄哪个站的代码"：双人同屏、塔防地图、打击感三件套……</p>
+        </a>
+        <a class="card" href="https://github.com/maweis1981/rust_bevy_lua_game/blob/main/docs/ai-era-game-dev.md">
+          <span class="tag">ESSAY</span>
+          <h3>AI 时代的游戏开发方式</h3>
+          <p>观点 + 教程长文：为什么上下文要写进仓库、测试为什么是 agent 的眼睛。</p>
+        </a>
+        <a class="card" href="https://github.com/maweis1981/rust_bevy_lua_game/blob/main/docs/no-editor-by-design.md">
+          <span class="tag">DESIGN</span>
+          <h3>没有编辑器，是设计使然</h3>
+          <p>为什么 AI 时代的引擎不需要传统编辑器——数据 + agent 就是编辑器。</p>
+        </a>
+        <a class="card" href="https://github.com/maweis1981/rust_bevy_lua_game/blob/main/docs/roadmap-and-benchmark.md">
+          <span class="tag">ROADMAP</span>
+          <h3>Roadmap 与横向评测</h3>
+          <p>能力对比、P0/P1 缺口清零记录（耗时精确到分钟）与后续计划。</p>
+        </a>
+      </div>
+    </section>
+
+    <section class="block" id="start">
+      <h2>快速开始</h2>
+      <div class="grid cols2">
+        <div class="card">
+          <h3>玩</h3>
+          <p>浏览器打开 <a href="play/">试玩入口</a>（手机也行），加载后点一下屏幕解锁音频。进度和跑分存在本地。</p>
+        </div>
+        <div class="card">
+          <h3>开发</h3>
+          <p><code>git clone</code> 仓库后 <code>make run</code> 桌面运行（Lua 热重载）；<code>make test</code> 跑 13 万+ 条断言；加一个游戏 = 写一个 Lua 闭包并注册进菜单。详见 <a href="https://github.com/maweis1981/rust_bevy_lua_game#readme">README</a> 与 CLAUDE.md。</p>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site">
+    <div class="inner">
+      hollowlullaby / rust_bevy_lua_game · MIT License ·
+      <a href="https://github.com/maweis1981/rust_bevy_lua_game">GitHub</a> ·
+      素材平台 <a href="https://floniks.com">Floniks</a> ·
+      作者博客 <a href="https://maweis.com">maweis.com</a>
+    </div>
+  </footer>
+</body>
+</html>
