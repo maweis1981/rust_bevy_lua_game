@@ -346,6 +346,30 @@ local function forge_twin_deal()
   on_tap(d.back.x, d.back.y); step()
 end
 
+local function forge_comet()
+  boot(); rand_mode = "mixed"
+  game._store.forge_up_head = nil               -- empty field, no catches
+  local d = enter("forge")
+  check(d.comet() == nil, "no comet at scene start")
+  local seen, gone = false, false
+  for _ = 1, 60 * 26 do                         -- covers period (20s) + ttl (4.5s)
+    step()
+    local c = d.comet()
+    if c then
+      seen = true
+      check_once("comet_fin", finite(c.x) and finite(c.y) and finite(c.vx) and finite(c.vy),
+        "comet state must stay finite")
+    elseif seen then
+      gone = true
+      break
+    end
+  end
+  check(seen, "a comet must appear within one period")
+  check(gone, "the comet must expire within its ttl")
+  forge_body_invariants(d, "comet")
+  on_tap(d.back.x, d.back.y); step()
+end
+
 ----------------------------------------------------------------------
 -- Fireflies — boids contracts
 ----------------------------------------------------------------------
@@ -447,6 +471,7 @@ forge_teaching()
 forge_daily()
 forge_upgrades()
 forge_twin_deal()
+forge_comet()
 fireflies_cohesion()
 fireflies_scoring_and_loss()
 

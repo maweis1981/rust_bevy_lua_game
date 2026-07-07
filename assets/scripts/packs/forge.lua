@@ -37,6 +37,10 @@ function make_forge()
   local SOFT_WALL_K = 3.2     -- nebula wall: spring back toward play space
   local SHOCK_K     = 26000   -- supernova shockwave impulse (px^2/s at d=1)
   local TWIN_EVERY  = 7       -- every 7th deal lands as a twin pair (deterministic)
+  local COMET_EVERY = 20      -- seconds between comets
+  local COMET_TTL   = 4.5     -- comet lifetime (s)
+  local COMET_SPEED = 340     -- px/s, straight line, gravity-immune
+  local COMET_R     = 14
 
   local function radius_of(level) return 9 + level * 6 end
   local function mass_of(level) return 2 ^ (level - 1) end
@@ -70,6 +74,10 @@ function make_forge()
   local rmax = 900
   local trail_k = 0          -- frame counter for the speed trail
   local deal_n = 0           -- deals this run; every TWIN_EVERY-th is a twin
+  -- Comet event: a skill target that crosses the field on a straight line.
+  -- Catching it with an orbiting star levels that star up for free.
+  local comet, comet_t = nil, 0
+  local comet_rng = 0        -- independent LCG in daily mode (same sky for all)
   local wall_mult = 1        -- STABLE NEBULA upgrade factor (normal mode only)
 
   -- Daily challenge (M2): everyone in the world gets the same deal sequence
@@ -191,6 +199,31 @@ function make_forge()
 
   local function clear_toast()
     if toast then game.despawn(toast.id); toast = nil end
+  end
+
+  local function clear_comet()
+    if comet then game.despawn(comet.id); comet = nil end
+  end
+
+  local function comet_rand()
+    if daily then
+      comet_rng = (1103515245 * comet_rng + 12345) % 2147483648
+      return comet_rng / 2147483648
+    end
+    return math.random()
+  end
+
+  local function spawn_comet()
+    local ang = comet_rand() * 6.28318
+    local sx, sy = math.cos(ang) * rmax * 0.95, math.sin(ang) * rmax * 0.95
+    -- aim at a point offset sideways from the core: it crosses, never hits
+    local off = (100 + comet_rand() * 80) * (comet_rand() < 0.5 and -1 or 1)
+    local dx, dy = -math.sin(ang) * off - sx, math.cos(ang) * off - sy
+    local dd = math.sqrt(dx * dx + dy * dy)
+    local id = game.spawn_sprite(sx, sy, COMET_R * 2, COMET_R * 2, "forge_star")
+    game.set_color(id, 0.8, 1.0, 1.0, 1)
+    comet = { id = id, x = sx, y = sy, vx = dx / dd * COMET_SPEED, vy = dy / dd * COMET_SPEED, ttl = COMET_TTL }
+    game.play_sound("wall")
   end
 
   local function award(key)
@@ -433,6 +466,7 @@ function make_forge()
     if daily then
       -- the daily board is pure: no upgrades, same contest for everyone
       daily_rng = daily_seed()
+      comet_rng = daily_seed() + 99991   -- same sky for everyone, apart from deals
       teach_i = 0
       wall_mult = 1
       game.track("forge_daily_start", daily_seed())
@@ -451,6 +485,8 @@ function make_forge()
     spawn_cd, playing = 0, true
     aiming, was_down = false, false
     deal_n = 0
+    clear_comet()
+    comet_t = 0
     game.play_music("forge_theme")
     game.track("forge_start")
     hud()
@@ -477,6 +513,10 @@ function make_forge()
       try_buy = function(k) return try_buy(k) end,
       up_button = function() return up_rect end,
       shop = function() return shop_rects end,
+      comet = function()
+        if not comet then return nil end
+        return { x = comet.x, y = comet.y, vx = comet.vx, vy = comet.vy, ttl = comet.ttl }
+      end,
       achievements = function()
         local out = {}
         for _, a in ipairs(ACHIEVEMENTS) do
@@ -498,14 +538,14 @@ function make_forge()
   end
 
   local function restart()
-    clear_bodies(); clear_over_card(); clear_shop(); clear_toast(); T.clear(); built = false
+    clear_bodies(); clear_over_card(); clear_shop(); clear_toast(); clear_comet(); T.clear(); built = false
     build(game.bounds())
   end
 
   return {
     enter = function() built = false end,
     leave = function()
-      clear_bodies(); clear_over_card(); clear_shop(); clear_toast(); T.clear()
+      clear_bodies(); clear_over_card(); clear_shop(); clear_toast(); clear_comet(); T.clear()
       game.stop_music()
       built = false
     end,
@@ -660,6 +700,48 @@ function make_forge()
       -- loaded, the calm theme returns when it clears (CurrentMusic dedups)
       if total_mass > 300 then game.play_music("forge_hi")
       elseif total_mass < 200 then game.play_music("forge_theme") end
+
+      -- comet event: straight-line skill target; catch it with a star to
+      -- level that star up for free (max level pays score instead)
+      comet_t = comet_t + dt
+      if not comet and comet_t >= COMET_EVERY then
+        comet_t = 0
+        spawn_comet()
+      end
+      if comet then
+        comet.x = comet.x + comet.vx * dt
+        comet.y = comet.y + comet.vy * dt
+        comet.ttl = comet.ttl - dt
+        game.move_to(comet.id, comet.x, comet.y)
+        if trail_k % 3 == 0 then game.emit("dust", comet.x, comet.y) end
+        local caught = false
+        for _, b in ipairs(bodies) do
+          local dx, dy = b.x - comet.x, b.y - comet.y
+          if dx * dx + dy * dy < (b.r + COMET_R) ^ 2 then
+            if b.level < MAX_LEVEL then
+              total_mass = total_mass + b.m      -- doubling adds the old mass
+              b.level = b.level + 1
+              b.m = mass_of(b.level)
+              b.r = radius_of(b.level)
+              game.set_size(b.id, b.r * 2, b.r * 2)
+              game.set_color(b.id, 1, 1, 1, 1)
+              b.flash_t, b.vis = 0.12, "flash"
+              if b.level > best_level then best_level = b.level end
+            else
+              score = score + 500
+            end
+            score = score + 100
+            game.track("forge_comet_catch", b.level)
+            game.emit("confetti", comet.x, comet.y)
+            game.play_sound("score"); game.haptic("success")
+            game.shake(0.3); game.zoom(0.3)
+            hud()
+            caught = true
+            break
+          end
+        end
+        if caught or comet.ttl <= 0 then clear_comet() end
+      end
 
       -- achievement toast fade-out
       if toast then
