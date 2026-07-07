@@ -55,6 +55,28 @@
       });
     })();
   </script>
+  <script>
+    // ?game=<key> turns this shared bundle into a single-game build with a
+    // URL: intercept the engine's fetch of scripts/main.lua and prepend
+    // AUTOBOOT (same line tools/export_web_games.sh bakes into offline zips).
+    (function () {
+      var key = new URLSearchParams(location.search).get('game');
+      if (!key || !/^[a-z0-9_]+$/.test(key)) return;
+      var orig = window.fetch.bind(window);
+      window.fetch = function (input, init) {
+        var url = typeof input === 'string' ? input : (input && input.url) || '';
+        if (url.indexOf('scripts/main.lua') !== -1) {
+          return orig(input, init).then(function (res) {
+            return res.text().then(function (txt) {
+              return new Response('AUTOBOOT = "' + key + '"\n' + txt,
+                { status: 200, headers: { 'Content-Type': 'text/x-lua' } });
+            });
+          });
+        }
+        return orig(input, init);
+      };
+    })();
+  </script>
   <script type="module">
     // Relative import so it works under a GitHub Pages sub-path (…/<repo>/).
     import init from './hollowlullaby.js';
