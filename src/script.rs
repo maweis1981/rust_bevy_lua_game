@@ -45,6 +45,11 @@
 //!                                               down = button/finger held)
 //!   game.key(name) -> bool                     (held keys: "up"/"down"/"left"/
 //!                                               "right"/"w"/"a"/"s"/"d"/"space")
+//!   game.save(key, val)                        (persist a string/number/bool
+//!                                               across sessions; nil deletes.
+//!                                               iOS sandbox / desktop config
+//!                                               dir / web localStorage)
+//!   game.load(key) -> val | nil                (read back a persisted value)
 //!
 //! Reads (pointer/keys) flow the other way: each frame `tick_lua` snapshots
 //! input into the `Bridge` app-data before calling `on_update`, so the Lua
@@ -375,6 +380,9 @@ enum LuaCommand {
     PlayVoice(String),
     StopVoice,
     Haptic(i32),
+    /// Persist the (already serialized) save store. Serialization happens in
+    /// the `game.save` callback so this stays a plain data command.
+    FlushSave(String),
 }
 
 /// Shared state stored in `mlua` app-data: the command queue, the id counter,
@@ -391,6 +399,19 @@ struct Bridge {
     pointer_down: bool,
     /// Names of the keys held this frame (see `key_snapshot`).
     keys: std::collections::HashSet<&'static str>,
+    /// The persisted save store (roadmap 0.1). Loaded once at VM creation so
+    /// `game.load` is a synchronous read; `game.save` mutates it and queues a
+    /// `FlushSave` so the write still goes through the command queue.
+    save: HashMap<String, crate::save::SaveValue>,
+}
+
+impl Bridge {
+    fn with_save_store() -> Self {
+        Self {
+            save: crate::save::load_store(),
+            ..Default::default()
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -408,7 +429,7 @@ pub struct LuaVm {
 impl LuaVm {
     fn new() -> Self {
         let lua = Lua::new();
-        lua.set_app_data(Bridge::default());
+        lua.set_app_data(Bridge::with_save_store());
         register_api(&lua).expect("failed to register Lua `game` API");
         Self {
             lua,
@@ -755,6 +776,55 @@ fn register_api(lua: &Lua) -> mlua::Result<()> {
         })?,
     )?;
 
+    game.set(
+        "save",
+        lua.create_function(|lua, (key, val): (String, mlua::Value)| {
+            use crate::save::SaveValue;
+            let value = match val {
+                mlua::Value::Nil => None,
+                mlua::Value::Boolean(b) => Some(SaveValue::Bool(b)),
+                mlua::Value::Integer(i) => Some(SaveValue::Num(i as f64)),
+                mlua::Value::Number(n) => Some(SaveValue::Num(n)),
+                mlua::Value::String(s) => Some(SaveValue::Str(s.to_str()?.to_string())),
+                other => {
+                    return Err(mlua::Error::runtime(format!(
+                        "game.save: unsupported type {} (use string/number/bool)",
+                        other.type_name()
+                    )))
+                }
+            };
+            if let Some(mut bridge) = lua.app_data_mut::<Bridge>() {
+                match value {
+                    Some(v) => {
+                        bridge.save.insert(key, v);
+                    }
+                    None => {
+                        bridge.save.remove(&key);
+                    }
+                }
+                let json = crate::save::encode_save(&bridge.save);
+                bridge.queue.push(LuaCommand::FlushSave(json));
+            }
+            Ok(())
+        })?,
+    )?;
+
+    game.set(
+        "load",
+        lua.create_function(|lua, key: String| {
+            use crate::save::SaveValue;
+            let stored = lua
+                .app_data_ref::<Bridge>()
+                .and_then(|b| b.save.get(&key).cloned());
+            Ok(match stored {
+                Some(SaveValue::Str(s)) => mlua::Value::String(lua.create_string(&s)?),
+                Some(SaveValue::Num(n)) => mlua::Value::Number(n),
+                Some(SaveValue::Bool(b)) => mlua::Value::Boolean(b),
+                None => mlua::Value::Nil,
+            })
+        })?,
+    )?;
+
     lua.globals().set("game", game)?;
     Ok(())
 }
@@ -771,7 +841,7 @@ pub struct LuaVm {
 impl LuaVm {
     fn new() -> Self {
         let mut lua = Lua::full();
-        let bridge = Rc::new(RefCell::new(Bridge::default()));
+        let bridge = Rc::new(RefCell::new(Bridge::with_save_store()));
         register_api(&mut lua, bridge.clone());
         Self {
             lua,
@@ -1050,6 +1120,50 @@ fn register_api(lua: &mut Lua, bridge: Rc<RefCell<Bridge>>) {
             let kind: ottavino::String = stack.consume(ctx)?;
             let style = haptic_style(kind.to_str().unwrap_or(""));
             b.borrow_mut().queue.push(LuaCommand::Haptic(style));
+            Ok(CallbackReturn::Return)
+        })).unwrap();
+
+        let b = bridge.clone();
+        game.set(ctx, "save", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            use crate::save::SaveValue;
+            let (key, val): (ottavino::String, Value) = stack.consume(ctx)?;
+            let key = key.to_str().unwrap_or("").to_string();
+            let value = match val {
+                Value::Nil => None,
+                Value::Boolean(v) => Some(SaveValue::Bool(v)),
+                Value::Integer(i) => Some(SaveValue::Num(i as f64)),
+                Value::Number(n) => Some(SaveValue::Num(n)),
+                Value::String(s) => Some(SaveValue::Str(s.to_str().unwrap_or("").to_string())),
+                _ => None, // tables/functions can't persist; ignore rather than error
+            };
+            let mut br = b.borrow_mut();
+            match value {
+                Some(v) => {
+                    br.save.insert(key, v);
+                }
+                None => {
+                    br.save.remove(&key);
+                }
+            }
+            let json = crate::save::encode_save(&br.save);
+            br.queue.push(LuaCommand::FlushSave(json));
+            Ok(CallbackReturn::Return)
+        })).unwrap();
+
+        let b = bridge.clone();
+        game.set(ctx, "load", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            use crate::save::SaveValue;
+            let key: ottavino::String = stack.consume(ctx)?;
+            let stored = b.borrow().save.get(key.to_str().unwrap_or("")).cloned();
+            let value = match stored {
+                Some(SaveValue::Str(s)) => {
+                    Value::String(ottavino::String::from_slice(&ctx, s.as_bytes()))
+                }
+                Some(SaveValue::Num(n)) => Value::Number(n),
+                Some(SaveValue::Bool(v)) => Value::Boolean(v),
+                None => Value::Nil,
+            };
+            stack.replace(ctx, value);
             Ok(CallbackReturn::Return)
         })).unwrap();
 
@@ -1452,6 +1566,11 @@ fn apply_lua(
             }
             LuaCommand::Haptic(style) => {
                 trigger_haptic(style);
+            }
+            LuaCommand::FlushSave(json) => {
+                if let Err(err) = crate::save::persist(&json) {
+                    warn!("failed to persist save data: {err:?}");
+                }
             }
         }
     }

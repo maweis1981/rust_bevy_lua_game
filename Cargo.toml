@@ -31,6 +31,9 @@ mlua = { version = "0.11", features = ["lua54", "vendored"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 ottavino = "0.4"
+# localStorage backend for game.save/load (src/save.rs); bevy already pulls
+# web-sys on wasm, this just turns on the two APIs we need.
+web-sys = { version = "0.3", features = ["Window", "Storage"] }
 # getrandom needs its wasm backend enabled explicitly (both 0.2 and 0.3 are in
 # the tree via different deps); paired with the rustflag in .cargo/config.toml.
 getrandom = { version = "0.3", features = ["wasm_js"] }

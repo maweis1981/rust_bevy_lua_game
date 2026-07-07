@@ -55,7 +55,9 @@ game = {
   haptic = function(k) record("haptic", k) end,
   pointer = function() return game._px, game._py, game._down end,
   key = function(n) return game._keys[n] == true end,
-  _px = nil, _py = nil, _down = false, _keys = {},
+  save = function(k, v) game._saved[k] = v; record("save", k) end,
+  load = function(k) return game._saved[k] end,
+  _px = nil, _py = nil, _down = false, _keys = {}, _saved = {},
 }
 local function events_have(n, a)
   for _, e in ipairs(frame_events) do if e[1] == n and (a == nil or e[2] == a) then return true end end
