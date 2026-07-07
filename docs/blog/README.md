@@ -2,6 +2,15 @@
 
 这套脚手架的开发博客——记录我们如何用**纯 vibe coding**（Claude Code + Floniks + Rust/Bevy/Lua）做 AI 时代的游戏。每篇都来自真实的 git 历史，可照着复现。
 
+> **在线版**：<https://maweis.com/rust_bevy_lua_game/blog/>（官网博客，本目录的 `.md` 由
+> `web/build.sh` 原样拷贝、浏览器端 marked.js 渲染）。文章同时发布在
+> [作者博客 maweis.com](https://maweis.com)；涉及 Floniks 使用的同步到
+> [Floniks 博客](https://floniks.com/blog)。
+>
+> **新增文章**：在本目录加 `.md`（配图放 `img/`，用 `./img/...` 相对路径）→
+> 在 `web/site/blog/posts.js` 头部加一条 manifest → 更新下方表格。合并到 main 后
+> Pages 自动上线。
+
 ## 文章
 
 | 日期 | 标题 | 一句话 |
