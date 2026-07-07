@@ -292,6 +292,34 @@ local function forge_daily()
   on_tap(d.back.x, d.back.y); step()
 end
 
+local function forge_upgrades()
+  boot(); rand_mode = "mixed"
+  game._store.forge_dust = nil
+  game._store.forge_up_core = nil
+  game._store.forge_up_wall = nil
+  game._store.forge_up_head = nil
+  local d = enter("forge")
+  check(not d.try_buy("core"), "buying with zero dust must fail")
+  game._store.forge_dust = 100
+  check(d.try_buy("core"), "buying EXTRA CORE with 100 dust must succeed")
+  check(d.dust() == 70, "cost 30 must be deducted (100 -> 70)")
+  check(d.upgrades().core == 1, "core rank must persist via game.save")
+  game._store.forge_dust = 100
+  check(d.try_buy("head"), "buying HEAD START must succeed")
+  -- daily runs must be upgrade-neutral (same contest for everyone)
+  local chip = d.daily_chip()
+  on_tap(chip.x, chip.y); step()
+  check(d.mode() == "daily", "chip enters daily mode")
+  check(d.lives() == 4, "daily run must ignore the EXTRA CORE upgrade")
+  check(d.body_count() == 0, "daily run must not pre-place head-start stars")
+  chip = d.daily_chip()
+  on_tap(chip.x, chip.y); step()                -- back to normal (fresh run)
+  check(d.lives() == 5, "normal run must gain +1 core from the upgrade")
+  check(d.body_count() == 1, "normal run must pre-place one L3 head-start star")
+  check(d.bodies()[1].level == 3, "the head-start star must be L3")
+  on_tap(d.back.x, d.back.y); step()
+end
+
 ----------------------------------------------------------------------
 -- Fireflies — boids contracts
 ----------------------------------------------------------------------
@@ -391,6 +419,7 @@ forge_fusion()
 forge_long_run()
 forge_teaching()
 forge_daily()
+forge_upgrades()
 fireflies_cohesion()
 fireflies_scoring_and_loss()
 

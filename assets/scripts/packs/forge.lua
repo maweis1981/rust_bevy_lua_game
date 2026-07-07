@@ -61,10 +61,11 @@ function make_forge()
   local core_id, preview_id = nil, nil
   local ghost_id, aim_dots = nil, {}
   local aiming, aim_x, aim_y, was_down = false, 0, 0, false
-  local over_ids, again_rect = {}, nil
+  local over_ids, again_rect, up_rect = {}, nil, nil
   local hw0, hh0 = 0, 0
   local rmax = 900
   local trail_k = 0          -- frame counter for the speed trail
+  local wall_mult = 1        -- STABLE NEBULA upgrade factor (normal mode only)
 
   -- Daily challenge (M2): everyone in the world gets the same deal sequence
   -- for the same UTC date — an independent LCG seeded by the date, so the
@@ -85,6 +86,62 @@ function make_forge()
   local function next_daily()
     daily_rng = (1103515245 * daily_rng + 12345) % 2147483648
     return math.floor((daily_rng / 2147483648) * 3) + 1
+  end
+
+  -- Permanent upgrade tree (M2): stardust = floor(score/50) per run. Upgrades
+  -- apply to NORMAL runs only — the daily board stays pure so the same date is
+  -- the same contest for everyone.
+  local UPGRADES = {
+    { key = "core", label = "EXTRA CORE",    costs = { 30, 90, 270 } }, -- +1 core / rank
+    { key = "wall", label = "STABLE NEBULA", costs = { 20, 60, 180 } }, -- wall +40% / rank
+    { key = "head", label = "HEAD START",    costs = { 25, 75, 225 } }, -- pre-placed L3 / rank
+  }
+  local shop_ids, shop_rects = {}, nil   -- shop card entities / hit rects
+
+  local function dust() return game.load("forge_dust") or 0 end
+  local function rank_of(key) return game.load("forge_up_" .. key) or 0 end
+
+  local function try_buy(key)
+    for _, u in ipairs(UPGRADES) do
+      if u.key == key then
+        local r = rank_of(key)
+        if r >= #u.costs then return false, "maxed" end
+        local cost = u.costs[r + 1]
+        if dust() < cost then return false, "poor" end
+        game.save("forge_dust", dust() - cost)
+        game.save("forge_up_" .. key, r + 1)
+        game.track("forge_buy_" .. key, r + 1)
+        return true
+      end
+    end
+    return false, "unknown"
+  end
+
+  local function clear_shop()
+    for _, id in ipairs(shop_ids) do game.despawn(id) end
+    shop_ids, shop_rects = {}, nil
+  end
+
+  -- NOTE: caller clears the settlement card first (clear_over_card is
+  -- declared later in the file, so it can't be referenced from here)
+  local function open_shop()
+    local P = shop_ids
+    P[#P + 1] = game.spawn(0, 10, 340, 330, 0.05, 0.06, 0.14, 0.95)
+    P[#P + 1] = game.spawn_text(0, 140, 28, 1.0, 0.85, 0.4, 1, string.format("STARDUST  %d", dust()))
+    shop_rects = {}
+    for i, u in ipairs(UPGRADES) do
+      local y = 88 - (i - 1) * 62
+      local r = rank_of(u.key)
+      local label = string.format("%s  %d/3", u.label, r)
+      local cost = r < #u.costs and ("COST " .. u.costs[r + 1]) or "MAX"
+      P[#P + 1] = game.spawn(0, y, 300, 50, 0.16, 0.14, 0.3, 1)
+      P[#P + 1] = game.spawn_text(-40, y, 18, 1, 1, 1, 1, label)
+      P[#P + 1] = game.spawn_text(110, y, 16, 0.7, 0.9, 1.0, 1, cost)
+      shop_rects[u.key] = { x = 0, y = y, w = 300, h = 50 }
+    end
+    P[#P + 1] = game.spawn(0, -110, 190, 54, 1.0, 0.62, 0.2, 1)
+    P[#P + 1] = game.spawn_text(0, -110, 24, 0.1, 0.06, 0.12, 1, "FORGE AGAIN")
+    shop_rects.again = { x = 0, y = -110, w = 190, h = 54 }
   end
 
   local function gm() return GM0 * (1 + total_mass / MASS_SCALE) end
@@ -142,7 +199,7 @@ function make_forge()
 
   local function clear_over_card()
     for _, id in ipairs(over_ids) do game.despawn(id) end
-    over_ids, again_rect = {}, nil
+    over_ids, again_rect, up_rect = {}, nil, nil
   end
 
   local function clear_bodies()
@@ -177,6 +234,9 @@ function make_forge()
     local best = game.load(best_key) or 0
     local is_best = score > best
     if is_best then best = score; game.save(best_key, score) end
+    -- stardust payout (the upgrade currency)
+    local earned = math.floor(score / 50)
+    if earned > 0 then game.save("forge_dust", dust() + earned) end
     -- settlement card (E2: a dignified failure screen, one tap to retry)
     local P = over_ids
     P[#P + 1] = game.spawn(0, 10, 330, 300, 0.06, 0.05, 0.13, 0.92)
@@ -185,7 +245,8 @@ function make_forge()
     P[#P + 1] = game.spawn_text(0, 66, 26, 1, 1, 1, 1, string.format("SCORE  %d", score))
     P[#P + 1] = game.spawn_text(0, 26, 20, 0.8, 0.85, 1.0, 1,
       is_best and "NEW BEST!" or string.format("BEST  %d", best))
-    P[#P + 1] = game.spawn_text(0, -12, 20, 0.9, 0.8, 1.0, 1, string.format("TOP STAR  L%d", best_level))
+    P[#P + 1] = game.spawn_text(0, -12, 20, 0.9, 0.8, 1.0, 1,
+      string.format("TOP STAR L%d    DUST +%d (%d)", best_level, earned, dust()))
     -- codex row: the fusion chain you have lit up so far (L1 is free — it is dealt)
     for k = 1, MAX_LEVEL do
       local id = game.spawn_sprite(-135 + (k - 1) * 30, -44, 22, 22, "orb")
@@ -197,9 +258,12 @@ function make_forge()
         game.set_color(id, 0.22, 0.22, 0.3, 0.8)
       end
     end
-    P[#P + 1] = game.spawn(0, -94, 190, 54, 1.0, 0.62, 0.2, 1)
-    P[#P + 1] = game.spawn_text(0, -94, 24, 0.1, 0.06, 0.12, 1, "FORGE AGAIN")
-    again_rect = { x = 0, y = -94, w = 190, h = 54 }
+    P[#P + 1] = game.spawn(-78, -94, 158, 54, 1.0, 0.62, 0.2, 1)
+    P[#P + 1] = game.spawn_text(-78, -94, 20, 0.1, 0.06, 0.12, 1, "FORGE AGAIN")
+    again_rect = { x = -78, y = -94, w = 158, h = 54 }
+    P[#P + 1] = game.spawn(88, -94, 140, 54, 0.35, 0.3, 0.65, 1)
+    P[#P + 1] = game.spawn_text(88, -94, 20, 1, 1, 1, 1, "UPGRADES")
+    up_rect = { x = 88, y = -94, w = 140, h = 54 }
     game.set_text(string.format("SCORE %d   BEST %d", score, best))
     game.log("forge_over")
     game.play_sound("hit"); game.haptic("heavy"); game.shake(0.6); game.zoom(0.8)
@@ -296,13 +360,21 @@ function make_forge()
     score, lives, best_level = 0, LIVES0, 1
     total_mass, combo_n, combo_t = 0, 0, 0
     if daily then
+      -- the daily board is pure: no upgrades, same contest for everyone
       daily_rng = daily_seed()
       teach_i = 0
+      wall_mult = 1
       game.track("forge_daily_start", daily_seed())
     else
       local runs = (game.load("forge_runs") or 0) + 1
       game.save("forge_runs", runs)
       teach_i = (runs <= TEACH_RUNS) and 1 or 0
+      -- permanent upgrades
+      lives = LIVES0 + rank_of("core")
+      wall_mult = 1 + 0.4 * rank_of("wall")
+      for k = 1, rank_of("head") do
+        inject(0, 180 + 45 * k, 3)               -- pre-placed L3s on stable orbits
+      end
     end
     draw_next()
     spawn_cd, playing = 0, true
@@ -325,6 +397,13 @@ function make_forge()
         for k = 2, MAX_LEVEL do out[k] = game.load("forge_codex_l" .. k) or 0 end
         return out
       end,
+      dust = function() return dust() end,
+      upgrades = function()
+        return { core = rank_of("core"), wall = rank_of("wall"), head = rank_of("head") }
+      end,
+      try_buy = function(k) return try_buy(k) end,
+      up_button = function() return up_rect end,
+      shop = function() return shop_rects end,
       body_count = function() return #bodies end,
       total_mass = function() return total_mass end,
       gm = function() return gm() end,
@@ -339,13 +418,13 @@ function make_forge()
   end
 
   local function restart()
-    clear_bodies(); clear_over_card(); T.clear(); built = false
+    clear_bodies(); clear_over_card(); clear_shop(); T.clear(); built = false
     build(game.bounds())
   end
 
   return {
     enter = function() built = false end,
-    leave = function() clear_bodies(); clear_over_card(); T.clear(); built = false end,
+    leave = function() clear_bodies(); clear_over_card(); clear_shop(); T.clear(); built = false end,
 
     -- Taps only drive UI now; injection is hold-to-aim + release (see update).
     tap = function(x, y)
@@ -353,10 +432,33 @@ function make_forge()
       if daily_chip and inr(daily_chip, x, y) then
         daily = not daily
         game.play_sound("hit"); game.haptic("light")
+        clear_shop(); restart()
+        return
+      end
+      if not playing then
+        if shop_rects then                       -- the upgrade shop is open
+          for key, r in pairs(shop_rects) do
+            if inr(r, x, y) then
+              if key == "again" then
+                clear_shop(); restart()
+              else
+                if try_buy(key) then game.play_sound("score"); game.haptic("success")
+                else game.play_sound("wall") end
+                clear_shop(); open_shop()        -- re-render ranks/costs/dust
+              end
+              return
+            end
+          end
+          return                                  -- taps outside shop rows are inert
+        end
+        if up_rect and inr(up_rect, x, y) then
+          clear_over_card(); open_shop()
+          game.play_sound("hit")
+          return
+        end
         restart()
         return
       end
-      if not playing then restart(); return end
     end,
 
     update = function(dt, hw, hh)
@@ -394,7 +496,7 @@ function make_forge()
           local acc = GM / d2
           -- nebula wall: past rsoft a spring shoves the star back into play,
           -- so most "escapes" become long elliptical returns instead of losses
-          if d > rsoft then acc = acc + (d - rsoft) * SOFT_WALL_K end
+          if d > rsoft then acc = acc + (d - rsoft) * SOFT_WALL_K * wall_mult end
           b.vx = b.vx - (b.x / d) * acc * dt
           b.vy = b.vy - (b.y / d) * acc * dt
         end
