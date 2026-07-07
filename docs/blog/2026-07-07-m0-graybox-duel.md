@@ -128,10 +128,28 @@ wasm pack 列表双边追加撞行）——三包并集、slot 无撞号、全�
 至此方案里 M2 的"每日挑战 + 收集"两个 meta 件已在 graybox 上跑通，
 全部只用 `game.save/load` 本地 KV——**零后端**，与调研结论一致。
 
+## 第五轮（同日）：M3 执行 — 制作人一句"批准"，AI 素材整包落位
+
+M2 收尾（升级树 [#69](https://github.com/maweis1981/rust_bevy_lua_game/issues/69) + 成就×6）后，
+制作人批准了 M3 生成（[#71](https://github.com/maweis1981/rust_bevy_lua_game/issues/71)）。执行记录：
+
+- **两条可重放 Floniks 工作流**：图像（文生图 nano-banana-2 → 去背 → 输出）、
+  BGM（Lyria 2 → 转码 → 输出）。工作流 id 与全部 prompt 沉淀在
+  `tools/floniks_m3_manifest.json`——重 roll 一次 = 重放一次。
+- **7 张图落位**：熔岩星核底图（灰度裂纹发光，十级 tint 全兼容）、吸积环、瞄准环、
+  三个升级图标（熔核/星云盾/星轨箭头）、金色星尘货币图标。菜单图标同步换新。
+- **BGM 双轨压力系统**：同一主题（96bpm/D 小调）的沉稳版与高压版，
+  **场上总质量 >300 切高压、<200 回沉稳**——音乐第一次成为玩法状态的函数，
+  与背景 shader 的 energy 通道同一设计哲学。
+- **诚实的取舍**（全记录在 manifest 的 rejected 字段）：柔光粒子被去背吃掉→保留程序化版；
+  orb 是跨游戏共享纹理→forge 用独立 forge_star 避免污染；平台 textToAudio 是 TTS 不是
+  音效模型→SFX 保留合成版。**程序化生成器永远是保底**，这是方案定下的对冲，今天用上了。
+- 实际消耗：约 205 积分（预算内），余额 10.6 万。全量回归 422k 断言绿。
+
 ## 下一步
 
-1. 制作人 playtest：两个原型各玩 20 局（评分卡见 `docs/M0_PLAYTEST.md`），判定主玩法；
-2. M2 剩余：永久升级树（3–5 节点）、成就；M1 尾巴：难度终校（等真人 analytics）；
-3. 判定后落选者归档，胜者进入 M3（Floniks 风格圣经 → 全套素材替换）。
+1. 制作人观感验收：`make run` 看新视听（星核质感/吸积环/双轨 BGM/商店图标）；
+2. M0 对决判定 + 真人 analytics 难度终校（M1 收尾）；
+3. M4：Web 构建发布 + 预告片管线（需 macOS 环境做 TestFlight）。
 
 *本篇由主编排 agent 在 loop 模式中自动产出；数据均为本次运行实测。*

@@ -12,7 +12,9 @@
 -- into the event horizon feeds the well (GM up, one core lost); a star
 -- flung off-screen is gone. Lose 3 cores and the run ends.
 --
--- Graybox: existing "orb" texture tinted per level. No new assets.
+-- Art (M3): Floniks-generated forge_star (tinted per level), forge_ring
+-- (accretion ring), forge_ghost (aim ring), forge_up_* + forge_dust icons,
+-- and the forge_theme/forge_hi BGM pair (switches on field pressure).
 
 function make_forge()
   local K = GAME_KIT
@@ -146,7 +148,8 @@ function make_forge()
   local function open_shop()
     local P = shop_ids
     P[#P + 1] = game.spawn(0, 10, 340, 330, 0.05, 0.06, 0.14, 0.95)
-    P[#P + 1] = game.spawn_text(0, 140, 28, 1.0, 0.85, 0.4, 1, string.format("STARDUST  %d", dust()))
+    P[#P + 1] = game.spawn_sprite(-118, 140, 36, 36, "forge_dust")
+    P[#P + 1] = game.spawn_text(10, 140, 28, 1.0, 0.85, 0.4, 1, string.format("STARDUST  %d", dust()))
     shop_rects = {}
     for i, u in ipairs(UPGRADES) do
       local y = 88 - (i - 1) * 62
@@ -154,7 +157,8 @@ function make_forge()
       local label = string.format("%s  %d/3", u.label, r)
       local cost = r < #u.costs and ("COST " .. u.costs[r + 1]) or "MAX"
       P[#P + 1] = game.spawn(0, y, 300, 50, 0.16, 0.14, 0.3, 1)
-      P[#P + 1] = game.spawn_text(-40, y, 18, 1, 1, 1, 1, label)
+      P[#P + 1] = game.spawn_sprite(-125, y, 42, 42, "forge_up_" .. u.key)
+      P[#P + 1] = game.spawn_text(-24, y, 18, 1, 1, 1, 1, label)
       P[#P + 1] = game.spawn_text(110, y, 16, 0.7, 0.9, 1.0, 1, cost)
       shop_rects[u.key] = { x = 0, y = y, w = 300, h = 50 }
     end
@@ -254,7 +258,7 @@ function make_forge()
     if v > VMAX then v = VMAX end
     -- counter-clockwise tangent
     local tx, ty = -y / d, x / d
-    local id = game.spawn_sprite(x, y, r * 2, r * 2, "orb")
+    local id = game.spawn_sprite(x, y, r * 2, r * 2, "forge_star")
     tint(id, level)
     bodies[#bodies + 1] = {
       id = id, x = x, y = y, vx = tx * v, vy = ty * v,
@@ -288,7 +292,7 @@ function make_forge()
       string.format("TOP STAR L%d    DUST +%d (%d)", best_level, earned, dust()))
     -- codex row: the fusion chain you have lit up so far (L1 is free — it is dealt)
     for k = 1, MAX_LEVEL do
-      local id = game.spawn_sprite(-135 + (k - 1) * 30, -44, 22, 22, "orb")
+      local id = game.spawn_sprite(-135 + (k - 1) * 30, -44, 22, 22, "forge_star")
       P[#P + 1] = id
       if k == 1 or (game.load("forge_codex_l" .. k) or 0) > 0 then
         local c = RAMP[k]
@@ -384,12 +388,15 @@ function make_forge()
     rmax = math.sqrt(hw * hw + hh * hh) + 80
     core_id = T.sprite(0, 0, CORE_R * 2, CORE_R * 2, "orb")
     game.set_color(core_id, 0.08, 0.05, 0.16, 1)
-    preview_id = T.sprite(hw - 36, hh - 36, 26, 26, "orb")
-    ghost_id = T.sprite(9999, 9999, 26, 26, "orb")
+    -- accretion ring (Floniks art) drawn around the dark core, native colours
+    local ring_id = T.sprite(0, 0, CORE_R * 3.4, CORE_R * 3.4, "forge_ring")
+    game.set_color(ring_id, 1, 1, 1, 0.9)
+    preview_id = T.sprite(hw - 36, hh - 36, 26, 26, "forge_star")
+    ghost_id = T.sprite(9999, 9999, 26, 26, "forge_star")
     game.set_color(ghost_id, 1, 1, 1, 0)
     aim_dots = {}
     for k = 1, 4 do
-      aim_dots[k] = T.sprite(9999, 9999, 8, 8, "orb")
+      aim_dots[k] = T.sprite(9999, 9999, 8, 8, "forge_star")
       game.set_color(aim_dots[k], 1, 1, 1, 0)
     end
     back = K.make_back(T, hw, hh)
@@ -422,6 +429,7 @@ function make_forge()
     draw_next()
     spawn_cd, playing = 0, true
     aiming, was_down = false, false
+    game.play_music("forge_theme")
     game.track("forge_start")
     hud()
     game.set_bg_theme(2)
@@ -474,7 +482,11 @@ function make_forge()
 
   return {
     enter = function() built = false end,
-    leave = function() clear_bodies(); clear_over_card(); clear_shop(); clear_toast(); T.clear(); built = false end,
+    leave = function()
+      clear_bodies(); clear_over_card(); clear_shop(); clear_toast(); T.clear()
+      game.stop_music()
+      built = false
+    end,
 
     -- Taps only drive UI now; injection is hold-to-aim + release (see update).
     tap = function(x, y)
@@ -611,6 +623,11 @@ function make_forge()
         if not fused then i = i + 1 end
       end
 
+      -- pressure-reactive BGM: the heavy variant kicks in when the field is
+      -- loaded, the calm theme returns when it clears (CurrentMusic dedups)
+      if total_mass > 300 then game.play_music("forge_hi")
+      elseif total_mass < 200 then game.play_music("forge_theme") end
+
       -- achievement toast fade-out
       if toast then
         toast.t = toast.t - dt
@@ -652,4 +669,4 @@ end
 
 PACKS = PACKS or {}
 PACKS["forge"] = { slot = 23, key = "forge", label = "Starforge", short = "Forge",
-  icon = "orb", color = { 1.0, 0.70, 0.25 }, tier = "ai", make = make_forge }
+  icon = "forge_star", color = { 1.0, 0.70, 0.25 }, tier = "ai", make = make_forge }

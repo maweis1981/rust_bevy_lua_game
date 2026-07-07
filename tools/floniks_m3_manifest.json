@@ -1,0 +1,33 @@
+{
+  "comment": "M3 Starforge 视听清单 — 可重放：execute_workflow(workflow_id, {prompt}) 后同名落位。风格尾缀锁定见 docs/m3-art-plan-starforge.md。",
+  "generated_at": "2026-07-07",
+  "workflows": {
+    "image": {
+      "id": "6nd4SkxI3GhMLTadjAJ3",
+      "nodes": "textInput -> textToImage(fal_nb2_t2i) -> removeBackground -> fileOutput"
+    },
+    "bgm": {
+      "id": "tSgfdCjYdacdh1pdslUH",
+      "nodes": "textInput -> textToMusic(fal_lyria2) -> audioConvert -> fileOutput",
+      "note": "audioConvert 的 wav 配置未生效，产物为 mp3；本地 ffmpeg -ar 22050 转 WAV 落位"
+    }
+  },
+  "assets": [
+    { "file": "assets/textures/forge_star.png", "prompt": "a single molten mineral sphere game asset, glowing crack veins across the surface, grayscale monochrome, perfectly centered, round silhouette, pure black background, orthographic view, high detail, no text, no watermark" },
+    { "file": "assets/textures/forge_ring.png", "prompt": "a black hole game asset, pure black sphere with a thin glowing white-violet accretion ring, centered, round silhouette, pure black background, orthographic view, high detail, no text, no watermark", "note": "黑体被去背移除，仅环可用——按设计叠加在暗色核心上" },
+    { "file": "assets/textures/forge_ghost.png", "prompt": "a thin glowing circular ring outline, soft white light with subtle glow, centered, pure black background, minimal game UI asset, no fill, no text, no watermark" },
+    { "file": "assets/textures/forge_up_core.png", "prompt": "a game upgrade icon, glowing molten planet core, simple bold readable shapes, warm orange glow, centered, pure black background, flat game icon style, no text, no watermark" },
+    { "file": "assets/textures/forge_up_wall.png", "prompt": "a game upgrade icon, a protective glowing nebula ring shielding a small star inside, cool cyan-violet palette, simple bold readable shapes, centered, pure black background, flat game icon style, no text, no watermark" },
+    { "file": "assets/textures/forge_up_head.png", "prompt": "a game upgrade icon, a small bright star with a curved orbit trail and arrow, green-teal palette, simple bold readable shapes, centered, pure black background, flat game icon style, no text, no watermark" },
+    { "file": "assets/textures/forge_dust.png", "prompt": "a game currency icon, a small pile of sparkling golden stardust with tiny stars, warm golden glow, simple bold readable shapes, centered, pure black background, flat game icon style, no text, no watermark" },
+    { "file": "assets/audio/forge_menu.wav", "prompt": "sparse ambient deep-space menu music, 96 bpm, D minor, soft warm synth pads, distant metallic forge resonance, slow evolving, hopeful and vast, seamless loop, no vocals", "note": "菜单曲暂未接线，留给全局菜单决策" },
+    { "file": "assets/audio/forge_theme.wav", "prompt": "pulsing deep-space gameplay music, 96 bpm, D minor, driving sub-bass pulse, arpeggiated space synths, metallic forge hits on the beat, focused and gravitational, seamless loop, no vocals" },
+    { "file": "assets/audio/forge_hi.wav", "prompt": "intense deep-space gameplay music variation, 96 bpm, D minor, same theme denser and more urgent, faster arpeggios, heavier sub-bass, rising tension near a black hole, metallic forge percussion, seamless loop, no vocals" }
+  ],
+  "rejected": [
+    { "candidate": "sparkle.png 替换", "reason": "柔光在去背后近乎全白，保留程序化版本（保底路线）" },
+    { "candidate": "orb.png 同名覆盖", "reason": "orb 为跨游戏共享纹理，避免污染其它 mini-game——forge 改用独立 forge_star" },
+    { "candidate": "AI 音效", "reason": "平台 textToAudio 为 TTS 语音而非音效模型，SFX 保留程序化合成版" }
+  ],
+  "credits_spent_estimate": 205
+}
