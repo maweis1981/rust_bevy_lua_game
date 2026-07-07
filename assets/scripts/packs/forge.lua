@@ -35,6 +35,8 @@ function make_forge()
   local LIVES0      = 4
   local RESTITUTION = 0.7     -- unequal-level bounce (bot-tuned: 0.86 scattered orbits)
   local SOFT_WALL_K = 3.2     -- nebula wall: spring back toward play space
+  local SHOCK_K     = 26000   -- supernova shockwave impulse (px^2/s at d=1)
+  local TWIN_EVERY  = 7       -- every 7th deal lands as a twin pair (deterministic)
 
   local function radius_of(level) return 9 + level * 6 end
   local function mass_of(level) return 2 ^ (level - 1) end
@@ -67,6 +69,7 @@ function make_forge()
   local hw0, hh0 = 0, 0
   local rmax = 900
   local trail_k = 0          -- frame counter for the speed trail
+  local deal_n = 0           -- deals this run; every TWIN_EVERY-th is a twin
   local wall_mult = 1        -- STABLE NEBULA upgrade factor (normal mode only)
 
   -- Daily challenge (M2): everyone in the world gets the same deal sequence
@@ -172,7 +175,8 @@ function make_forge()
   local function hud()
     local combo = combo_n >= 2 and string.format("   x%d", combo_n) or ""
     local tag = daily and "DAILY   " or ""
-    game.set_text(string.format("%sSCORE %d   NEXT L%d   CORES %d%s", tag, score, next_level, lives, combo))
+    local twin = ((deal_n + 1) % TWIN_EVERY == 0) and " TWIN!" or ""
+    game.set_text(string.format("%sSCORE %d   NEXT L%d%s   CORES %d%s", tag, score, next_level, twin, lives, combo))
   end
 
   local function tint(id, level)
@@ -347,6 +351,23 @@ function make_forge()
       game.despawn(a.id); game.despawn(b.id)
       table.remove(bodies, j); table.remove(bodies, i)
       score = score + 2048
+      -- shockwave: every survivor is shoved radially away from the blast.
+      -- Falloff K/max(d,80); clamp right here so the speed invariant holds
+      -- even when sampled before the next integration pass.
+      for _, o in ipairs(bodies) do
+        local dx, dy = o.x - x, o.y - y
+        local dd = math.sqrt(dx * dx + dy * dy)
+        if dd > 1 then
+          local imp = SHOCK_K / math.max(dd, 80)
+          o.vx = o.vx + dx / dd * imp
+          o.vy = o.vy + dy / dd * imp
+          local sp2 = o.vx * o.vx + o.vy * o.vy
+          if sp2 > VMAX * VMAX then
+            local s = VMAX / math.sqrt(sp2)
+            o.vx, o.vy = o.vx * s, o.vy * s
+          end
+        end
+      end
       game.zoom(1.0); game.shake(0.8); game.emit("confetti", x, y)
       game.log("supernova")
       return
@@ -429,6 +450,7 @@ function make_forge()
     draw_next()
     spawn_cd, playing = 0, true
     aiming, was_down = false, false
+    deal_n = 0
     game.play_music("forge_theme")
     game.track("forge_start")
     hud()
@@ -540,6 +562,17 @@ function make_forge()
       elseif aiming and not down then
         hide_aim()
         if spawn_cd <= 0 and inject(aim_x, aim_y, next_level) then
+          deal_n = deal_n + 1
+          if deal_n % TWIN_EVERY == 0 then
+            -- twin star: a sibling lands trailing on the same orbit band.
+            -- Deterministic counter (not RNG): players can plan for it, and
+            -- the daily board stays identical for everyone.
+            local dd = math.sqrt(aim_x * aim_x + aim_y * aim_y)
+            local tx, ty = -aim_y / dd, aim_x / dd
+            inject(aim_x - tx * 34, aim_y - ty * 34, next_level)
+            game.emit("spark", aim_x, aim_y)
+            game.play_sound("score"); game.haptic("success")
+          end
           spawn_cd = SPAWN_CD
           draw_next()
           game.play_sound("hit"); game.haptic("light")

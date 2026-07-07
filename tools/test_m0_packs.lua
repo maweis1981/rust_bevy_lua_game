@@ -324,6 +324,28 @@ local function forge_upgrades()
   on_tap(d.back.x, d.back.y); step()
 end
 
+local function forge_twin_deal()
+  boot(); rand_mode = "good"                    -- deals pinned to L1 (mass 1)
+  game._store.forge_runs = 99                   -- teaching off
+  game._store.forge_up_head = nil               -- no pre-placed stars
+  local d = enter("forge")
+  -- Mass-ledger oracle: fusions conserve mass, so each deal's delta is exactly
+  -- the injected mass — 1 for deals 1..6, 2 for the 7th (the twin).
+  for k = 1, 7 do
+    local tm0 = d.total_mass()
+    local ang = k * 0.83
+    inject_at(math.cos(ang) * (170 + k * 9), math.sin(ang) * (170 + k * 9))
+    local delta = d.total_mass() - tm0
+    if k < 7 then
+      check(delta == 1, string.format("deal %d must inject exactly one L1 (mass +%s)", k, tostring(delta)))
+    else
+      check(delta == 2, string.format("deal 7 must land as a twin pair (mass +%s)", tostring(delta)))
+    end
+    for _ = 1, 14 do step() end                 -- clear the injection cooldown
+  end
+  on_tap(d.back.x, d.back.y); step()
+end
+
 ----------------------------------------------------------------------
 -- Fireflies — boids contracts
 ----------------------------------------------------------------------
@@ -424,6 +446,7 @@ forge_long_run()
 forge_teaching()
 forge_daily()
 forge_upgrades()
+forge_twin_deal()
 fireflies_cohesion()
 fireflies_scoring_and_loss()
 
