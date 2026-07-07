@@ -53,7 +53,7 @@ game = {
     local e = ents[id]; if e then e.r, e.g, e.b, e.a = r, g, b, a end
   end,
   set_size = function(id, w, h) local e = ents[id]; if e then e.w, e.h = w, h end end,
-  set_rotation = function() end,
+  set_rotation = function(id, a) local e = ents[id]; if e then e.rot = a end end,
   set_sprite_image = function() end,
   spawn_sheet = function(x, y, w, h) return add(x, y, w, h, 1, 1, 1, 1, "sheet") end,
   set_frame = function() end,
@@ -108,9 +108,9 @@ local function dump_frame(n)
   local parts = {}
   for id, e in pairs(ents) do
     parts[#parts + 1] = string.format(
-      '[%d,%.1f,%.1f,%.1f,%.1f,%.3f,%.3f,%.3f,%.3f,%s,%s]',
+      '[%d,%.1f,%.1f,%.1f,%.1f,%.3f,%.3f,%.3f,%.3f,%s,%s,%.3f]',
       id, e.x, e.y, e.w, e.h, e.r, e.g, e.b, e.a, jstr(e.tex or "rect"),
-      jstr(e.str or ""))
+      jstr(e.str or ""), e.rot or 0)
   end
   local fx = {}
   for _, f in ipairs(frame_fx) do
