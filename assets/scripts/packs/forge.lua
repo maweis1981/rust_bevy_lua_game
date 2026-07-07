@@ -119,6 +119,8 @@ function make_forge()
     combo_n = (combo_t > 0) and (combo_n + 1) or 1
     combo_t = COMBO_WIN
     score = score + (2 ^ lvl) * combo_n
+    game.track("forge_merge", lvl)
+    if combo_n >= 2 then game.track("forge_combo", combo_n) end
     if lvl > best_level then best_level = lvl end
     game.emit("spark", x, y)
     game.play_sound("score")
@@ -178,6 +180,7 @@ function make_forge()
     next_level = math.random(1, 3)
     tint(preview_id, next_level)
     spawn_cd, playing = 0, true
+    game.track("forge_start")
     hud()
     game.set_bg_theme(2)
     built = true
@@ -257,6 +260,7 @@ function make_forge()
           -- the beast, but no runaway death spiral — bot-tuned)
           lives = lives - 1
           total_mass = total_mass - b.m * 0.5
+          game.track("forge_eaten", b.level)
           game.emit("dust", b.x, b.y)
           game.play_sound("hit"); game.haptic("heavy"); game.shake(0.4); game.zoom(0.5)
           despawn_body(i)
@@ -264,6 +268,7 @@ function make_forge()
           if lives <= 0 then game_over(); return end
         elseif d > rmax then
           total_mass = total_mass - b.m   -- escaped: mass leaves the system
+          game.track("forge_escape", b.level)
           despawn_body(i)
           game.play_sound("wall"); game.haptic("medium")
         end

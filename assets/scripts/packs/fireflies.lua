@@ -106,6 +106,7 @@ function make_fireflies()
     back = K.make_back(T, hw, hh)
     clear_dynamic()
     rings_scored, hold_t, playing = 0, 0, true
+    game.track("fireflies_start")
     for i = 1, N0 do
       local a = (i / N0) * 6.28
       spawn_boid(math.cos(a) * 90, math.sin(a) * 90)
@@ -225,6 +226,7 @@ function make_fireflies()
           if dx * dx + dy * dy < (WEB_R + BOID_SZ * 0.4) ^ 2 then
             game.despawn(b.id)
             table.remove(boids, i)
+            game.track("fireflies_web_loss")
             game.emit("dust", b.x, b.y)
             game.play_sound("wall"); game.haptic("medium"); game.shake(0.15)
             hud()
@@ -246,6 +248,7 @@ function make_fireflies()
         game.set_color(ring.id, 1.0, 0.85, 0.3, 0.22 + 0.45 * math.min(1, hold_t / RING_HOLD))
         if hold_t >= RING_HOLD then
           rings_scored = rings_scored + 1
+          game.track("fireflies_ring", rings_scored)
           game.emit("confetti", ring.x, ring.y)
           game.play_sound("score"); game.haptic("success")
           game.shake(0.2); game.zoom(0.3)
