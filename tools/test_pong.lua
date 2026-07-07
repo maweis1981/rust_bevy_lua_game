@@ -99,12 +99,14 @@ dofile("assets/scripts/roguelike.lua")
 dofile("assets/scripts/game2048.lua")
 dofile("assets/scripts/shooter.lua")
 dofile("assets/scripts/world.lua")
+dofile("assets/scripts/craftworld.lua")
 dofile("assets/scripts/match3.lua")
 dofile("assets/scripts/umami.lua")
 dofile("assets/scripts/packs/catch.lua")
 dofile("assets/scripts/packs/ponies.lua")
 dofile("assets/scripts/packs/gallery.lua")
 dofile("assets/scripts/packs/showcase.lua")
+dofile("assets/scripts/packs/timedodge.lua")
 dofile("assets/scripts/main.lua")
 
 -- Reseed the LCG each boot so every test scenario is deterministic and
@@ -125,7 +127,7 @@ local function step(dt) frame_events = {}; on_update(dt or DT) end
 ----------------------------------------------------------------------
 local function router_tests()
   boot()
-  for _, key in ipairs({ "grow", "breakout", "snake", "roguelike", "game2048", "shooter", "world", "match3", "umami", "catch", "ponies", "gallery" }) do
+  for _, key in ipairs({ "grow", "breakout", "snake", "roguelike", "game2048", "shooter", "world", "craft", "match3", "umami", "catch", "ponies", "gallery", "timedodge" }) do
     local d = enter(key)
     check(d and d.game == key, "menu tile should enter game '" .. key .. "'")
     check(d.back ~= nil, "game '" .. key .. "' should expose a back button")
@@ -429,6 +431,100 @@ local function world_tests()
   -- Back button returns to the menu.
   on_tap(d.back.x, d.back.y); step()
   check(DEBUG.game == "menu", "world: BACK returns to the menu")
+end
+
+----------------------------------------------------------------------
+-- Craft World (player-created sandbox, loaded from its own file)
+----------------------------------------------------------------------
+local function craft_tests()
+  -- Fresh persistent store so the scenario is deterministic.
+  game._store["craft.world"], game._store["craft.inv"], game._store["craft.met"] = nil, nil, nil
+  boot()
+  local d = enter("craft")
+  check(d.game == "craft", "craft: loads from its own file and enters")
+  check(d.dialog(), "craft: first visit auto-opens the villager dialogue")
+  local inv0 = d.inv()
+  check(inv0.wood == 0 and inv0.stone == 0 and inv0.flower == 0,
+    "craft: inventory is empty before choosing a starter kit")
+
+  -- Dialogue: pick the BUILDER kit -> wood + stone granted, choice remembered.
+  local opts = d.options()
+  check(#opts == 3, "craft: welcome dialogue offers three starter kits")
+  on_tap(opts[1].x, opts[1].y); step()
+  check(not d.dialog(), "craft: choosing a kit closes the dialogue")
+  check(d.met(), "craft: the kit choice is remembered (met flag)")
+  check(d.inv().wood == 8 and d.inv().stone == 6, "craft: BUILDER kit grants 8 wood + 6 stone")
+  check(events_have("save", "craft.met") or game._store["craft.met"] == true,
+    "craft: the met flag is persisted via game.save")
+
+  -- Palette + placement economy.
+  on_tap(d.palette[2].x, d.palette[2].y)                          -- FENCE (1 wood)
+  check(d.sel() == 2, "craft: tapping a palette slot selects that tool")
+  local cell = d.cellrect(2, 2)
+  local w0 = d.inv().wood
+  on_tap(cell.x, cell.y)
+  check(d.get(2, 2) == 2, "craft: tapping an empty cell places the selected block")
+  check(d.inv().wood == w0 - 1, "craft: placing deducts the block's cost")
+  on_tap(cell.x, cell.y)
+  check(d.get(2, 2) == 2 and d.inv().wood == w0 - 1,
+    "craft: an occupied cell rejects a second block (no double spend)")
+  on_tap(d.palette[#d.palette].x, d.palette[#d.palette].y)        -- ERASE
+  on_tap(cell.x, cell.y)
+  check(d.get(2, 2) == 0, "craft: the eraser clears the cell")
+  check(d.inv().wood == w0, "craft: erasing refunds the block's cost")
+
+  -- Cannot place what you cannot afford.
+  on_tap(d.palette[4].x, d.palette[4].y)                          -- FLOWERS (1 flower, have 0)
+  local c2 = d.cellrect(1, 1)
+  on_tap(c2.x, c2.y)
+  check(d.get(1, 1) == 0, "craft: placement is rejected when the cost is unaffordable")
+
+  -- Gathering: nodes give one resource, then recharge on a cooldown.
+  local tree = d.nodes[1]
+  local w1 = d.inv().wood
+  on_tap(tree.x, tree.y)
+  check(d.inv().wood == w1 + 1, "craft: tapping a tree node gathers wood")
+  on_tap(tree.x, tree.y)
+  check(d.inv().wood == w1 + 1, "craft: a spent node cannot be re-gathered instantly")
+  for _ = 1, 600 do step() end                                    -- 10 s > 8 s cooldown
+  on_tap(tree.x, tree.y)
+  check(d.inv().wood == w1 + 2, "craft: a node recharges after its cooldown")
+
+  -- Persistence: the placed world + inventory survive leave/re-enter.
+  on_tap(d.palette[2].x, d.palette[2].y)
+  local c3 = d.cellrect(4, 3)
+  on_tap(c3.x, c3.y)
+  check(d.get(4, 3) == 2, "craft: placed a block for the save/load roundtrip")
+  local saved_wood = d.inv().wood
+  on_tap(d.back.x, d.back.y); step()
+  check(DEBUG.game == "menu", "craft: BACK returns to the menu")
+  local d2 = enter("craft")
+  check(not d2.dialog(), "craft: a return visit skips the welcome dialogue")
+  check(d2.get(4, 3) == 2, "craft: the world layout survives leave/re-enter")
+  check(d2.inv().wood == saved_wood, "craft: the inventory survives leave/re-enter")
+  check(d2.placed() == 1, "craft: exactly the saved blocks are restored")
+
+  -- Return-visit dialogue: GIFT grants once, then goes on cooldown.
+  on_tap(d2.npc.x, d2.npc.y)
+  check(d2.dialog(), "craft: tapping the villager opens the dialogue")
+  local o2 = d2.options()
+  check(#o2 == 2, "craft: the return dialogue offers GIFT and BYE")
+  local total = d2.inv().wood + d2.inv().stone + d2.inv().flower
+  on_tap(o2[1].x, o2[1].y); step()
+  check(d2.inv().wood + d2.inv().stone + d2.inv().flower == total + 2,
+    "craft: a ready gift grants two resources")
+  check(not d2.dialog(), "craft: taking the gift closes the dialogue")
+  check(d2.gift() > 0, "craft: the gift goes on cooldown after being taken")
+  on_tap(d2.npc.x, d2.npc.y)
+  local o3 = d2.options()
+  on_tap(o3[1].x, o3[1].y); step()
+  check(d2.inv().wood + d2.inv().stone + d2.inv().flower == total + 2,
+    "craft: a cooling-down gift grants nothing")
+  on_tap(d2.npc.x, d2.npc.y)
+  local o4 = d2.options()
+  on_tap(o4[#o4].x, o4[#o4].y); step()                            -- BYE
+  check(not d2.dialog(), "craft: BYE closes the dialogue")
+  on_tap(d2.back.x, d2.back.y); step()
 end
 
 ----------------------------------------------------------------------
@@ -944,6 +1040,90 @@ local function gallery_tests()
   check(d.scene() == "end", "gallery: a wrong accusation also resolves to an ending")
 end
 
+----------------------------------------------------------------------
+-- Time Dodge — "time moves when you move" invariants
+----------------------------------------------------------------------
+local function timedodge_tests()
+  boot(); rand_mode = "mixed"
+  local d = enter("timedodge")
+  check(d.game == "timedodge", "timedodge: scene enters")
+
+  -- Frozen: hold the pointer ON the player -> no player motion -> the
+  -- timescale floors and world time (score) crawls over 3 simulated seconds.
+  local p0 = pos[d.player]
+  game._down, game._px, game._py = true, p0.x, p0.y
+  for _ = 1, 180 do step(); game._px, game._py = pos[d.player].x, pos[d.player].y end
+  check(d.timescale() <= 0.1, "timedodge: standing still floors the timescale")
+  check(d.score() < 0.5, string.format("timedodge: frozen world time crawls (%.2fs)", d.score()))
+
+  -- Dash: circle the pointer fast -> timescale rises, world time accrues.
+  -- 90 frames is inside the safe window: the first bullet spawns ~0.55 world-
+  -- seconds in and still needs ~1s+ of world time to cross to the player.
+  local t = 0
+  for _ = 1, 90 do
+    t = t + DT
+    game._px, game._py = 120 * math.cos(t * 6), 260 * math.sin(t * 6)
+    step()
+  end
+  check(d.alive(), "timedodge: survives the opening dash")
+  check(d.timescale() > 0.6, "timedodge: dashing raises the timescale")
+  check(d.score() > 0.8, "timedodge: moving accrues world time")
+  for _ = 1, 400 do                          -- keep dashing until a bullet is live
+    if d.bullet_count() > 0 or not d.alive() then break end
+    t = t + DT
+    game._px, game._py = 120 * math.cos(t * 6), 260 * math.sin(t * 6)
+    step()
+  end
+  check(d.alive() and d.bullet_count() > 0, "timedodge: bullets spawn while time flows")
+
+  -- Freeze again: live bullets must be near-stationary between frames.
+  game._px, game._py = pos[d.player].x, pos[d.player].y
+  for _ = 1, 60 do step(); game._px, game._py = pos[d.player].x, pos[d.player].y end
+  local frozen = {}
+  for _, id in ipairs(d.bullet_ids()) do frozen[id] = { x = pos[id].x, y = pos[id].y } end
+  step()
+  for id, f in pairs(frozen) do
+    if pos[id] then
+      local sp = math.sqrt((pos[id].x - f.x) ^ 2 + (pos[id].y - f.y) ^ 2) / DT
+      check_once("td_frozen", sp <= 500 * 0.1 + 1,
+        string.format("timedodge: frozen bullet still moved at %.0f px/s", sp))
+    end
+  end
+
+  -- Flow: while weaving, no bullet ever exceeds the speed cap between frames
+  -- (no teleport), the player stays on screen, the live-bullet cap holds, and
+  -- the converging fire eventually reaches a lose.
+  local prev, died = {}, false
+  t = 0
+  for _ = 1, 8000 do
+    t = t + DT
+    game._px, game._py = 170 * math.cos(t * 5), 170 * math.sin(t * 3)
+    step()
+    if not d.alive() then died = true; break end
+    local b = pos[d.player]
+    check_once("td_px", math.abs(b.x) <= HW and math.abs(b.y) <= HH, "timedodge: player left the screen")
+    check_once("td_cap", d.bullet_count() <= 40, "timedodge: live bullet cap exceeded")
+    for _, id in ipairs(d.bullet_ids()) do
+      local pr = prev[id]
+      if pr and pos[id] then
+        local sp = math.sqrt((pos[id].x - pr.x) ^ 2 + (pos[id].y - pr.y) ^ 2) / DT
+        check_once("td_bspeed", sp <= 500 + 1,
+          string.format("timedodge: bullet speed %.0f exceeded cap", sp))
+      end
+    end
+    prev = {}
+    for _, id in ipairs(d.bullet_ids()) do prev[id] = { x = pos[id].x, y = pos[id].y } end
+  end
+  check(died, "timedodge: converging bullets reach a lose while moving")
+  check(events_have("log", "lose"), "timedodge: the lose is logged with fx")
+
+  -- Tap after game over restarts a fresh round (closures read live state).
+  clear_input()
+  on_tap(0, -100); step()
+  check(DEBUG.alive(), "timedodge: tap after game over restarts")
+  check(DEBUG.score() < 0.5, "timedodge: restart resets the survived time")
+end
+
 local function settings_tests()
   boot()
   local opened = false
@@ -971,11 +1151,13 @@ rogue_tests()
 game2048_tests()
 shooter_tests()
 world_tests()
+craft_tests()
 match3_tests()
 umami_tests()
 catch_tests()
 ponies_tests()
 gallery_tests()
+timedodge_tests()
 settings_tests()
 
 ----------------------------------------------------------------------

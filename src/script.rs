@@ -487,6 +487,7 @@ const EXTRA_SCRIPTS: &[&str] = &[
     "scripts/game2048.lua",
     "scripts/shooter.lua",
     "scripts/world.lua",
+    "scripts/craftworld.lua",
     "scripts/match3.lua",
     "scripts/umami.lua",
 ];
@@ -540,6 +541,7 @@ fn discover_packs() -> Vec<String> {
         format!("{PACKS_DIR}/ponies.lua"),
         format!("{PACKS_DIR}/gallery.lua"),
         format!("{PACKS_DIR}/showcase.lua"),
+        format!("{PACKS_DIR}/timedodge.lua"),
         format!("{PACKS_DIR}/forge.lua"),
         format!("{PACKS_DIR}/fireflies.lua"),
     ]
