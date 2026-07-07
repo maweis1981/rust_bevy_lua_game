@@ -52,6 +52,13 @@ game = {
   play_music = function(n) record("music", n) end,
   play_voice = function(n) record("voice", n) end,
   stop_voice = function() record("stopvoice") end,
+  _store = {},
+  save = function(k, v)
+    local t = type(v)
+    if t ~= "string" and t ~= "number" and t ~= "boolean" then return false end
+    game._store[k] = v; record("save", k); return true
+  end,
+  load = function(k) return game._store[k] end,
   haptic = function(k) record("haptic", k) end,
   pointer = function() return game._px, game._py, game._down end,
   key = function(n) return game._keys[n] == true end,

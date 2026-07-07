@@ -45,6 +45,12 @@
 //!                                               down = button/finger held)
 //!   game.key(name) -> bool                     (held keys: "up"/"down"/"left"/
 //!                                               "right"/"w"/"a"/"s"/"d"/"space")
+//!   game.save(key, value) -> ok                (persist a string/number/boolean
+//!                                               across sessions; desktop+iOS
+//!                                               write ~/.hollowlullaby/save.txt,
+//!                                               web keeps it for the session)
+//!   game.load(key) -> value | nil              (read back a saved value with
+//!                                               its original type)
 //!
 //! Reads (pointer/keys) flow the other way: each frame `tick_lua` snapshots
 //! input into the `Bridge` app-data before calling `on_update`, so the Lua
@@ -89,7 +95,7 @@ impl Plugin for ScriptPlugin {
             .add_systems(Startup, (setup_scene, load_scripts))
             .add_systems(
                 Update,
-                (reload_changed_scripts, tick_lua, apply_lua, camera_shake).chain(),
+                (reload_changed_scripts, tick_lua, apply_lua, flush_save, camera_shake).chain(),
             );
     }
 }
@@ -391,6 +397,12 @@ struct Bridge {
     pointer_down: bool,
     /// Names of the keys held this frame (see `key_snapshot`).
     keys: std::collections::HashSet<&'static str>,
+    /// Persistent KV store backing `game.save`/`game.load`. Values are stored
+    /// pre-encoded (`s:`/`n:`/`b:` type prefix) so the file codec and the Lua
+    /// boundary share one representation. Loaded from disk once at VM creation;
+    /// `store_dirty` asks the flush system to write it back out.
+    store: HashMap<String, String>,
+    store_dirty: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -408,13 +420,28 @@ pub struct LuaVm {
 impl LuaVm {
     fn new() -> Self {
         let lua = Lua::new();
-        lua.set_app_data(Bridge::default());
+        let bridge = Bridge {
+            store: load_store_from_disk(),
+            ..Bridge::default()
+        };
+        lua.set_app_data(bridge);
         register_api(&lua).expect("failed to register Lua `game` API");
         Self {
             lua,
             has_update: false,
             has_tap: false,
         }
+    }
+
+    /// If `game.save` touched the store this frame, return the encoded file
+    /// content to persist and clear the dirty flag.
+    fn take_dirty_store(&mut self) -> Option<String> {
+        let mut bridge = self.lua.app_data_mut::<Bridge>()?;
+        if !bridge.store_dirty {
+            return None;
+        }
+        bridge.store_dirty = false;
+        Some(encode_store(&bridge.store))
     }
 
     /// Execute one Lua chunk (no lifecycle callbacks yet).
@@ -745,6 +772,45 @@ fn register_api(lua: &Lua) -> mlua::Result<()> {
     )?;
 
     game.set(
+        "save",
+        lua.create_function(|lua, (key, value): (String, mlua::Value)| {
+            let encoded = match &value {
+                mlua::Value::String(s) => format!("s:{}", s.to_string_lossy()),
+                mlua::Value::Integer(i) => format!("n:{i}"),
+                mlua::Value::Number(n) => format!("n:{n}"),
+                mlua::Value::Boolean(b) => format!("b:{b}"),
+                _ => return Ok(false), // unsupported type: refuse, don't crash
+            };
+            if let Some(mut bridge) = lua.app_data_mut::<Bridge>() {
+                bridge.store.insert(key, encoded);
+                bridge.store_dirty = true;
+            }
+            Ok(true)
+        })?,
+    )?;
+
+    game.set(
+        "load",
+        lua.create_function(|lua, key: String| {
+            let encoded = lua
+                .app_data_ref::<Bridge>()
+                .and_then(|b| b.store.get(&key).cloned());
+            let Some(encoded) = encoded else {
+                return Ok(mlua::Value::Nil);
+            };
+            Ok(match encoded.split_at_checked(2) {
+                Some(("s:", rest)) => mlua::Value::String(lua.create_string(rest)?),
+                Some(("n:", rest)) => rest
+                    .parse::<f64>()
+                    .map(mlua::Value::Number)
+                    .unwrap_or(mlua::Value::Nil),
+                Some(("b:", rest)) => mlua::Value::Boolean(rest == "true"),
+                _ => mlua::Value::Nil,
+            })
+        })?,
+    )?;
+
+    game.set(
         "haptic",
         lua.create_function(|lua, kind: String| {
             let style = haptic_style(&kind);
@@ -873,6 +939,13 @@ impl LuaVm {
 
     fn drain(&mut self) -> Vec<LuaCommand> {
         std::mem::take(&mut self.bridge.borrow_mut().queue)
+    }
+
+    /// wasm has no filesystem: the store lives for the session only, so there
+    /// is never anything to flush (clearing the flag keeps the system cheap).
+    fn take_dirty_store(&mut self) -> Option<String> {
+        self.bridge.borrow_mut().store_dirty = false;
+        None
     }
 }
 
@@ -1046,6 +1119,45 @@ fn register_api(lua: &mut Lua, bridge: Rc<RefCell<Bridge>>) {
         })).unwrap();
 
         let b = bridge.clone();
+        game.set(ctx, "save", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let (key, value): (ottavino::String, Value) = stack.consume(ctx)?;
+            let encoded = match value {
+                Value::String(s) => Some(format!("s:{}", String::from_utf8_lossy(s.as_bytes()))),
+                Value::Integer(i) => Some(format!("n:{i}")),
+                Value::Number(n) => Some(format!("n:{n}")),
+                Value::Boolean(v) => Some(format!("b:{v}")),
+                _ => None,
+            };
+            let ok = encoded.is_some();
+            if let Some(encoded) = encoded {
+                let mut br = b.borrow_mut();
+                br.store.insert(key.to_str().unwrap_or("").to_string(), encoded);
+                br.store_dirty = true;
+            }
+            stack.replace(ctx, ok);
+            Ok(CallbackReturn::Return)
+        })).unwrap();
+
+        let b = bridge.clone();
+        game.set(ctx, "load", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let key: ottavino::String = stack.consume(ctx)?;
+            let encoded = b.borrow().store.get(key.to_str().unwrap_or("")).cloned();
+            match encoded.as_deref().and_then(|e| e.split_at_checked(2)) {
+                Some(("s:", rest)) => {
+                    let s = ctx.intern(rest.as_bytes());
+                    stack.replace(ctx, Value::String(s));
+                }
+                Some(("n:", rest)) => match rest.parse::<f64>() {
+                    Ok(n) => stack.replace(ctx, n),
+                    Err(_) => stack.replace(ctx, Value::Nil),
+                },
+                Some(("b:", rest)) => stack.replace(ctx, rest == "true"),
+                _ => stack.replace(ctx, Value::Nil),
+            }
+            Ok(CallbackReturn::Return)
+        })).unwrap();
+
+        let b = bridge.clone();
         game.set(ctx, "haptic", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
             let kind: ottavino::String = stack.consume(ctx)?;
             let style = haptic_style(kind.to_str().unwrap_or(""));
@@ -1055,6 +1167,103 @@ fn register_api(lua: &mut Lua, bridge: Rc<RefCell<Bridge>>) {
 
         ctx.set_global("game", game);
     });
+}
+
+// ---------------------------------------------------------------------------
+// Save-store codec (game.save / game.load)
+// ---------------------------------------------------------------------------
+// One line per key: `key<TAB>value`, where value carries a type prefix
+// (`s:` string, `n:` number, `b:` boolean). Keys and values are escaped so
+// tabs/newlines in user strings can't break the framing. Text, diffable,
+// no serde needed.
+
+/// Escape `\`, TAB and NL so a store entry always fits one `key\tvalue` line.
+fn store_escape(s: &str) -> String {
+    s.replace('\\', "\\\\").replace('\t', "\\t").replace('\n', "\\n")
+}
+
+fn store_unescape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars();
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            match chars.next() {
+                Some('t') => out.push('\t'),
+                Some('n') => out.push('\n'),
+                Some('\\') => out.push('\\'),
+                Some(other) => out.push(other), // tolerate unknown escapes
+                None => {}
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// Serialize the store deterministically (sorted keys) for stable diffs.
+fn encode_store(store: &HashMap<String, String>) -> String {
+    let mut keys: Vec<&String> = store.keys().collect();
+    keys.sort();
+    let mut out = String::new();
+    for k in keys {
+        out.push_str(&store_escape(k));
+        out.push('\t');
+        out.push_str(&store_escape(&store[k]));
+        out.push('\n');
+    }
+    out
+}
+
+/// Parse a store file. Malformed lines (no TAB) are skipped, not fatal — a
+/// corrupt save must never brick the game.
+fn decode_store(text: &str) -> HashMap<String, String> {
+    let mut map = HashMap::new();
+    for line in text.lines() {
+        if let Some((k, v)) = line.split_once('\t') {
+            map.insert(store_unescape(k), store_unescape(v));
+        }
+    }
+    map
+}
+
+/// Where the save file lives. `$HOME` exists on desktop and inside the iOS app
+/// sandbox alike; fall back to the working directory if it's unset.
+#[cfg(not(target_arch = "wasm32"))]
+fn save_file_path() -> PathBuf {
+    let base = std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."));
+    base.join(".hollowlullaby").join("save.txt")
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn load_store_from_disk() -> HashMap<String, String> {
+    std::fs::read_to_string(save_file_path())
+        .map(|text| decode_store(&text))
+        .unwrap_or_default()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn write_store_to_disk(content: &str) {
+    let path = save_file_path();
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    if let Err(err) = std::fs::write(&path, content) {
+        error!("failed to write save file {}: {err}", path.display());
+    }
+}
+
+/// Flush `game.save` writes to disk once per frame at most (no-op on wasm,
+/// where the store lives for the session only).
+fn flush_save(mut vm: NonSendMut<LuaVm>) {
+    if let Some(content) = vm.take_dirty_store() {
+        #[cfg(not(target_arch = "wasm32"))]
+        write_store_to_disk(&content);
+        #[cfg(target_arch = "wasm32")]
+        let _ = content;
+    }
 }
 
 /// Map a Lua haptic kind name to the integer style `hl_haptic` expects.
@@ -1483,7 +1692,61 @@ fn zoom_scale(zoom: f32) -> f32 {
 
 #[cfg(test)]
 mod tests {
-    use super::{haptic_style, shake_offset, zoom_scale};
+    use super::{
+        decode_store, encode_store, haptic_style, shake_offset, store_escape, store_unescape,
+        zoom_scale,
+    };
+    use std::collections::HashMap;
+
+    #[test]
+    fn store_roundtrips_awkward_strings() {
+        // CJK, tabs, newlines, backslashes — nothing may break line framing.
+        let cases = [
+            "最高分",
+            "line1\nline2",
+            "tab\there",
+            "back\\slash",
+            "\\t not a tab",
+            "",
+        ];
+        for case in cases {
+            assert_eq!(store_unescape(&store_escape(case)), case, "case: {case:?}");
+        }
+    }
+
+    #[test]
+    fn store_codec_roundtrips_typed_values() {
+        let mut store = HashMap::new();
+        store.insert("hiscore".to_string(), "n:9001".to_string());
+        store.insert("玩家名".to_string(), "s:小马\t冠军".to_string());
+        store.insert("muted".to_string(), "b:true".to_string());
+        let decoded = decode_store(&encode_store(&store));
+        assert_eq!(decoded, store);
+    }
+
+    #[test]
+    fn store_decode_skips_malformed_lines() {
+        // A corrupt save (missing TAB separator) must never brick loading.
+        let text = "good\ts:ok\nno-tab-in-this-line\nalso\tn:5\n";
+        let decoded = decode_store(text);
+        assert_eq!(decoded.len(), 2);
+        assert_eq!(decoded["good"], "s:ok");
+        assert_eq!(decoded["also"], "n:5");
+    }
+
+    #[test]
+    fn store_survives_a_simulated_process_kill() {
+        // Write the encoded store to a real file, "kill the process" (drop
+        // everything), then read it back cold — the roadmap acceptance test.
+        let mut store = HashMap::new();
+        store.insert("hiscore".to_string(), "n:12.5".to_string());
+        store.insert("seen_intro".to_string(), "b:true".to_string());
+        let path = std::env::temp_dir().join("hollowlullaby_save_test.txt");
+        std::fs::write(&path, encode_store(&store)).unwrap();
+        let reread = decode_store(&std::fs::read_to_string(&path).unwrap());
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(reread, store);
+    }
 
     #[test]
     fn haptic_kinds_map_to_styles() {
