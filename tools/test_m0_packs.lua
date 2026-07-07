@@ -165,6 +165,8 @@ end
 
 local function forge_fusion()
   boot(); rand_mode = "good"
+  game._store.forge_ach_first_fusion = nil
+  game._store.forge_ach_nova = nil
   local d = enter("forge")
   inject_at(150, 0)
   for _ = 1, 20 do step() end                   -- clear the injection cooldown
@@ -185,6 +187,8 @@ local function forge_fusion()
   check(d.score() > s0, "fusion must raise the score")
   check(d.codex()[2] and d.codex()[2] >= 1, "a fusion to L2 must light the codex entry")
   check(game._store.forge_codex_l2 ~= nil, "codex entries must persist via game.save")
+  check(d.achievements().first_fusion == true, "the first fusion must unlock FIRST LIGHT")
+  check(d.achievements().nova == false, "unearned achievements must stay locked")
   on_tap(d.back.x, d.back.y); step()
 end
 

@@ -98,6 +98,25 @@ function make_forge()
   }
   local shop_ids, shop_rects = {}, nil   -- shop card entities / hit rects
 
+  -- Achievements (M2): permanent flags + a small toast on first unlock.
+  local ACHIEVEMENTS = {
+    { key = "first_fusion", label = "FIRST LIGHT" },
+    { key = "chain3",       label = "CHAIN x3" },
+    { key = "l5",           label = "STAR L5" },
+    { key = "l8",           label = "STAR L8" },
+    { key = "nova",         label = "SUPERNOVA" },
+    { key = "daily",        label = "DAILY FORGED" },
+  }
+  local toast = nil          -- { id, t } one at a time; newest wins
+
+  local function ach_count()
+    local n = 0
+    for _, a in ipairs(ACHIEVEMENTS) do
+      if game.load("forge_ach_" .. a.key) then n = n + 1 end
+    end
+    return n
+  end
+
   local function dust() return game.load("forge_dust") or 0 end
   local function rank_of(key) return game.load("forge_up_" .. key) or 0 end
 
@@ -160,6 +179,24 @@ function make_forge()
   local function despawn_body(i)
     game.despawn(bodies[i].id)
     table.remove(bodies, i)
+  end
+
+  local function clear_toast()
+    if toast then game.despawn(toast.id); toast = nil end
+  end
+
+  local function award(key)
+    local k = "forge_ach_" .. key
+    if game.load(k) then return end             -- each unlocks exactly once
+    game.save(k, true)
+    game.track(k)
+    local label = key
+    for _, a in ipairs(ACHIEVEMENTS) do
+      if a.key == key then label = a.label end
+    end
+    clear_toast()
+    toast = { id = game.spawn_text(0, hh0 - 140, 22, 1.0, 0.9, 0.4, 1, "* " .. label .. " *"), t = 2.2 }
+    game.play_sound("score"); game.haptic("success")
   end
 
   local function draw_next()
@@ -243,8 +280,10 @@ function make_forge()
     P[#P + 1] = game.spawn_text(0, 120, 30, 1.0, 0.75, 0.35, 1,
       daily and ("DAILY " .. date_key()) or "THE FORGE COOLED")
     P[#P + 1] = game.spawn_text(0, 66, 26, 1, 1, 1, 1, string.format("SCORE  %d", score))
+    if daily then award("daily") end
     P[#P + 1] = game.spawn_text(0, 26, 20, 0.8, 0.85, 1.0, 1,
-      is_best and "NEW BEST!" or string.format("BEST  %d", best))
+      (is_best and "NEW BEST!" or string.format("BEST  %d", best))
+        .. string.format("    ACH %d/%d", ach_count(), #ACHIEVEMENTS))
     P[#P + 1] = game.spawn_text(0, -12, 20, 0.9, 0.8, 1.0, 1,
       string.format("TOP STAR L%d    DUST +%d (%d)", best_level, earned, dust()))
     -- codex row: the fusion chain you have lit up so far (L1 is free — it is dealt)
@@ -286,6 +325,10 @@ function make_forge()
     -- codex: every fusion level reached is a permanent collection entry
     local ck = lvl > MAX_LEVEL and "forge_codex_nova" or ("forge_codex_l" .. lvl)
     game.save(ck, (game.load(ck) or 0) + 1)
+    award("first_fusion")
+    if combo_n >= 3 then award("chain3") end
+    if lvl == 5 then award("l5") elseif lvl == 8 then award("l8")
+    elseif lvl > MAX_LEVEL then award("nova") end
     game.track("forge_merge", lvl)
     if combo_n >= 2 then game.track("forge_combo", combo_n) end
     if lvl > best_level then best_level = lvl end
@@ -404,6 +447,13 @@ function make_forge()
       try_buy = function(k) return try_buy(k) end,
       up_button = function() return up_rect end,
       shop = function() return shop_rects end,
+      achievements = function()
+        local out = {}
+        for _, a in ipairs(ACHIEVEMENTS) do
+          out[a.key] = game.load("forge_ach_" .. a.key) == true
+        end
+        return out
+      end,
       body_count = function() return #bodies end,
       total_mass = function() return total_mass end,
       gm = function() return gm() end,
@@ -418,13 +468,13 @@ function make_forge()
   end
 
   local function restart()
-    clear_bodies(); clear_over_card(); clear_shop(); T.clear(); built = false
+    clear_bodies(); clear_over_card(); clear_shop(); clear_toast(); T.clear(); built = false
     build(game.bounds())
   end
 
   return {
     enter = function() built = false end,
-    leave = function() clear_bodies(); clear_over_card(); clear_shop(); T.clear(); built = false end,
+    leave = function() clear_bodies(); clear_over_card(); clear_shop(); clear_toast(); T.clear(); built = false end,
 
     -- Taps only drive UI now; injection is hold-to-aim + release (see update).
     tap = function(x, y)
@@ -559,6 +609,12 @@ function make_forge()
           j = j + 1
         end
         if not fused then i = i + 1 end
+      end
+
+      -- achievement toast fade-out
+      if toast then
+        toast.t = toast.t - dt
+        if toast.t <= 0 then clear_toast() end
       end
 
       -- speed trail: only slingshotting stars shed dust — speed IS the story
