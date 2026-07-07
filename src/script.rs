@@ -37,6 +37,9 @@
 //!   game.spawn_text(x, y, size, r, g, b, a, s) -> id (world-space Text2d label,
 //!                                               centered at x,y; for menus/titles)
 //!   game.set_text(string)                      (updates the on-screen HUD text)
+//!   game.emit(preset, x, y [, count])          (CPU particle burst: "spark"/
+//!                                               "dust"/"confetti"/"splash";
+//!                                               default 16, global cap 512)
 //!   game.shake(intensity)                      (0..1 impulse; Rust decays a
 //!                                               camera screen-shake from it)
 //!   game.cam(x, y [, zoom])                    (camera base pose: follow a
@@ -117,7 +120,15 @@ impl Plugin for ScriptPlugin {
             .add_systems(Startup, (setup_scene, load_scripts))
             .add_systems(
                 Update,
-                (reload_changed_scripts, tick_lua, apply_lua, flush_save, camera_shake).chain(),
+                (
+                    reload_changed_scripts,
+                    tick_lua,
+                    apply_lua,
+                    flush_save,
+                    particle_update,
+                    camera_shake,
+                )
+                    .chain(),
             );
     }
 }
@@ -213,6 +224,125 @@ struct MusicSound;
 /// Marks a one-shot voice/dialogue entity (only one plays at a time).
 #[derive(Component)]
 struct VoiceSound;
+
+// ---------------------------------------------------------------------------
+// CPU particles (the roadmap's "fallback first" tier — the Lua API stays put
+// if the implementation is ever swapped for a GPU backend like bevy_hanabi)
+// ---------------------------------------------------------------------------
+
+/// Hard cap on simultaneously-alive particles: an emit that would exceed it is
+/// truncated, so no script can melt a phone with a confetti loop.
+const PARTICLE_CAP: usize = 512;
+
+/// One CPU particle: straight-line motion + gravity + linear alpha fade over
+/// its lifetime, despawned when `ttl` runs out.
+#[derive(Component)]
+struct Particle {
+    vel: Vec2,
+    gravity: f32,
+    ttl: f32,
+    life: f32,
+    rgb: (f32, f32, f32),
+}
+
+/// Tuning for one emit preset. Angles: `up_fan` sprays into the upper
+/// half-plane (splash/confetti), otherwise the full circle (spark/dust).
+struct PresetParams {
+    speed: (f32, f32),
+    gravity: f32,
+    ttl: f32,
+    size: f32,
+    colors: &'static [(f32, f32, f32)],
+    up_fan: bool,
+}
+
+/// Look up an emit preset; unknown names fall back to "spark" so a typo in a
+/// script still shows *something* rather than silently nothing.
+fn preset_params(name: &str) -> PresetParams {
+    match name {
+        "dust" => PresetParams {
+            speed: (30.0, 90.0),
+            gravity: -60.0,
+            ttl: 0.7,
+            size: 4.0,
+            colors: &[(0.62, 0.55, 0.45), (0.72, 0.66, 0.55)],
+            up_fan: false,
+        },
+        "confetti" => PresetParams {
+            speed: (120.0, 260.0),
+            gravity: -220.0,
+            ttl: 1.2,
+            size: 6.0,
+            colors: &[
+                (0.95, 0.35, 0.45),
+                (0.35, 0.75, 0.95),
+                (0.95, 0.85, 0.35),
+                (0.55, 0.9, 0.5),
+                (0.8, 0.5, 0.95),
+            ],
+            up_fan: true,
+        },
+        "splash" => PresetParams {
+            speed: (140.0, 280.0),
+            gravity: -500.0,
+            ttl: 0.5,
+            size: 4.0,
+            colors: &[(0.5, 0.75, 0.95), (0.7, 0.88, 1.0)],
+            up_fan: true,
+        },
+        _ => PresetParams {
+            // "spark" and any unknown preset
+            speed: (180.0, 320.0),
+            gravity: -300.0,
+            ttl: 0.4,
+            size: 5.0,
+            colors: &[(1.0, 0.8, 0.3), (1.0, 0.55, 0.2)],
+            up_fan: false,
+        },
+    }
+}
+
+/// Deterministic LCG in [0, 1) — no OS entropy, so headless runs and replays
+/// are reproducible and wasm needs no getrandom call here.
+fn lcg(seed: &mut u64) -> f32 {
+    *seed = seed
+        .wrapping_mul(6364136223846793005)
+        .wrapping_add(1442695040888963407);
+    ((*seed >> 40) & 0xFF_FFFF) as f32 / 16_777_216.0
+}
+
+/// How many particles an emit may actually spawn under the global cap.
+fn emit_count_allowed(alive: usize, requested: u32, cap: usize) -> u32 {
+    (cap.saturating_sub(alive)).min(requested as usize) as u32
+}
+
+/// Linear fade: full alpha at birth, zero at death.
+fn particle_alpha(life_frac: f32) -> f32 {
+    life_frac.clamp(0.0, 1.0)
+}
+
+/// Advance every particle: integrate velocity + gravity, fade out, despawn on
+/// expiry — "life reaches zero, entity is gone" is the roadmap invariant.
+fn particle_update(
+    time: Res<Time>,
+    mut commands: Commands,
+    mut particles: Query<(Entity, &mut Particle, &mut Transform, &mut Sprite)>,
+) {
+    let dt = time.delta_secs();
+    for (entity, mut p, mut transform, mut sprite) in &mut particles {
+        p.ttl -= dt;
+        if p.ttl <= 0.0 {
+            commands.entity(entity).despawn();
+            continue;
+        }
+        let dv = p.gravity * dt;
+        p.vel.y += dv;
+        transform.translation.x += p.vel.x * dt;
+        transform.translation.y += p.vel.y * dt;
+        let (r, g, b) = p.rgb;
+        sprite.color = Color::srgba(r, g, b, particle_alpha(p.ttl / p.life));
+    }
+}
 
 /// Frame layout of a sprite-sheet entity spawned by `game.spawn_sheet`, keyed
 /// by Lua id. Kept in a resource (not a component) so `game.set_frame` works
@@ -457,6 +587,12 @@ enum LuaCommand {
     },
     Despawn {
         id: u32,
+    },
+    Emit {
+        preset: String,
+        x: f32,
+        y: f32,
+        count: u32,
     },
     SetText(String),
     Shake(f32),
@@ -857,6 +993,23 @@ fn register_api(lua: &Lua) -> mlua::Result<()> {
             }
             Ok(())
         })?,
+    )?;
+
+    game.set(
+        "emit",
+        lua.create_function(
+            |lua, (preset, x, y, count): (String, f32, f32, Option<u32>)| {
+                if let Some(mut bridge) = lua.app_data_mut::<Bridge>() {
+                    bridge.queue.push(LuaCommand::Emit {
+                        preset,
+                        x,
+                        y,
+                        count: count.unwrap_or(16),
+                    });
+                }
+                Ok(())
+            },
+        )?,
     )?;
 
     game.set(
@@ -1301,6 +1454,19 @@ fn register_api(lua: &mut Lua, bridge: Rc<RefCell<Bridge>>) {
         })).unwrap();
 
         let b = bridge.clone();
+        game.set(ctx, "emit", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let (preset, x, y, count): (ottavino::String, f32, f32, Option<u32>) =
+                stack.consume(ctx)?;
+            b.borrow_mut().queue.push(LuaCommand::Emit {
+                preset: preset.to_str().unwrap_or("").to_string(),
+                x,
+                y,
+                count: count.unwrap_or(16),
+            });
+            Ok(CallbackReturn::Return)
+        })).unwrap();
+
+        let b = bridge.clone();
         game.set(ctx, "set_text", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
             let text: ottavino::String = stack.consume(ctx)?;
             b.borrow_mut().queue.push(LuaCommand::SetText(text.to_str().unwrap_or("").to_string()));
@@ -1735,6 +1901,8 @@ fn apply_lua(
     ),
     mut tex_cache: ResMut<TextureCache>,
     mut sheet_registry: ResMut<SheetRegistry>,
+    particles_alive: Query<(), With<Particle>>,
+    mut emit_seed: Local<u64>,
     assets: Res<AssetServer>,
     hud: Option<Res<Hud>>,
 ) {
@@ -1743,6 +1911,9 @@ fn apply_lua(
     // De-dup identical SFX within this frame so a burst of the same impact plays
     // once rather than stacking into a harsh cluster.
     let mut sfx_this_frame: std::collections::HashSet<String> = std::collections::HashSet::new();
+    // Particles spawned by earlier commands in THIS drain aren't in the World
+    // yet; count them so a burst of emits still respects PARTICLE_CAP.
+    let mut emitted_this_frame: usize = 0;
     let (
         ref mut current_music,
         ref mut volumes,
@@ -1955,6 +2126,42 @@ fn apply_lua(
                 }
                 sheet_registry.0.remove(&id);
             }
+            LuaCommand::Emit { preset, x, y, count } => {
+                let params = preset_params(&preset);
+                // Cap check counts particles alive in the World plus the ones
+                // queued by earlier Emits this frame (tracked via the counter).
+                let alive = particles_alive.iter().count() + emitted_this_frame;
+                let n = emit_count_allowed(alive, count, PARTICLE_CAP);
+                emitted_this_frame += n as usize;
+                for _ in 0..n {
+                    let angle = if params.up_fan {
+                        // Upward fan: 0.15π..0.85π (mostly up, a little sideways).
+                        std::f32::consts::PI * (0.15 + 0.7 * lcg(&mut emit_seed))
+                    } else {
+                        std::f32::consts::TAU * lcg(&mut emit_seed)
+                    };
+                    let speed =
+                        params.speed.0 + (params.speed.1 - params.speed.0) * lcg(&mut emit_seed);
+                    let rgb = params.colors
+                        [(lcg(&mut emit_seed) * params.colors.len() as f32) as usize
+                            % params.colors.len()];
+                    let ttl = params.ttl * (0.7 + 0.6 * lcg(&mut emit_seed));
+                    commands.spawn((
+                        Sprite::from_color(
+                            Color::srgba(rgb.0, rgb.1, rgb.2, 1.0),
+                            Vec2::splat(params.size),
+                        ),
+                        Transform::from_xyz(x, y, 50.0),
+                        Particle {
+                            vel: Vec2::new(angle.cos(), angle.sin()) * speed,
+                            gravity: params.gravity,
+                            ttl,
+                            life: ttl,
+                            rgb,
+                        },
+                    ));
+                }
+            }
             LuaCommand::SetText(text) => {
                 if let Some(hud) = &hud {
                     if let Ok(mut hud_text) = texts.get_mut(hud.0) {
@@ -2119,8 +2326,9 @@ fn zoom_scale(zoom: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::{
-        cam_zoom_clamp, decode_store, encode_store, frame_rect, haptic_style, shake_offset,
-        store_escape, store_unescape, volume_clamp, zoom_scale,
+        cam_zoom_clamp, decode_store, emit_count_allowed, encode_store, frame_rect, haptic_style,
+        lcg, particle_alpha, preset_params, shake_offset, store_escape, store_unescape,
+        volume_clamp, zoom_scale, PARTICLE_CAP,
     };
     use std::collections::HashMap;
 
@@ -2199,6 +2407,33 @@ mod tests {
             let (x, y) = shake_offset(1.0, t);
             assert!(x.abs() <= 24.0 + 1e-3, "x={x} out of range");
             assert!(y.abs() <= 24.0 + 1e-3, "y={y} out of range");
+        }
+    }
+
+    #[test]
+    fn particle_cap_is_enforced_and_lifetime_fades() {
+        // Cap: an emit may only fill the remaining headroom, never exceed it.
+        assert_eq!(emit_count_allowed(0, 16, PARTICLE_CAP), 16);
+        assert_eq!(emit_count_allowed(PARTICLE_CAP - 5, 16, PARTICLE_CAP), 5);
+        assert_eq!(emit_count_allowed(PARTICLE_CAP, 16, PARTICLE_CAP), 0);
+        assert_eq!(emit_count_allowed(PARTICLE_CAP + 99, 16, PARTICLE_CAP), 0);
+        // Fade: alpha runs 1 → 0 with life and clamps outside the range.
+        assert_eq!(particle_alpha(1.0), 1.0);
+        assert_eq!(particle_alpha(0.0), 0.0);
+        assert_eq!(particle_alpha(-0.3), 0.0);
+        assert_eq!(particle_alpha(7.0), 1.0);
+        // Unknown preset falls back to spark (never "no particles" on a typo).
+        let fallback = preset_params("definitely-not-a-preset");
+        let spark = preset_params("spark");
+        assert_eq!(fallback.speed, spark.speed);
+        assert_eq!(fallback.ttl, spark.ttl);
+        // LCG stays in [0, 1) and is deterministic for a fixed seed.
+        let mut a = 42u64;
+        let mut b = 42u64;
+        for _ in 0..1000 {
+            let (va, vb) = (lcg(&mut a), lcg(&mut b));
+            assert_eq!(va, vb);
+            assert!((0.0..1.0).contains(&va));
         }
     }
 

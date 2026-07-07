@@ -50,6 +50,7 @@ game = {
   zoom = function(v) record("zoom", v) end,
   cam = function(x, y, z) record("cam", z) end,
   set_bg_theme = function(v) record("bg_theme", v) end,
+  emit = function(p) record("emit", p) end,
   set_native_bg = function(n) record("native_bg", n) end,
   play_sound = function(n) record("sound", n) end,
   play_music = function(n) record("music", n) end,
