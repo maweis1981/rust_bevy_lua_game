@@ -73,6 +73,10 @@
 //!                                               applies from the next shot)
 //!   game.haptic(kind)                          ("light"/"medium"/"heavy"/
 //!                                               "success"; iOS only, else no-op)
+//!   game.track(event [, value])                (analytics: append to the local
+//!                                               ~/.hollowlullaby/analytics.log,
+//!                                               console on web; remote sink
+//!                                               can replace this later)
 //!   game.pointer() -> x, y, down               (mouse/touch in world coords;
 //!                                               x,y are nil when unavailable,
 //!                                               down = button/finger held)
@@ -697,6 +701,10 @@ enum LuaCommand {
         channel: String,
         volume: f32,
     },
+    Track {
+        event: String,
+        value: Option<f64>,
+    },
     Haptic(i32),
 }
 
@@ -1306,6 +1314,16 @@ fn register_api(lua: &Lua) -> mlua::Result<()> {
     )?;
 
     game.set(
+        "track",
+        lua.create_function(|lua, (event, value): (String, Option<f64>)| {
+            if let Some(mut bridge) = lua.app_data_mut::<Bridge>() {
+                bridge.queue.push(LuaCommand::Track { event, value });
+            }
+            Ok(())
+        })?,
+    )?;
+
+    game.set(
         "save",
         lua.create_function(|lua, (key, value): (String, mlua::Value)| {
             let encoded = match &value {
@@ -1769,6 +1787,16 @@ fn register_api(lua: &mut Lua, bridge: Rc<RefCell<Bridge>>) {
             b.borrow_mut().queue.push(LuaCommand::SetVolume {
                 channel: channel.to_str().unwrap_or("").to_string(),
                 volume,
+            });
+            Ok(CallbackReturn::Return)
+        })).unwrap();
+
+        let b = bridge.clone();
+        game.set(ctx, "track", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let (event, value): (ottavino::String, Option<f64>) = stack.consume(ctx)?;
+            b.borrow_mut().queue.push(LuaCommand::Track {
+                event: event.to_str().unwrap_or("").to_string(),
+                value,
             });
             Ok(CallbackReturn::Return)
         })).unwrap();
@@ -2626,6 +2654,9 @@ fn apply_lua(
             LuaCommand::Haptic(style) => {
                 trigger_haptic(style);
             }
+            LuaCommand::Track { event, value } => {
+                track_event(&event, value);
+            }
         }
     }
 }
@@ -2663,6 +2694,51 @@ fn frame_rect(fw: f32, fh: f32, cols: u32, frames: u32, i: i64) -> (f32, f32, f3
     (col * fw, row * fh, (col + 1.0) * fw, (row + 1.0) * fh)
 }
 
+/// Sanitize an analytics event name: strip framing characters (tab/newline →
+/// `_` so the TSV log stays line-per-event), cap the length, and give empty
+/// names a stable placeholder.
+fn track_sanitize(event: &str) -> String {
+    let cleaned: String = event
+        .trim()
+        .chars()
+        .map(|c| if c == '\t' || c == '\n' || c == '\r' { '_' } else { c })
+        .take(64)
+        .collect();
+    if cleaned.is_empty() {
+        "unnamed".to_string()
+    } else {
+        cleaned
+    }
+}
+
+/// Append one analytics event to the local log (same directory as the save
+/// file). Local-first: swapping in a remote endpoint later only changes this
+/// sink, not the Lua API. On wasm the event goes to the console instead.
+fn track_event(event: &str, value: Option<f64>) {
+    let name = track_sanitize(event);
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let line = match value {
+            Some(v) => format!("{ts}\t{name}\t{v}\n"),
+            None => format!("{ts}\t{name}\t\n"),
+        };
+        let path = save_file_path().with_file_name("analytics.log");
+        if let Some(dir) = path.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        use std::io::Write;
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+            let _ = f.write_all(line.as_bytes());
+        }
+    }
+    #[cfg(target_arch = "wasm32")]
+    info!("[track] {name} {:?}", value);
+}
+
 /// Clamp a channel volume to 0..1; non-finite input falls back to full volume
 /// (a wrong expression should never mute the game silently).
 fn volume_clamp(v: f32) -> f32 {
@@ -2693,7 +2769,7 @@ mod tests {
     use super::{
         cam_zoom_clamp, decode_store, emit_count_allowed, encode_store, frame_rect, haptic_style,
         lcg, particle_alpha, preset_params, shake_offset, store_escape, store_unescape, tile_slot,
-        volume_clamp, zoom_scale, PARTICLE_CAP,
+        track_sanitize, volume_clamp, zoom_scale, PARTICLE_CAP,
     };
     use std::collections::HashMap;
 
@@ -2773,6 +2849,16 @@ mod tests {
             assert!(x.abs() <= 24.0 + 1e-3, "x={x} out of range");
             assert!(y.abs() <= 24.0 + 1e-3, "y={y} out of range");
         }
+    }
+
+    #[test]
+    fn track_names_are_sanitized() {
+        assert_eq!(track_sanitize("level_won"), "level_won");
+        assert_eq!(track_sanitize("  spaced  "), "spaced");
+        assert_eq!(track_sanitize("tab\there\nnl"), "tab_here_nl"); // no TSV framing breaks
+        assert_eq!(track_sanitize(""), "unnamed");
+        assert_eq!(track_sanitize("   "), "unnamed");
+        assert_eq!(track_sanitize(&"x".repeat(200)).len(), 64); // capped
     }
 
     #[test]
