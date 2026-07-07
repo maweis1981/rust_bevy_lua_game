@@ -48,10 +48,12 @@ fn star_layer(uv: vec2<f32>, t: f32, scale: f32, drift: f32) -> f32 {
     let f = fract(q);
     let ctr = vec2<f32>(hash2(id), hash2(id + 7.3));
     let d = length(f - ctr);
-    // some cells hold a star; brighter ones get a soft halo
-    let present = step(0.66, hash2(id + 1.7));
-    let tw = 0.6 + 0.4 * sin(t * 2.2 + hash2(id) * 6.2831);
-    let core = smoothstep(0.09, 0.0, d) + 0.35 * smoothstep(0.22, 0.0, d);
+    // some cells hold a star; brighter ones get a soft halo. Cores are kept
+    // small (crisp points) — the camera only sees a slice of this huge backdrop
+    // plane, so a large core would smear into a blurry blob on screen.
+    let present = step(0.62, hash2(id + 1.7));
+    let tw = 0.55 + 0.45 * sin(t * 2.2 + hash2(id) * 6.2831);
+    let core = smoothstep(0.045, 0.0, d) + 0.22 * smoothstep(0.14, 0.0, d);
     return present * core * tw;
 }
 
@@ -62,29 +64,34 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
     let energy = clamp(data.z, 0.0, 1.0);
 
     let uv = mesh.uv;
-    var p = vec2<f32>((uv.x - 0.5) * aspect, uv.y - 0.5);
+    // The camera only frames ~1/3 of this large backdrop plane, so multiply the
+    // sampling coordinate up: without this the nebula fbm barely varies across
+    // the visible slice (a flat wash) and the star grid shows only a handful of
+    // giant cells. `q` gives the nebula real structure and a dense starfield.
+    let q = vec2<f32>((uv.x - 0.5) * aspect, uv.y - 0.5) * 6.0;
+    var p = q;
 
     // Nebula: domain-warped fbm, drifting slowly. Deep navy base -> indigo ->
     // violet -> teal wisps, kept dim so stars and rocks stay readable.
     let flow = t * (0.05 + energy * 0.15);
-    let warp = vec2<f32>(fbm(p * 2.2 + vec2<f32>(0.0, flow)),
-                         fbm(p * 2.2 + vec2<f32>(4.1, 1.3) - flow));
-    let neb = fbm(p * 2.6 + 2.4 * warp);
-    let c_base = vec3<f32>(0.02, 0.03, 0.07);
-    let c_ind = vec3<f32>(0.10, 0.08, 0.26);
-    let c_vio = vec3<f32>(0.24, 0.10, 0.36);
-    let c_teal = vec3<f32>(0.06, 0.24, 0.36);
+    let warp = vec2<f32>(fbm(p * 0.9 + vec2<f32>(0.0, flow)),
+                         fbm(p * 0.9 + vec2<f32>(4.1, 1.3) - flow));
+    let neb = fbm(p * 1.1 + 2.4 * warp);
+    let c_base = vec3<f32>(0.012, 0.018, 0.045);
+    let c_ind = vec3<f32>(0.07, 0.06, 0.20);
+    let c_vio = vec3<f32>(0.20, 0.08, 0.30);
+    let c_teal = vec3<f32>(0.04, 0.18, 0.28);
     var col = c_base;
     col = mix(col, c_ind, clamp(neb * neb * 2.6, 0.0, 1.0));
-    col = mix(col, c_vio, clamp((neb - 0.32) * 1.9, 0.0, 1.0));
-    col = mix(col, c_teal, clamp(length(warp) * 0.9, 0.0, 1.0));
+    col = mix(col, c_vio, clamp((neb - 0.38) * 2.0, 0.0, 1.0));
+    col = mix(col, c_teal, clamp((length(warp) - 0.3) * 1.1, 0.0, 1.0));
     col = col * (0.85 + 0.15 * sin(t * 0.3));
 
     // Three parallax star layers (far dim + small, near bright + sparse).
     var stars = 0.0;
-    stars = stars + star_layer(p, t, 34.0, 0.010) * 0.8;
-    stars = stars + star_layer(p + 11.0, t, 20.0, 0.020) * 1.1;
-    stars = stars + star_layer(p + 27.0, t, 12.0, 0.035) * 1.4;
+    stars = stars + star_layer(p, t, 7.0, 0.010) * 0.8;
+    stars = stars + star_layer(p + 11.0, t, 4.2, 0.020) * 1.1;
+    stars = stars + star_layer(p + 27.0, t, 2.6, 0.035) * 1.5;
     let star_col = vec3<f32>(0.9, 0.94, 1.0);
     col = col + star_col * stars;
 
