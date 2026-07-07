@@ -37,6 +37,10 @@
 //!   game.set_text(string)                      (updates the on-screen HUD text)
 //!   game.shake(intensity)                      (0..1 impulse; Rust decays a
 //!                                               camera screen-shake from it)
+//!   game.emit(preset, x, y [, count])          (CPU particle burst: "spark"/
+//!                                               "dust"/"confetti"/"splash";
+//!                                               flies/fades/despawns on its own,
+//!                                               global cap 512)
 //!   game.cam(x, y, zoom)                       (move/zoom the camera; eased
 //!                                               follow, zoom clamped 0.25..4,
 //!                                               composes with shake/zoom punch;
@@ -110,11 +114,19 @@ impl Plugin for ScriptPlugin {
             .init_resource::<SheetRegistry>()
             .init_resource::<CameraRig>()
             .init_resource::<AudioVolumes>()
+            .init_resource::<crate::particles::ParticleRng>()
             .insert_non_send(LuaVm::new())
             .add_systems(Startup, (setup_scene, load_scripts))
             .add_systems(
                 Update,
-                (reload_changed_scripts, tick_lua, apply_lua, camera_shake).chain(),
+                (
+                    reload_changed_scripts,
+                    tick_lua,
+                    apply_lua,
+                    crate::particles::tick_particles,
+                    camera_shake,
+                )
+                    .chain(),
             );
     }
 }
@@ -467,6 +479,12 @@ enum LuaCommand {
     PlaySound(String),
     PlayMusic(String),
     PlayVoice(String),
+    Emit {
+        preset: String,
+        x: f32,
+        y: f32,
+        count: Option<u32>,
+    },
     StopVoice,
     SetVolume {
         channel: String,
@@ -876,6 +894,18 @@ fn register_api(lua: &Lua) -> mlua::Result<()> {
             }
             Ok(())
         })?,
+    )?;
+
+    game.set(
+        "emit",
+        lua.create_function(
+            |lua, (preset, x, y, count): (String, f32, f32, Option<u32>)| {
+                if let Some(mut bridge) = lua.app_data_mut::<Bridge>() {
+                    bridge.queue.push(LuaCommand::Emit { preset, x, y, count });
+                }
+                Ok(())
+            },
+        )?,
     )?;
 
     game.set(
@@ -1315,6 +1345,15 @@ fn register_api(lua: &mut Lua, bridge: Rc<RefCell<Bridge>>) {
         })).unwrap();
 
         let b = bridge.clone();
+        game.set(ctx, "emit", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let (preset, x, y, count): (ottavino::String, f32, f32, Option<u32>) =
+                stack.consume(ctx)?;
+            b.borrow_mut().queue.push(LuaCommand::Emit {
+                preset: preset.to_str().unwrap_or("").to_string(), x, y, count });
+            Ok(CallbackReturn::Return)
+        })).unwrap();
+
+        let b = bridge.clone();
         game.set(ctx, "cam", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
             let (x, y, zoom): (f32, f32, Option<f32>) = stack.consume(ctx)?;
             b.borrow_mut().queue.push(LuaCommand::Cam { x, y, zoom: zoom.unwrap_or(1.0) });
@@ -1622,6 +1661,13 @@ struct AudioParams<'w, 's> {
     voice_sinks: Query<'w, 's, &'static mut AudioSink, (With<VoiceSound>, Without<MusicSound>)>,
 }
 
+/// Particle state for `apply_lua`'s Emit handling (also one param, see above).
+#[derive(bevy::ecs::system::SystemParam)]
+struct ParticleParams<'w, 's> {
+    rng: ResMut<'w, crate::particles::ParticleRng>,
+    live: Query<'w, 's, (), With<crate::particles::Particle>>,
+}
+
 /// Apply everything Lua queued this frame.
 #[allow(clippy::too_many_arguments)] // Bevy systems legitimately take many params
 fn apply_lua(
@@ -1635,6 +1681,7 @@ fn apply_lua(
     mut rig: ResMut<CameraRig>,
     mut bg_theme: ResMut<BackgroundTheme>,
     mut audio: AudioParams,
+    mut particles: ParticleParams,
     mut tex_cache: ResMut<TextureCache>,
     mut sheets: ResMut<SheetRegistry>,
     mut layouts: ResMut<Assets<TextureAtlasLayout>>,
@@ -1646,6 +1693,9 @@ fn apply_lua(
     // De-dup identical SFX within this frame so a burst of the same impact plays
     // once rather than stacking into a harsh cluster.
     let mut sfx_this_frame: std::collections::HashSet<String> = std::collections::HashSet::new();
+    // Live-particle count once per drain; bursts spawned below won't be visible
+    // to the query until Commands apply, so track the additions locally.
+    let mut particles_live = particles.live.iter().count();
     for command in vm.drain() {
         match command {
             LuaCommand::Spawn {
@@ -1929,6 +1979,29 @@ fn apply_lua(
                     VoiceSound,
                 ));
             }
+            LuaCommand::Emit {
+                preset,
+                x,
+                y,
+                count,
+            } => {
+                let before = particles_live;
+                crate::particles::spawn_burst(
+                    &mut commands,
+                    &mut particles.rng,
+                    before,
+                    &preset,
+                    x,
+                    y,
+                    count,
+                );
+                let p = crate::particles::preset(&preset);
+                particles_live += crate::particles::emit_budget(
+                    before,
+                    count.unwrap_or(p.count),
+                    crate::particles::MAX_PARTICLES,
+                ) as usize;
+            }
             LuaCommand::StopVoice => {
                 for e in &audio.voice_q {
                     commands.entity(e).despawn();
@@ -2060,6 +2133,32 @@ mod tests {
         assert_eq!(volume_clamp(-1.0), 0.0);
         assert_eq!(volume_clamp(9.0), 1.0);
         assert_eq!(volume_clamp(f32::NAN), 0.0, "NaN mutes rather than blasts");
+    }
+
+    #[test]
+    fn emit_queues_a_particle_burst_command() {
+        let mut vm = LuaVm::new();
+        vm.exec_chunk(
+            "game.emit('confetti', 5.0, -3.0); game.emit('spark', 0.0, 0.0, 8)",
+            "emit_test",
+        )
+        .expect("emit Lua chunk failed");
+        let commands = vm.drain();
+        assert_eq!(commands.len(), 2);
+        match &commands[0] {
+            LuaCommand::Emit {
+                preset, x, y, count,
+            } => {
+                assert_eq!(preset, "confetti");
+                assert_eq!((*x, *y), (5.0, -3.0));
+                assert_eq!(*count, None, "count is optional");
+            }
+            _ => panic!("first command should be Emit"),
+        }
+        assert!(matches!(
+            &commands[1],
+            LuaCommand::Emit { count: Some(8), .. }
+        ));
     }
 
     #[test]
