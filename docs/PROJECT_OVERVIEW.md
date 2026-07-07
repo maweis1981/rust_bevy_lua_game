@@ -292,3 +292,4 @@ iOS 流水线：交叉编译静态库 → XcodeGen 生成工程 → xcodebuild �
 - [`docs/ai-era-game-dev.md`](./ai-era-game-dev.md) — 观点 + 教程
 - [`docs/no-editor-by-design.md`](./no-editor-by-design.md) — 为什么没有编辑器
 - [`docs/roadmap-and-benchmark.md`](./roadmap-and-benchmark.md) — 评测对比 + Roadmap
+- [`docs/web-deployment.md`](./web-deployment.md) — **Web 部署（GitHub Pages）与单游戏单 wasm 发布形态**（合集已不作为发布形态）
