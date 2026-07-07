@@ -4,6 +4,13 @@
 // docs/blog/README.md).
 window.BLOG_POSTS = [
   {
+    file: '2026-07-07-generate-game-art-with-claude-code',
+    date: '2026-07-07',
+    tag: 'GUIDE · EN',
+    title: 'How to Generate Game Art Assets With Claude Code (the Pipeline Behind This Repo)',
+    excerpt: 'One MCP command connects the asset factory; a style bible locks the look; a manifest places every file by convention. Every asset in these 12 games was generated this way — zero hand-made art, zero human prompts.',
+  },
+  {
     file: '2026-07-07-vibe-coding-game-dev',
     date: '2026-07-07',
     tag: '总览',
