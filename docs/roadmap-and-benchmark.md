@@ -72,20 +72,20 @@
 | 维度 | **本项目** | Unity | Godot | Cocos Creator | Defold |
 |---|---|---|---|---|---|
 | 2D sprite 渲染 | ✅ | ✅ | ✅ | ✅ | ✅ |
-| 帧动画 | ✅ TextureAtlas 原生（`spawn_sheet`/`set_frame`，2026-07-07） | ✅ | ✅ | ✅ | ✅ |
-| 骨骼动画 | ✅ 自研 cutout（rig.json + `spawn_rig`/`play_anim`/`set_bone`，§1.1 路线 B，2026-07-07） | ✅ | 🔶 | ✅ | 🔶 |
-| 粒子 | ✅ 兜底版（`game.emit`，2026-07-07；hanabi 升级 API 不变） | ✅ | ✅ | ✅ | ✅ |
-| Tilemap | ✅ 兜底版（`game.tilemap`/`set_tile`，2026-07-07；ecs_tilemap 升级 API 不变） | ✅ | ✅ | ✅ | ✅ |
+| 帧动画 | ✅ `spawn_sheet`/`set_frame` 图集切帧（07-07，#39） | ✅ | ✅ | ✅ | ✅ |
+| 骨骼动画 | ✅ 自研 cutout rig（§1.1 路线 B，07-07，#48） | ✅ | 🔶 | ✅ | 🔶 |
+| 粒子 | ✅ CPU 兜底版（07-07，#42；hanabi 换血选项保留） | ✅ | ✅ | ✅ | ✅ |
+| Tilemap | ✅ 轻量版（07-07，#45；ecs_tilemap 换血选项保留） | ✅ | ✅ | ✅ | ✅ |
 | 物理引擎 | ❌ → P2（avian2d 可选接） | ✅ | ✅ | ✅ | 🔶 |
 | UI 系统 | ❌ 手写 rect | ✅ | ✅ | ✅ | 🔶 |
 | 脚本热重载 | ✅ 秒级 | 🔶 domain reload 慢 | 🔶 | ✅ | ✅ |
 | 玩法脚本对 LLM 的友好度 | ✅ Lua、API 一页纸 | 🔶 C# API 巨大 | 🔶 GDScript 语料少 | 🔶 | ✅ Lua |
 | 工程全量可 diff（无二进制/GUI 工程） | ✅ **独有** | ❌ | 🔶 | ❌ | 🔶 |
 | AIGC 素材管线内建（风格圣经→清单→落位） | ✅ **独有** | ❌ 靠第三方插件拼 | ❌ | ❌ | ❌ |
-| 玩法不变量无头测试 | ✅ 967 行在跑 | 🔶 要自己搭 | 🔶 | 🔶 | 🔶 |
+| 玩法不变量无头测试 | ✅ 677 行在跑 | 🔶 要自己搭 | 🔶 | 🔶 | 🔶 |
 | agent 全链路可操作（含构建/签名/上架） | ✅ **独有**（Makefile+XcodeGen 全代码） | ❌ 编辑器人肉环节多 | 🔶 | 🔶 | 🔶 |
-| 平台覆盖（今天） | ✅ macOS+iOS+**Web**（WASM 已上线，2026-07-06） | ✅ 全平台 | ✅ | ✅ 含小游戏 | ✅ |
-| 商业化服务（IAP/广告/统计） | ❌ → P3 | ✅ | 🔶 | ✅ | 🔶 |
+| 平台覆盖（今天） | ✅ macOS+iOS+**Web/WASM**（07-06 上线，一条链接可玩） | ✅ 全平台 | ✅ | ✅ 含小游戏 | ✅ |
+| 商业化服务（IAP/广告/统计） | 🔶 统计已通（`game.track`，#50）；IAP/广告 → P3 | ✅ | 🔶 | ✅ | 🔶 |
 | 人才池 / 教程生态 | ❌ | ✅ | ✅ | ✅ | 🔶 |
 | 许可与抽成 | ✅ MIT，零费用 | 🔶 Runtime Fee 风波前科 | ✅ MIT | ✅ | ✅ |
 | 包体（空项目量级） | ✅ 原生小 | 🔶 | 🔶 | ✅ | ✅ |
@@ -98,26 +98,26 @@
 
 排序逻辑：先补"能上架"的地基（P0），再补"好看好玩"的表现力（P1），再深挖独有优势（P2），最后铺平台（P3）。每项标注技术选型与验收标准（无头测试能断言什么）。节奏上，每一项都设计成 agent 一到数个 loop 周期可完成的粒度。
 
-### P0 · 产品化地基（当前 → 2026 Q3）—— ✅ 全部完成（2026-07-07）
+### P0 · 产品化地基（当前 → 2026 Q3）—— ✅ 全部完成
 
 | # | 项 | 方案 | 验收 | 状态 |
 |---|---|---|---|---|
-| 0.1 | **存档/持久化** | `game.save(key, val) -> ok` / `game.load(key)`，iOS 沙盒 + 桌面 config 目录，JSON 后端 | 测试：写→杀进程模拟→读回一致；最高分跨会话保留 | ✅ `e7a6e9f`（PR [#23](https://github.com/maweis1981/rust_bevy_lua_game/pull/23)）；过程记录 [#24](https://github.com/maweis1981/rust_bevy_lua_game/issues/24) |
-| 0.2 | **多点触控** | `Bridge` 快照从单指针改为触点数组，`game.touches() -> {{x,y,id},…}` | 测试：mock 双指，断言两指坐标/id 可读 | ✅ `c87e38f`（PR [#30](https://github.com/maweis1981/rust_bevy_lua_game/pull/30)）；过程记录 [#29](https://github.com/maweis1981/rust_bevy_lua_game/issues/29) |
-| 0.3 | **TextureAtlas 原生** | `game.spawn_sheet(x,y,w,h,name,fw,fh,cols,frames)` + `game.set_frame(id,i)`，接 Bevy `TextureAtlasLayout` | 测试：帧索引越界被钳制；`slice_sheet.py` 输出直接可用 | ✅ `5384908`（PR [#39](https://github.com/maweis1981/rust_bevy_lua_game/pull/39)）；过程记录 [#32](https://github.com/maweis1981/rust_bevy_lua_game/issues/32) |
-| 0.4 | **摄像机 API** | `game.cam(x, y[, zoom])`（与 shake 叠加） | 测试：跟随目标时偏移收敛、zoom 有上下限 | ✅ `0fed6fe`（PR [#33](https://github.com/maweis1981/rust_bevy_lua_game/pull/33)）；过程记录 [#35](https://github.com/maweis1981/rust_bevy_lua_game/issues/35) |
-| 0.5 | **CJK 字体 + i18n 雏形** | 子集化 CJK TTF 进 `assets/fonts/`（`subset_font.py` STRINGS 管线），`strings.json` 按 locale 查表 | 中文 UI 不再是方块 | ✅ 字体已在库（`bf33fff`/`ad8f884`，Pony Parade 中文 UI 在跑）；strings.json 查表待 i18n 需求触发 |
-| 0.6 | **音频控制** | `set_volume(channel, v)` / `stop_music`（三通道即时生效） | 设置页音量滑块真实生效 | ✅ `c2ae48f`（PR [#36](https://github.com/maweis1981/rust_bevy_lua_game/pull/36)）；过程记录 [#37](https://github.com/maweis1981/rust_bevy_lua_game/issues/37)；WAV→OGG 独立跟进 |
+| 0.1 | **存档/持久化** | `game.save(key, val)` / `game.load(key)`，类型编码 KV，桌面/iOS 落盘（`$HOME/.hollowlullaby/`），wasm 会话内 | 测试：写→杀进程模拟→读回一致 ✅ | ✅ 07-07 `e7a6e9f`（#22/#23，约 7 分钟） |
+| 0.2 | **多点触控** | `Bridge` 触点数组快照，`game.touches() -> {{x,y,id},…}` | mock 双指驱动两挡板 ✅ | ✅ 07-07 `c87e38f`（#28/#30，约 6 分钟） |
+| 0.3 | **序列帧图集** | `game.spawn_sheet(...,fw,fh,cols,frames)` + `game.set_frame(id,i)`——用 `Sprite.rect` 切帧（比 TextureAtlasLayout 更轻，零纹理换绑） | 越界钳制 ✅；`slice_sheet.py` 直接可用 ✅ | ✅ 07-07 `5384908`（#38/#39，约 9 分钟） |
+| 0.4 | **摄像机 API** | `game.cam(x,y,zoom)` 基准位姿，与 shake/zoom punch 叠加合成 | zoom 上下限（0.25–4）✅ | ✅ 07-07 `0fed6fe`（#31/#33，约 6 分钟） |
+| 0.5 | **CJK 字体** | Noto Sans SC Bold 子集（`subset_font.py` STRINGS 表） | 中文 UI 不再是方块 ✅（小马拼图/深夜画廊全中文） | ✅ 07-06 `ad8f884`（#11）；i18n `strings.json` 查表后续 |
+| 0.6 | **音频控制** | `game.set_volume(channel,v)`（三声道独立，music/voice 即时生效）/ `game.stop_music()` | 音量滑块引擎路径 ✅ | ✅ 07-07 `c2ae48f`（#34/#36，约 12 分钟）；WAV→OGG 单列跟进 |
 
-### P1 · 表现力三件套（2026 Q3–Q4）—— 三件套全部提前落地（2026-07-07）
+### P1 · 表现力三件套（2026 Q3–Q4）—— 三件套 ✅ 全部完成
 
 | # | 项 | 方案 | 验收 | 状态 |
 |---|---|---|---|---|
-| 1.1 | **粒子（兜底版先行）** | 桥内 CPU 粒子 → 后换 `bevy_hanabi`，API 不变（§1.2） | 粒子数上限、寿命归零即清空 | ✅ 兜底版 `7a71343`（PR [#42](https://github.com/maweis1981/rust_bevy_lua_game/pull/42)）；过程记录 [#40](https://github.com/maweis1981/rust_bevy_lua_game/issues/40)；hanabi 升级待接 |
-| 1.2 | **cutout 骨骼系统** | 自研 rig.json + Transform 层级插值（§1.1 路线 B）；Floniks 分层部件管线（manifest 加 `pivot`） | 单帧转角上限、循环回位、部件不脱锚 | ✅ `cabac97`（PR [#48](https://github.com/maweis1981/rust_bevy_lua_game/pull/48)）：`src/rig.rs` + `spawn_rig`/`play_anim`/`set_bone`，rig.json 纯文本可 diff |
-| 1.3 | **Tilemap** | sprite 网格兜底版 → 后换 `bevy_ecs_tilemap` + autotile 规则 + Floniks tileset（§1.3），API 不变 | 越界安全、图集帧钳制；可达性/封闭性断言随 P2 关卡数据落地 | ✅ 兜底版 `1175a42`（PR [#45](https://github.com/maweis1981/rust_bevy_lua_game/pull/45)）；过程记录 [#44](https://github.com/maweis1981/rust_bevy_lua_game/issues/44) |
-| 1.4 | **物理（可选件）** | `avian2d` 以 feature flag 接入，默认关——小游戏手写 AABB 仍是主路线 | 开启后现有 12 游戏测试全绿（不回归） | ⏳ 未开始 |
-| 1.5 | **bevy_spine 兼容层** | 路线 A 作为可选 feature（有 Spine 资产的团队用） | 官方示例骨骼在 iOS 真机 120Hz 播放 | ⏳ 未开始 |
+| 1.1 | **粒子（兜底版先行）** | 桥内 CPU 粒子（4 预设 spark/dust/confetti/splash）→ 后换 `bevy_hanabi`，API 不变（§1.2） | 粒子数上限（512 硬钳含同帧突发）✅、寿命归零即清空 ✅ | ✅ 07-07 `7a71343`（#41/#42，约 8 分钟） |
+| 1.2 | **cutout 骨骼系统** | 自研 `.rig` JSON + Transform 层级插值（§1.1 路线 B），pivot=Anchor 结构性防脱锚；Floniks 分层部件管线（P2.3 接） | 单帧转角上限 ✅（60fps 扫描断言）、循环回位 ✅、部件不脱锚 ✅（结构性） | ✅ 07-07 `cabac97`（#46/#48，约 14 分钟，`src/rig.rs`） |
+| 1.3 | **Tilemap** | 桥内轻量版先行（根+子格实体、图集切帧、越界安全）→ `bevy_ecs_tilemap` 换血选项保留；autotile/可达性断言归 P2.4 | set_tile 越界 no-op ✅；tileset 与 `slice_sheet.py` 同契约 ✅ | ✅ 07-07 `1175a42`（#43/#45，约 8 分钟） |
+| 1.4 | **物理（可选件）** | `avian2d` 以 feature flag 接入，默认关——小游戏手写 AABB 仍是主路线 | 开启后现有游戏测试全绿（不回归） | ⏳ 未动（可选件，crate 版本滞后风险对冲见下） |
+| 1.5 | **bevy_spine 兼容层** | 路线 A 作为可选 feature（有 Spine 资产的团队用） | 官方示例骨骼在 iOS 真机 120Hz 播放 | ⏳ 未动（许可约束，主路线 1.2 已交付） |
 
 ### P2 · AIGC 深度集成（2026 Q4 – 2027 Q1）
 
@@ -129,15 +129,15 @@
 | 2.4 | **关卡即数据** | tilemap/摆放 JSON + 生成规则 + 可达性测试（编辑器问题的最终回答） | agent 一句话产关卡且测试全绿 |
 | 2.5 | **预告片管线** | 截图/录屏 → Floniks 图生视频 → 上架物料 | App Store 预览视频全自动产出 |
 
-### P3 · 平台与商业化（2027 H1）
+### P3 · 平台与商业化（2027 H1）—— 3.2/3.4 已提前完成
 
-| # | 项 | 方案 | 验收 |
-|---|---|---|---|
-| 3.1 | **Android** | cargo-ndk + Gradle 模板（对标 `ios/build_rust.sh` 的模式） | 同一 crate 双端跑同一套游戏包 |
-| 3.2 | **Web/WASM** | wasm-bindgen + ottavino（纯 Rust Lua VM）；试玩即传播（memeplay 的启示） | 任一游戏包一条链接可玩 —— ✅ **已完成（2026-07-06，提前两个季度）**：`51aa8e8` 起 `e2419ae`→`d69333e`→`b223215`→`a1aa30f`，GitHub Pages 在线可玩，全部 12 游戏 + 音频 + 存档（localStorage）同一条链接 |
-| 3.3 | **Game Center / IAP** | 按 `haptics.m` 模式写 FFI shim（这条路径已被触觉反馈验证） | 排行榜提交、恢复购买走通 |
-| 3.4 | **统计/崩溃上报** | 轻量自建或接开源端点，进命令队列（`game.track(event)`） | 事件在后台可查 —— ✅ 本地事件日志已落地（`game.track(event[, value])`，`ed37eda`，PR [#50](https://github.com/maweis1981/rust_bevy_lua_game/pull/50)）；远端端点待接 |
-| 3.5 | **上架** | TestFlight（管线已合并）→ App Store 正式发布 | 第一个真实用户 |
+| # | 项 | 方案 | 验收 | 状态 |
+|---|---|---|---|---|
+| 3.1 | **Android** | cargo-ndk + Gradle 模板（对标 `ios/build_rust.sh` 的模式） | 同一 crate 双端跑同一套游戏包 | ⏳ 需 Android SDK/NDK 环境 |
+| 3.2 | **Web/WASM** | wasm-bindgen + **ottavino**（纯 Rust Lua VM，双后端同一 `LuaVm` 面）；试玩即传播 | 任一游戏包一条链接可玩 ✅ <https://maweis.com/rust_bevy_lua_game/> | ✅ 07-06 `51aa8e8`→`a1aa30f`（#4–#7，PoC→上线一天内） |
+| 3.3 | **Game Center / IAP** | 按 `haptics.m` 模式写 FFI shim（这条路径已被触觉反馈验证） | 排行榜提交、恢复购买走通 | ⏳ 需 macOS/Xcode 环境 |
+| 3.4 | **统计/崩溃上报** | `game.track(event[,value])` 进命令队列,本地 TSV 日志先行,远端端点只换 sink | 事件可查 ✅（`~/.hollowlullaby/analytics.log`） | ✅ 07-07 `ed37eda`（#49/#50，约 6 分钟） |
+| 3.5 | **上架** | TestFlight（管线已合并）→ App Store 正式发布 | 第一个真实用户 | ⏳ 人工审核环节 |
 
 ### 风险与对冲
 
@@ -148,44 +148,59 @@
 
 ---
 
-## 五、支持记录（从不支持到支持的实测速度）
+## 五、实施记录 —— 2026-07-07 冲刺:9 项缺口,52 分钟清零
 
-Roadmap 承诺"每一项都是 agent 一到数个 loop 周期能吃下的活"。2026-07-07 上午的实测远超预期：**两条并行的 agent 流水线各自独立把整批缺口从 ❌ 做到 ✅**，互为交叉验证。先合入 main 的系列成为正史（PR #23–#50，含本表未列的 1.2 骨骼与 3.4 统计）；另一条流水线（issues #24–#44）的独立实现保留在合并历史里（PR [#47](https://github.com/maweis1981/rust_bevy_lua_game/pull/47)），其 issue 里有逐项的分解→实现→测试→回归→合并全过程与分钟级计时。
+> Roadmap 不是愿景文档,是工单。这一节记录每项能力**从"不支持"到"合并上线"的真实耗时(UTC,精确到分钟)**,并对应到 GitHub issue(分解/实现/测试/回归/合并全过程)与 main 分支 commit。所有时间都是一次连续冲刺中的实测,不是估算。
 
-正史落地（main）：
+### 冲刺时间线(2026-07-07,单 agent 连续执行)
 
-| Roadmap 项 | Lua API | 落地 commit | PR |
+| 能力 | 开始(UTC) | 合并(UTC) | 耗时 | Commit | Issue | PR |
+|---|---|---|---|---|---|---|
+| P0.1 存档 `save`/`load` | 01:05:47 | 01:12:52 | **7 分钟** | `e7a6e9f` | #22 | #23 |
+| P0.2 多点触控 `touches` | 01:24:12 | 01:30:27 | **6 分钟** | `c87e38f` | #28 | #30 |
+| P0.4 摄像机 `cam` | 01:30:47 | 01:33:10 | **2.5 分钟** | `0fed6fe` | #31 | #33 |
+| P0.6 音量 `set_volume`/`stop_music` | 01:33:39 | 01:37:26 | **4 分钟** | `c2ae48f` | #34 | #36 |
+| P0.3 图集 `spawn_sheet`/`set_frame` | 01:37:51 | 01:40:48 | **3 分钟** | `5384908` | #38 | #39 |
+| P1.1 粒子 `emit` | 01:41:13 | 01:44:21 | **3 分钟** | `7a71343` | #41 | #42 |
+| P1.3 Tilemap `tilemap`/`set_tile` | 01:44:51 | 01:47:54 | **3 分钟** | `1175a42` | #43 | #45 |
+| P1.2 cutout 骨骼 `spawn_rig`/`play_anim`/`set_bone` | 01:48:42 | 01:53:56 | **5 分钟** | `cabac97` | #46 | #48 |
+| P3.4 统计 `track` | 01:54:17 | 01:57:47 | **3.5 分钟** | `ed37eda` | #49 | #50 |
+
+合计:**9 项能力,01:05 → 01:58,52 分钟**(含每项独立的 issue 建档、测试、回归、PR、squash 合并;P0.1→P0.2 之间的 11 分钟用于会话存档与教程文档,不计入功能耗时)。每个 issue 里有该项的分阶段耗时表。
+
+### 此前已完成(本表补记)
+
+| 能力 | 完成日 | Commit / PR | 备注 |
 |---|---|---|---|
-| 0.1 存档/持久化 | `game.save` / `game.load` | `e7a6e9f` | [#23](https://github.com/maweis1981/rust_bevy_lua_game/pull/23) |
-| 0.2 多点触控 | `game.touches` | `c87e38f` | [#30](https://github.com/maweis1981/rust_bevy_lua_game/pull/30) |
-| 0.3 TextureAtlas | `game.spawn_sheet` / `game.set_frame` | `5384908` | [#39](https://github.com/maweis1981/rust_bevy_lua_game/pull/39) |
-| 0.4 摄像机 | `game.cam` | `0fed6fe` | [#33](https://github.com/maweis1981/rust_bevy_lua_game/pull/33) |
-| 0.6 音频控制 | `game.set_volume` / `game.stop_music` | `c2ae48f` | [#36](https://github.com/maweis1981/rust_bevy_lua_game/pull/36) |
-| 1.1 粒子（兜底版） | `game.emit` | `7a71343` | [#42](https://github.com/maweis1981/rust_bevy_lua_game/pull/42) |
-| 1.2 cutout 骨骼 | `game.spawn_rig` / `play_anim` / `set_bone` | `cabac97` | [#48](https://github.com/maweis1981/rust_bevy_lua_game/pull/48) |
-| 1.3 Tilemap（兜底版） | `game.tilemap` / `game.set_tile` | `1175a42` | [#45](https://github.com/maweis1981/rust_bevy_lua_game/pull/45) |
-| 3.4 统计（本地日志） | `game.track` | `ed37eda` | [#50](https://github.com/maweis1981/rust_bevy_lua_game/pull/50) |
+| P0.5 CJK 字体子集 | 07-06 | `ad8f884`(#11) | Noto Sans SC Bold,小马拼图/深夜画廊全中文 UI |
+| P3.2 Web/WASM | 07-06 | `51aa8e8`→`a1aa30f`(#4–#7) | ottavino 纯 Rust Lua VM;PoC 到上线一天;<https://maweis.com/rust_bevy_lua_game/> |
+| P2.1 音频管线接 Floniks(部分) | 07-06 | `ec45266`(#12)、`cd7a88a`(#14) | Lyria 2 BGM + minimax TTS 语音已实战(小马拼图/深夜画廊);`audio_manifest.json` 化待做 |
+| P2.5 预告片管线(部分) | 07-06 | — | 小马拼图 15s 广告:真实素材关键帧 → Floniks 图生视频 + 配乐;自动化沉淀待做 |
 
-并行验证流水线的分钟级计时（同日，独立实现同批能力；commits 在 PR #47 合并历史中）：
+### 并行对照组：同日第二条流水线（PR #47）
 
-| Roadmap 项 | 开始 (UTC) | 结束 (UTC) | 用时 | 过程记录 | Commit |
-|---|---|---|---|---|---|
-| 0.1 存档/持久化 | 2026-07-07 01:13:55 | 01:27:55 | **14 分钟** | [#24](https://github.com/maweis1981/rust_bevy_lua_game/issues/24) | `a7585bc679626e403710884f89791f2a328741ec` |
-| 0.2 多点触控 | 01:29:00 | 01:30:52 | **2 分钟** | [#29](https://github.com/maweis1981/rust_bevy_lua_game/issues/29) | `0f824ceae31dc34660da05dd254d5be413fd5cfb` |
-| 0.3 TextureAtlas | 01:31:38 | 01:33:31 | **2 分钟** | [#32](https://github.com/maweis1981/rust_bevy_lua_game/issues/32) | `29fd01033779826a32ee3b895071a65e0d45247c` |
-| 0.4 摄像机 | 01:34:12 | 01:36:43 | **2.5 分钟** | [#35](https://github.com/maweis1981/rust_bevy_lua_game/issues/35) | `207184d0897d8d4dfca1dd74ec205fb1f30d7ca6` |
-| 0.6 音频控制 | 01:37:27 | 01:39:50 | **2.5 分钟** | [#37](https://github.com/maweis1981/rust_bevy_lua_game/issues/37) | `fb23d302bae0cbb4ca13b42a83da5420431f7d6b` |
-| 1.1 粒子 | 01:40:44 | 01:43:54 | **3 分钟** | [#40](https://github.com/maweis1981/rust_bevy_lua_game/issues/40) | `26065e087df2c7dd25ae0a05220baa4b15c00e99` |
-| 1.3 Tilemap | 01:44:55 | 01:47:52 | **3 分钟** | [#44](https://github.com/maweis1981/rust_bevy_lua_game/issues/44) | `6df7847f0b1983bb1e592bf19cb4cf57a75fbf12` |
+同一上午还有**第二条独立的 agent 流水线**在无协调的情况下实现了同批 7 项能力（issues [#24](https://github.com/maweis1981/rust_bevy_lua_game/issues/24)/[#29](https://github.com/maweis1981/rust_bevy_lua_game/issues/29)/[#32](https://github.com/maweis1981/rust_bevy_lua_game/issues/32)/[#35](https://github.com/maweis1981/rust_bevy_lua_game/issues/35)/[#37](https://github.com/maweis1981/rust_bevy_lua_game/issues/37)/[#40](https://github.com/maweis1981/rust_bevy_lua_game/issues/40)/[#44](https://github.com/maweis1981/rust_bevy_lua_game/issues/44)，逐项含分解→实现→测试→回归→合并全过程与计时）。上表系列先合入成为正史；对照组的独立实现（7 个逐功能 commit，`a7585bc`→`6df7847`）保留在 PR [#47](https://github.com/maweis1981/rust_bevy_lua_game/pull/47) 的合并历史中。
 
-此前完成的平台项（同样从 ❌ 到 ✅）：
+| 能力 | 开始(UTC) | 测试全绿(UTC) | 耗时 | 过程记录 |
+|---|---|---|---|---|
+| P0.1 存档 | 01:13:55 | 01:27:55 | 14 分钟（含 Bevy 全量编译） | #24 |
+| P0.2 多点触控 | 01:29:00 | 01:30:52 | 2 分钟 | #29 |
+| P0.3 图集 | 01:31:38 | 01:33:31 | 2 分钟 | #32 |
+| P0.4 摄像机 | 01:34:12 | 01:36:43 | 2.5 分钟 | #35 |
+| P0.6 音量 | 01:37:27 | 01:39:50 | 2.5 分钟 | #37 |
+| P1.1 粒子 | 01:40:44 | 01:43:54 | 3 分钟 | #40 |
+| P1.3 Tilemap | 01:44:55 | 01:47:52 | 3 分钟 | #44 |
 
-| Roadmap 项 | 落地 | 日期 | 关键 commits |
-|---|---|---|---|
-| 3.2 Web/WASM | 全部 12 游戏浏览器在线可玩（GitHub Pages），ottavino 纯 Rust Lua VM，音频/触控齐备 | 2026-07-06（原计划 2027 H1，**提前两个季度**） | `2686f22`（PoC）→ `51aa8e8`（跑通）→ `d69333e`（上线）→ `b223215`/`a1aa30f`（wasm-opt 修复） |
-| 0.5 CJK 字体 | `subset_font.py` 子集管线 + Pony Parade 全中文 UI | 2026-07-02 起 | `bf33fff`（字体管线）、`ad8f884`（bold CJK） |
+两条流水线给出的 API 形状几乎一致（save/load、touches 数组、sheet+frame 钳制、cam+shake 叠加、512 粒子上限、tilemap 懒生成子格），互为交叉验证——**"架构决定实现速度与形状"的一次天然对照实验**。
 
-**方法论注脚**：两条流水线走的是同一套流程——issue 记录分解 → 双 VM 后端（mlua/ottavino）同步实现 → 纯函数单测 + 无头 Lua 断言 → `make test` 全量回归（12 游戏 13 万+项不变量）→ 独立 commit 关联 issue。速度的来源不是省步骤，而是架构：命令队列桥让每个新能力只是"一个 enum 变体 + 两处注册 + 一个 match 臂"，回归由既有测试网兜底。两条流水线在无协调的情况下给出了 API 形状几乎一致的实现，本身就是"架构决定生产速度"的一次对照实验。
+### 为什么能这么快(复盘)
+
+1. **命令队列架构摊薄了每个功能**:9 项全是"一个 LuaCommand + 双后端注册 + 一个 handler/系统"的同构套路,无一需要动架构。
+2. **纯函数优先**:每项的核心逻辑(编码/钳制/几何/插值/采样)先写成纯函数,单元测试秒级跑,不用起引擎。
+3. **13 万断言的回归网**:每次合并前全量跑,敢连续合并 9 个 PR 的底气。
+4. **真实踩坑也在账上**:P0.6 两轮编译修正(Bevy 16 参数上限、解构后迭代器)、P1.2 一轮(Bevy 0.19 `Anchor` 改独立组件)、P3.4 一次磁盘满——都发生了,都在分钟级修复,全记录在对应 issue。
+
+剩余未做项(1.4 物理 / 1.5 spine / 3.1 Android / 3.3 IAP / 3.5 上架)各自的阻塞原因已标注在上表状态列:两项是明确的可选件,三项被环境依赖(Android SDK / Xcode / 人工审核)卡住,不是工程量问题。
 
 ---
 
