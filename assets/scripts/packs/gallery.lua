@@ -6,7 +6,7 @@
 --     trio pose). Tapping one lunges her forward with a shake + zoom punch,
 --     then opens her interview.
 --   · Interview: her portrait + a typewriter subtitle panel voices a line
---     (game.play_sound of a Floniks-TTS clip); the player picks a question;
+--     (game.play_voice of a Floniks-TTS clip; voice channel cuts the previous line); the player picks a question;
 --     probing the right thread surfaces a CLUE and shifts her portrait to a
 --     tense / frightened expression; soft questions get deflected.
 --   · Once all three are interviewed the "指认真凶" (accuse) button appears.
@@ -175,6 +175,7 @@ function make_gallery()
   local lunge = nil                       -- { id, x0, t } select-screen tap animation
 
   local DEBUG_last_clue = nil
+  local voice_plays = 0
 
   ----------------------------------------------------------------------------
   -- Select screen
@@ -183,6 +184,7 @@ function make_gallery()
   local accuse_btn = nil
 
   local function build_select()
+    game.stop_voice()
     wipe(); sel_btns = {}; accuse_btn = nil
     spr(0, 0, scr_hw * 2 + 4, scr_hh * 2 + 4, "vg_gallery")
     rect(0, 0, scr_hw * 2 + 4, scr_hh * 2 + 4, 0.04, 0.05, 0.09, 0.45) -- darken
@@ -222,7 +224,7 @@ function make_gallery()
     shown = 0
     typing = true
     if portrait_id then game.set_sprite_image(portrait_id, cur.img[n.expr or "calm"]) end
-    if n.voice then game.play_sound(n.voice) end
+    if n.voice then game.play_voice(n.voice); voice_plays = voice_plays + 1 end
     if n.expr == "fear" then game.shake(0.18); game.haptic("medium")
     elseif n.expr == "tense" then game.haptic("light") end
     -- clear old choice buttons; they reappear when typing completes
@@ -297,6 +299,7 @@ function make_gallery()
   ----------------------------------------------------------------------------
   local acc_btns = {}
   local function build_accuse()
+    game.stop_voice()
     wipe(); acc_btns = {}
     spr(0, 0, scr_hw * 2 + 4, scr_hh * 2 + 4, "vg_gallery_dark")
     rect(0, 0, scr_hw * 2 + 4, scr_hh * 2 + 4, 0.03, 0.03, 0.06, 0.6)
@@ -316,6 +319,7 @@ function make_gallery()
   end
 
   local function build_end(win)
+    game.stop_voice()
     wipe()
     spr(0, 0, scr_hw * 2 + 4, scr_hh * 2 + 4, "vg_gallery_dark")
     rect(0, 0, scr_hw * 2 + 4, scr_hh * 2 + 4, 0.02, 0.02, 0.05, 0.72)
@@ -349,6 +353,7 @@ function make_gallery()
       clue_count = clue_count,
       has_clue = function(k) return clues[k] == true end,
       last_clue = function() return DEBUG_last_clue end,
+      voice_plays = function() return voice_plays end,
       done = function(k) return done[k] end,
       typing = function() return typing end,
       select_btn = function(k) for _, b in ipairs(sel_btns) do if b.key == k then return b.rect end end end,
@@ -367,6 +372,7 @@ function make_gallery()
       game.play_music("gallery")
     end,
     leave = function()
+      game.stop_voice()
       game.play_music("music")
       wipe(); T.clear(); built = false
       screen = "select"

@@ -35,6 +35,9 @@
 //!   game.play_sound(name)                      (one-shot SFX: assets/audio/<name>.wav)
 //!   game.play_music(name)                      (looping bg music; replaces any
 //!                                               currently-playing track)
+//!   game.play_voice(name)                      (single dialogue-voice channel;
+//!                                               stops any voice still playing)
+//!   game.stop_voice()                          (stop the current dialogue voice)
 //!   game.haptic(kind)                          ("light"/"medium"/"heavy"/
 //!                                               "success"; iOS only, else no-op)
 //!   game.pointer() -> x, y, down               (mouse/touch in world coords;
@@ -80,7 +83,7 @@ impl Plugin for ScriptPlugin {
             .init_resource::<EntityRegistry>()
             .init_resource::<ScreenShake>()
             .init_resource::<BackgroundTheme>()
-            .init_resource::<MusicTrack>()
+            .init_resource::<CurrentMusic>()
             .init_resource::<TextureCache>()
             .insert_non_send(LuaVm::new())
             .add_systems(Startup, (setup_scene, load_scripts))
@@ -125,10 +128,30 @@ pub(crate) struct BackgroundTheme {
     pub(crate) target: f32,
 }
 
-/// The currently-playing looping music entity, so `game.play_music` can stop the
-/// previous track before starting a new one.
+/// Audio is managed as three channels so tracks never pile up on top of each
+/// other (see `apply_lua`):
+///   • **Music** — one looping track, tagged `MusicSound`. `game.play_music`
+///     no-ops if that same track is already playing (`CurrentMusic` remembers
+///     the name), otherwise it stops the old track and starts the new one.
+///   • **Voice** — one one-shot dialogue clip, tagged `VoiceSound`.
+///     `game.play_voice` stops any voice still playing before starting the new
+///     line, so witnesses never talk over themselves; `game.stop_voice` clears it.
+///   • **SFX** — `game.play_sound` one-shots may overlap (impacts want that), but
+///     the *same* sound is de-duplicated within a single frame so a burst of
+///     identical hits plays once, not ten times.
+/// Stopping a channel means despawning the entities carrying its marker, which is
+/// robust against one-shots that already finished on their own (they leave the
+/// query, so there is no stale entity to double-despawn).
 #[derive(Resource, Default)]
-struct MusicTrack(Option<Entity>);
+struct CurrentMusic(Option<String>);
+
+/// Marks the single looping music entity.
+#[derive(Component)]
+struct MusicSound;
+
+/// Marks a one-shot voice/dialogue entity (only one plays at a time).
+#[derive(Component)]
+struct VoiceSound;
 
 /// Retains a strong handle to every texture ever loaded, keyed by name, so a
 /// sprite that swaps its image (frame animation via `set_sprite_image`) never
@@ -349,6 +372,8 @@ enum LuaCommand {
     SetBgTheme(f32),
     PlaySound(String),
     PlayMusic(String),
+    PlayVoice(String),
+    StopVoice,
     Haptic(i32),
 }
 
@@ -700,6 +725,26 @@ fn register_api(lua: &Lua) -> mlua::Result<()> {
     )?;
 
     game.set(
+        "play_voice",
+        lua.create_function(|lua, name: String| {
+            if let Some(mut bridge) = lua.app_data_mut::<Bridge>() {
+                bridge.queue.push(LuaCommand::PlayVoice(name));
+            }
+            Ok(())
+        })?,
+    )?;
+
+    game.set(
+        "stop_voice",
+        lua.create_function(|lua, ()| {
+            if let Some(mut bridge) = lua.app_data_mut::<Bridge>() {
+                bridge.queue.push(LuaCommand::StopVoice);
+            }
+            Ok(())
+        })?,
+    )?;
+
+    game.set(
         "haptic",
         lua.create_function(|lua, kind: String| {
             let style = haptic_style(&kind);
@@ -987,6 +1032,20 @@ fn register_api(lua: &mut Lua, bridge: Rc<RefCell<Bridge>>) {
         })).unwrap();
 
         let b = bridge.clone();
+        game.set(ctx, "play_voice", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let name: ottavino::String = stack.consume(ctx)?;
+            b.borrow_mut().queue.push(LuaCommand::PlayVoice(name.to_str().unwrap_or("").to_string()));
+            Ok(CallbackReturn::Return)
+        })).unwrap();
+
+        let b = bridge.clone();
+        game.set(ctx, "stop_voice", Callback::from_fn(&ctx, move |_ctx, _, mut stack| {
+            b.borrow_mut().queue.push(LuaCommand::StopVoice);
+            stack.clear();
+            Ok(CallbackReturn::Return)
+        })).unwrap();
+
+        let b = bridge.clone();
         game.set(ctx, "haptic", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
             let kind: ottavino::String = stack.consume(ctx)?;
             let style = haptic_style(kind.to_str().unwrap_or(""));
@@ -1174,13 +1233,18 @@ fn apply_lua(
     mut texts: Query<&mut Text>,
     mut shake: ResMut<ScreenShake>,
     mut bg_theme: ResMut<BackgroundTheme>,
-    mut music: ResMut<MusicTrack>,
+    mut current_music: ResMut<CurrentMusic>,
+    music_q: Query<Entity, With<MusicSound>>,
+    voice_q: Query<Entity, With<VoiceSound>>,
     mut tex_cache: ResMut<TextureCache>,
     assets: Res<AssetServer>,
     hud: Option<Res<Hud>>,
 ) {
     // Sprites spawn at increasing z so later-spawned things (ball) draw in front
     // of earlier ones (net, trail) without depending on transparent-sort order.
+    // De-dup identical SFX within this frame so a burst of the same impact plays
+    // once rather than stacking into a harsh cluster.
+    let mut sfx_this_frame: std::collections::HashSet<String> = std::collections::HashSet::new();
     for command in vm.drain() {
         match command {
             LuaCommand::Spawn {
@@ -1351,18 +1415,40 @@ fn apply_lua(
                 bg_theme.target = theme.clamp(0.0, 1.0);
             }
             LuaCommand::PlaySound(name) => {
-                let handle = assets.load::<AudioSource>(format!("audio/{name}.wav"));
-                commands.spawn((AudioPlayer::new(handle), PlaybackSettings::DESPAWN));
+                // SFX channel: overlap is fine, but collapse duplicates of the
+                // same sound within one frame (e.g. many bounces in a tick).
+                if sfx_this_frame.insert(name.clone()) {
+                    let handle = assets.load::<AudioSource>(format!("audio/{name}.wav"));
+                    commands.spawn((AudioPlayer::new(handle), PlaybackSettings::DESPAWN));
+                }
             }
             LuaCommand::PlayMusic(name) => {
-                if let Some(prev) = music.0.take() {
-                    commands.entity(prev).despawn();
+                // Music channel: one looping track. If the same track is already
+                // playing, do nothing (re-requesting it on scene re-entry must not
+                // restart or double it). Otherwise stop the old track and start new.
+                let same = current_music.0.as_deref() == Some(name.as_str());
+                if !(same && !music_q.is_empty()) {
+                    for e in &music_q {
+                        commands.entity(e).despawn();
+                    }
+                    let handle = assets.load::<AudioSource>(format!("audio/{name}.wav"));
+                    commands.spawn((AudioPlayer::new(handle), PlaybackSettings::LOOP, MusicSound));
+                    current_music.0 = Some(name);
+                }
+            }
+            LuaCommand::PlayVoice(name) => {
+                // Voice channel: single one-shot. Stop any voice still playing so
+                // dialogue lines never talk over one another, then start this one.
+                for e in &voice_q {
+                    commands.entity(e).despawn();
                 }
                 let handle = assets.load::<AudioSource>(format!("audio/{name}.wav"));
-                let entity = commands
-                    .spawn((AudioPlayer::new(handle), PlaybackSettings::LOOP))
-                    .id();
-                music.0 = Some(entity);
+                commands.spawn((AudioPlayer::new(handle), PlaybackSettings::DESPAWN, VoiceSound));
+            }
+            LuaCommand::StopVoice => {
+                for e in &voice_q {
+                    commands.entity(e).despawn();
+                }
             }
             LuaCommand::Haptic(style) => {
                 trigger_haptic(style);

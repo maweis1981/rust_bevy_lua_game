@@ -50,6 +50,8 @@ game = {
   set_native_bg = function(n) record("native_bg", n) end,
   play_sound = function(n) record("sound", n) end,
   play_music = function(n) record("music", n) end,
+  play_voice = function(n) record("voice", n) end,
+  stop_voice = function() record("stopvoice") end,
   haptic = function(k) record("haptic", k) end,
   pointer = function() return game._px, game._py, game._down end,
   key = function(n) return game._keys[n] == true end,
@@ -843,6 +845,7 @@ local function gallery_tests()
   on_tap(r.x, r.y)
   for _ = 1, 20 do step() end
   check(d.scene() == "talk" and d.current() == "coach", "tapping a witness opens her interview")
+  check(d.voice_plays() >= 1, "gallery: the opening line plays on the VOICE channel (no overlapping SFX)")
 
   -- Full playthrough: interview all three, always probing an uncollected clue,
   -- and assert every clue can be surfaced and each witness gets marked done.
@@ -895,7 +898,9 @@ local function gallery_tests()
   -- Back from an ending returns to the select screen; BACK from select exits.
   on_tap(d.back.x, d.back.y)
   check(d.scene() == "select", "gallery: BACK from the ending returns to select")
-  on_tap(d.back.x, d.back.y); step()
+  on_tap(d.back.x, d.back.y)
+  check(events_have("stopvoice"), "gallery: leaving the pack stops the dialogue voice channel")
+  step()
   check(DEBUG.game == "menu", "gallery: BACK from select returns to the menu")
 
   -- A wrong accusation still resolves to an ending (no dead-end).
