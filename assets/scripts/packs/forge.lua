@@ -179,16 +179,27 @@ function make_forge()
     if is_best then best = score; game.save(best_key, score) end
     -- settlement card (E2: a dignified failure screen, one tap to retry)
     local P = over_ids
-    P[#P + 1] = game.spawn(0, 30, 330, 250, 0.06, 0.05, 0.13, 0.92)
+    P[#P + 1] = game.spawn(0, 10, 330, 300, 0.06, 0.05, 0.13, 0.92)
     P[#P + 1] = game.spawn_text(0, 120, 30, 1.0, 0.75, 0.35, 1,
       daily and ("DAILY " .. date_key()) or "THE FORGE COOLED")
     P[#P + 1] = game.spawn_text(0, 66, 26, 1, 1, 1, 1, string.format("SCORE  %d", score))
     P[#P + 1] = game.spawn_text(0, 26, 20, 0.8, 0.85, 1.0, 1,
       is_best and "NEW BEST!" or string.format("BEST  %d", best))
     P[#P + 1] = game.spawn_text(0, -12, 20, 0.9, 0.8, 1.0, 1, string.format("TOP STAR  L%d", best_level))
-    P[#P + 1] = game.spawn(0, -70, 190, 54, 1.0, 0.62, 0.2, 1)
-    P[#P + 1] = game.spawn_text(0, -70, 24, 0.1, 0.06, 0.12, 1, "FORGE AGAIN")
-    again_rect = { x = 0, y = -70, w = 190, h = 54 }
+    -- codex row: the fusion chain you have lit up so far (L1 is free — it is dealt)
+    for k = 1, MAX_LEVEL do
+      local id = game.spawn_sprite(-135 + (k - 1) * 30, -44, 22, 22, "orb")
+      P[#P + 1] = id
+      if k == 1 or (game.load("forge_codex_l" .. k) or 0) > 0 then
+        local c = RAMP[k]
+        game.set_color(id, c[1], c[2], c[3], 1)
+      else
+        game.set_color(id, 0.22, 0.22, 0.3, 0.8)
+      end
+    end
+    P[#P + 1] = game.spawn(0, -94, 190, 54, 1.0, 0.62, 0.2, 1)
+    P[#P + 1] = game.spawn_text(0, -94, 24, 0.1, 0.06, 0.12, 1, "FORGE AGAIN")
+    again_rect = { x = 0, y = -94, w = 190, h = 54 }
     game.set_text(string.format("SCORE %d   BEST %d", score, best))
     game.log("forge_over")
     game.play_sound("hit"); game.haptic("heavy"); game.shake(0.6); game.zoom(0.8)
@@ -208,6 +219,9 @@ function make_forge()
     combo_n = (combo_t > 0) and (combo_n + 1) or 1
     combo_t = COMBO_WIN
     score = score + (2 ^ lvl) * combo_n
+    -- codex: every fusion level reached is a permanent collection entry
+    local ck = lvl > MAX_LEVEL and "forge_codex_nova" or ("forge_codex_l" .. lvl)
+    game.save(ck, (game.load(ck) or 0) + 1)
     game.track("forge_merge", lvl)
     if combo_n >= 2 then game.track("forge_combo", combo_n) end
     if lvl > best_level then best_level = lvl end
@@ -306,6 +320,11 @@ function make_forge()
       again = function() return again_rect end,
       mode = function() return daily and "daily" or "normal" end,
       daily_chip = function() return daily_chip end,
+      codex = function()
+        local out = { nova = game.load("forge_codex_nova") or 0 }
+        for k = 2, MAX_LEVEL do out[k] = game.load("forge_codex_l" .. k) or 0 end
+        return out
+      end,
       body_count = function() return #bodies end,
       total_mass = function() return total_mass end,
       gm = function() return gm() end,

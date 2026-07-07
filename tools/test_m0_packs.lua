@@ -183,6 +183,8 @@ local function forge_fusion()
   end
   check(fused, "two L1 stars on the same orbit band should fuse into one L2")
   check(d.score() > s0, "fusion must raise the score")
+  check(d.codex()[2] and d.codex()[2] >= 1, "a fusion to L2 must light the codex entry")
+  check(game._store.forge_codex_l2 ~= nil, "codex entries must persist via game.save")
   on_tap(d.back.x, d.back.y); step()
 end
 

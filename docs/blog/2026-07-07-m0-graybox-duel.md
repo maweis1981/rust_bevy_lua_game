@@ -105,10 +105,33 @@ combo 显示、光环充能增亮、蛛网脉冲、双方最高分 `game.save` �
 
 全量：417k+ 断言绿，旧套件无回归。
 
+## 第四轮（同日）：M2 提前铺轨 — 引擎开洞、每日挑战、元素图鉴
+
+M1 工程项清空后（拖尾、双游戏结算卡对齐已在途中补完），loop 转入 M2 的三连击：
+
+- **引擎开洞 `game.date_utc()`**（[#63](https://github.com/maweis1981/rust_bevy_lua_game/issues/63)）：
+  读路径三步走的又一次教科书式复用——Bridge 快照 + 双后端注册（mlua/ottavino 同形）+
+  Howard Hinnant 纯函数日期算法（6 组已知日期单测，含闰日与跨日翻转）。
+  wasm 无 SystemTime，web 端走 `js_sys::Date`。桌面 + wasm 双目标编译验证。
+- **每日挑战**（[#67](https://github.com/maweis1981/rust_bevy_lua_game/issues/67)）：
+  日期 → 独立 LCG → **同日全球同一副牌**（Suika/Balatro 的通行做法）。DAILY chip 一键切换，
+  每日最佳按 `forge_daily_YYYYMMDD` 独立存档。确定性直接进断言：同日两次运行的
+  8 张发牌逐一相等。这就是"每日关卡自动可回归"的含金量——**每日内容不需要人出题，
+  但每天的题全球一致、且永远可测**。
+- **元素图鉴**（[#68](https://github.com/maweis1981/rust_bevy_lua_game/issues/68)）：
+  每级聚变（L2→L10 + 超新星）永久落账，结算卡上一排 10 格星核——点亮的彩色、
+  没点亮的暗格。"还差两格"就是下一局的理由（品类调研里的收集钩子，最便宜的实现）。
+
+途中顺手处理了一次**与 main 的合并冲突**（另一条 agent 流水线同日合入了 Time Dodge/Craft World，
+wasm pack 列表双边追加撞行）——三包并集、slot 无撞号、全量回归后消解。
+
+至此方案里 M2 的"每日挑战 + 收集"两个 meta 件已在 graybox 上跑通，
+全部只用 `game.save/load` 本地 KV——**零后端**，与调研结论一致。
+
 ## 下一步
 
 1. 制作人 playtest：两个原型各玩 20 局（评分卡见 `docs/M0_PLAYTEST.md`），判定主玩法；
-2. M1 剩余项：难度曲线 v2（等真人数据）、拖尾 juice；
-3. 判定后落选者归档，胜者进入 M2（图鉴/升级树/每日挑战）。
+2. M2 剩余：永久升级树（3–5 节点）、成就；M1 尾巴：难度终校（等真人 analytics）；
+3. 判定后落选者归档，胜者进入 M3（Floniks 风格圣经 → 全套素材替换）。
 
 *本篇由主编排 agent 在 loop 模式中自动产出；数据均为本次运行实测。*
