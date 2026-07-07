@@ -26,6 +26,14 @@
 //!   game.set_frame(id, i)                      (switch a sheet sprite to frame
 //!                                               i, clamped to [0, frames-1] —
 //!                                               no texture rebind per frame)
+//!   game.tilemap(x, y, cols, rows, tw, th,
+//!                tileset, tcols, tframes) -> id (grid of tile cells centered
+//!                                               at x,y; cells start hidden;
+//!                                               move_to/despawn act on the
+//!                                               whole map via the root)
+//!   game.set_tile(id, tx, ty, index)           (show tileset frame at cell
+//!                                               tx,ty; -1 hides the cell;
+//!                                               out-of-range coords ignored)
 //!   game.move_to(id, x, y)
 //!   game.set_color(id, r, g, b, a)             (recolor a sprite; enables
 //!                                               flashes and fading trails)
@@ -116,6 +124,7 @@ impl Plugin for ScriptPlugin {
             .init_resource::<AudioVolumes>()
             .init_resource::<TextureCache>()
             .init_resource::<SheetRegistry>()
+            .init_resource::<TilemapRegistry>()
             .insert_non_send(LuaVm::new())
             .add_systems(Startup, (setup_scene, load_scripts))
             .add_systems(
@@ -359,6 +368,33 @@ struct SheetInfo {
     frames: u32,
 }
 
+/// Layout + per-cell entities of a `game.tilemap` grid, keyed by Lua id. Cells
+/// are children of a root entity (which is what EntityRegistry maps the id to,
+/// so `move_to`/`despawn` act on the whole map; despawn is recursive).
+#[derive(Resource, Default)]
+struct TilemapRegistry(HashMap<u32, TilemapInfo>);
+
+struct TilemapInfo {
+    cols: u32,
+    rows: u32,
+    /// Tileset frame layout (frames are tile-sized, `tcols` per row).
+    tw: f32,
+    th: f32,
+    tcols: u32,
+    tframes: u32,
+    /// Row-major cell entities, `cols * rows` of them.
+    cells: Vec<Entity>,
+}
+
+/// Row-major slot of cell (tx, ty) in a cols×rows grid; None when out of
+/// bounds — a stray `set_tile` must be a no-op, never a panic or wraparound.
+fn tile_slot(cols: u32, rows: u32, tx: i64, ty: i64) -> Option<usize> {
+    if tx < 0 || ty < 0 || tx >= cols as i64 || ty >= rows as i64 {
+        return None;
+    }
+    Some((ty as u32 * cols + tx as u32) as usize)
+}
+
 /// Retains a strong handle to every texture ever loaded, keyed by name, so a
 /// sprite that swaps its image (frame animation via `set_sprite_image`) never
 /// drops the only handle to a frame — which would let Bevy unload it and cause a
@@ -584,6 +620,24 @@ enum LuaCommand {
     SetFrame {
         id: u32,
         frame: i64,
+    },
+    Tilemap {
+        id: u32,
+        x: f32,
+        y: f32,
+        cols: u32,
+        rows: u32,
+        tw: f32,
+        th: f32,
+        image: String,
+        tcols: u32,
+        tframes: u32,
+    },
+    SetTile {
+        id: u32,
+        tx: i64,
+        ty: i64,
+        index: i64,
     },
     Despawn {
         id: u32,
@@ -980,6 +1034,54 @@ fn register_api(lua: &Lua) -> mlua::Result<()> {
         lua.create_function(|lua, (id, frame): (u32, i64)| {
             if let Some(mut bridge) = lua.app_data_mut::<Bridge>() {
                 bridge.queue.push(LuaCommand::SetFrame { id, frame });
+            }
+            Ok(())
+        })?,
+    )?;
+
+    game.set(
+        "tilemap",
+        lua.create_function(
+            #[allow(clippy::type_complexity)]
+            |lua,
+             (x, y, cols, rows, tw, th, image, tcols, tframes): (
+                f32,
+                f32,
+                u32,
+                u32,
+                f32,
+                f32,
+                String,
+                u32,
+                u32,
+            )| {
+                let mut bridge = lua
+                    .app_data_mut::<Bridge>()
+                    .ok_or_else(|| mlua::Error::runtime("bridge missing"))?;
+                bridge.next_id += 1;
+                let id = bridge.next_id;
+                bridge.queue.push(LuaCommand::Tilemap {
+                    id,
+                    x,
+                    y,
+                    cols,
+                    rows,
+                    tw,
+                    th,
+                    image,
+                    tcols,
+                    tframes,
+                });
+                Ok(id)
+            },
+        )?,
+    )?;
+
+    game.set(
+        "set_tile",
+        lua.create_function(|lua, (id, tx, ty, index): (u32, i64, i64, i64)| {
+            if let Some(mut bridge) = lua.app_data_mut::<Bridge>() {
+                bridge.queue.push(LuaCommand::SetTile { id, tx, ty, index });
             }
             Ok(())
         })?,
@@ -1447,6 +1549,24 @@ fn register_api(lua: &mut Lua, bridge: Rc<RefCell<Bridge>>) {
         })).unwrap();
 
         let b = bridge.clone();
+        game.set(ctx, "tilemap", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let (x, y, cols, rows, tw, th, image, tcols, tframes):
+                (f32, f32, u32, u32, f32, f32, ottavino::String, u32, u32) = stack.consume(ctx)?;
+            let id = { let mut br = b.borrow_mut(); br.next_id += 1; let id = br.next_id;
+                br.queue.push(LuaCommand::Tilemap { id, x, y, cols, rows, tw, th,
+                    image: image.to_str().unwrap_or("").to_string(), tcols, tframes }); id };
+            stack.replace(ctx, id as i64);
+            Ok(CallbackReturn::Return)
+        })).unwrap();
+
+        let b = bridge.clone();
+        game.set(ctx, "set_tile", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let (id, tx, ty, index): (u32, i64, i64, i64) = stack.consume(ctx)?;
+            b.borrow_mut().queue.push(LuaCommand::SetTile { id, tx, ty, index });
+            Ok(CallbackReturn::Return)
+        })).unwrap();
+
+        let b = bridge.clone();
         game.set(ctx, "despawn", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
             let id: u32 = stack.consume(ctx)?;
             b.borrow_mut().queue.push(LuaCommand::Despawn { id });
@@ -1899,13 +2019,18 @@ fn apply_lua(
         Query<&'static mut AudioSink, (With<MusicSound>, Without<VoiceSound>)>,
         Query<&'static mut AudioSink, (With<VoiceSound>, Without<MusicSound>)>,
     ),
-    mut tex_cache: ResMut<TextureCache>,
-    mut sheet_registry: ResMut<SheetRegistry>,
+    // Visual registries, bundled for the same 16-parameter reason.
+    mut vis: (
+        ResMut<TextureCache>,
+        ResMut<SheetRegistry>,
+        ResMut<TilemapRegistry>,
+    ),
     particles_alive: Query<(), With<Particle>>,
     mut emit_seed: Local<u64>,
     assets: Res<AssetServer>,
     hud: Option<Res<Hud>>,
 ) {
+    let (ref mut tex_cache, ref mut sheet_registry, ref mut tilemaps) = vis;
     // Sprites spawn at increasing z so later-spawned things (ball) draw in front
     // of earlier ones (net, trail) without depending on transparent-sort order.
     // De-dup identical SFX within this frame so a burst of the same impact plays
@@ -2120,11 +2245,92 @@ fn apply_lua(
                     }
                 }
             }
+            LuaCommand::Tilemap {
+                id,
+                x,
+                y,
+                cols,
+                rows,
+                tw,
+                th,
+                image,
+                tcols,
+                tframes,
+            } => {
+                let handle = tex_cache
+                    .0
+                    .entry(image.clone())
+                    .or_insert_with(|| assets.load(format!("textures/{image}.png")))
+                    .clone();
+                let z = 0.001 * id as f32;
+                let root = commands.spawn(Transform::from_xyz(x, y, z)).id();
+                // Cells sit at grid offsets relative to the root (map center)
+                // and start invisible; set_tile reveals them with a frame rect.
+                let (x0, y0, x1, y1) = frame_rect(tw, th, tcols, tframes, 0);
+                let mut cells = Vec::with_capacity((cols * rows) as usize);
+                for row in 0..rows {
+                    for col in 0..cols {
+                        let cx = (col as f32 - (cols as f32 - 1.0) * 0.5) * tw;
+                        let cy = ((rows as f32 - 1.0) * 0.5 - row as f32) * th;
+                        let cell = commands
+                            .spawn((
+                                Sprite {
+                                    image: handle.clone(),
+                                    custom_size: Some(Vec2::new(tw, th)),
+                                    rect: Some(Rect::new(x0, y0, x1, y1)),
+                                    color: Color::srgba(1.0, 1.0, 1.0, 0.0),
+                                    ..default()
+                                },
+                                Transform::from_xyz(cx, cy, 0.0),
+                                ChildOf(root),
+                            ))
+                            .id();
+                        cells.push(cell);
+                    }
+                }
+                registry.0.insert(id, root);
+                tilemaps.0.insert(
+                    id,
+                    TilemapInfo { cols, rows, tw, th, tcols, tframes, cells },
+                );
+            }
+            LuaCommand::SetTile { id, tx, ty, index } => {
+                if let Some(info) = tilemaps.0.get(&id) {
+                    if let Some(slot) = tile_slot(info.cols, info.rows, tx, ty) {
+                        let Some(&cell) = info.cells.get(slot) else { continue };
+                        // index -1 (or any negative) hides the cell; otherwise
+                        // show the clamped tileset frame at full alpha.
+                        let (rect, alpha) = if index < 0 {
+                            (None, 0.0)
+                        } else {
+                            let (x0, y0, x1, y1) =
+                                frame_rect(info.tw, info.th, info.tcols, info.tframes, index);
+                            (Some(Rect::new(x0, y0, x1, y1)), 1.0)
+                        };
+                        if let Ok(mut sprite) = sprites.get_mut(cell) {
+                            if let Some(r) = rect {
+                                sprite.rect = Some(r);
+                            }
+                            sprite.color = Color::srgba(1.0, 1.0, 1.0, alpha);
+                        } else {
+                            commands.entity(cell).entry::<Sprite>().and_modify(
+                                move |mut s| {
+                                    if let Some(r) = rect {
+                                        s.rect = Some(r);
+                                    }
+                                    s.color = Color::srgba(1.0, 1.0, 1.0, alpha);
+                                },
+                            );
+                        }
+                    }
+                }
+            }
             LuaCommand::Despawn { id } => {
                 if let Some(entity) = registry.0.remove(&id) {
                     commands.entity(entity).despawn();
                 }
                 sheet_registry.0.remove(&id);
+                tilemaps.0.remove(&id);
             }
             LuaCommand::Emit { preset, x, y, count } => {
                 let params = preset_params(&preset);
@@ -2327,7 +2533,7 @@ fn zoom_scale(zoom: f32) -> f32 {
 mod tests {
     use super::{
         cam_zoom_clamp, decode_store, emit_count_allowed, encode_store, frame_rect, haptic_style,
-        lcg, particle_alpha, preset_params, shake_offset, store_escape, store_unescape,
+        lcg, particle_alpha, preset_params, shake_offset, store_escape, store_unescape, tile_slot,
         volume_clamp, zoom_scale, PARTICLE_CAP,
     };
     use std::collections::HashMap;
@@ -2408,6 +2614,21 @@ mod tests {
             assert!(x.abs() <= 24.0 + 1e-3, "x={x} out of range");
             assert!(y.abs() <= 24.0 + 1e-3, "y={y} out of range");
         }
+    }
+
+    #[test]
+    fn tile_slot_is_row_major_and_bounds_safe() {
+        // 4×3 grid: row-major slots 0..11.
+        assert_eq!(tile_slot(4, 3, 0, 0), Some(0));
+        assert_eq!(tile_slot(4, 3, 3, 0), Some(3));
+        assert_eq!(tile_slot(4, 3, 0, 1), Some(4));
+        assert_eq!(tile_slot(4, 3, 3, 2), Some(11));
+        // Out of range in any direction is None — never wraps to a wrong cell.
+        assert_eq!(tile_slot(4, 3, 4, 0), None);
+        assert_eq!(tile_slot(4, 3, 0, 3), None);
+        assert_eq!(tile_slot(4, 3, -1, 0), None);
+        assert_eq!(tile_slot(4, 3, 0, -1), None);
+        assert_eq!(tile_slot(0, 0, 0, 0), None); // degenerate empty grid
     }
 
     #[test]
