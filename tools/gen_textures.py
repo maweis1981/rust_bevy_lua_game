@@ -87,6 +87,32 @@ def meteor(x, y):
     return (v, v, v, 255)
 
 
+def rockball(x, y):
+    """The player: a shaded rocky sphere — rounder than a meteor, with proper
+    lambert shading + a specular hotspot so it reads as a lit 3D body. Grayscale
+    (tinted white->icy by the timescale at runtime)."""
+    cx, cy = 23.5, 23.5
+    dx, dy = x - cx, y - cy
+    r = math.hypot(dx, dy)
+    ang = math.atan2(dy, dx)
+    edge = 21.5 + 0.9 * math.sin(ang * 5 + 0.8) + 0.5 * math.sin(ang * 8)
+    if r > edge:
+        return (0, 0, 0, 0)
+    nx, ny = dx / edge, dy / edge
+    nz = math.sqrt(max(0.0, 1 - nx * nx - ny * ny))
+    lum = 92 + 138 * max(0.0, -0.5 * nx - 0.5 * ny + 0.71 * nz)
+    spec = max(0.0, -0.55 * nx - 0.55 * ny + 0.63 * nz)
+    lum += 65 * (spec ** 8)
+    for (px_, py_, pr) in ((15, 18, 4.0), (30, 14, 3.0), (26, 31, 4.5), (12, 30, 2.6)):
+        dd = math.hypot(x - px_, y - py_)
+        if dd < pr:
+            lum -= 42 * (1 - dd / pr)
+        elif dd < pr + 1.5:
+            lum += 14
+    v = clampb(lum)
+    return (v, v, v, 255)
+
+
 def paddle(x, y):
     w, h = 24, 24
     if not rounded(x, y, w, h, 6):
@@ -202,6 +228,7 @@ def tile(x, y):
 SPRITES = {
     "orb": (32, 32, orb),
     "meteor": (32, 32, meteor),
+    "rockball": (48, 48, rockball),
     "paddle": (24, 24, paddle),
     "brick": (32, 16, brick),
     "food": (24, 24, food),

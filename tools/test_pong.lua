@@ -1200,9 +1200,43 @@ local function timedodge_tests()
   check(L.stars_of(1) >= 1, "timedodge: clearing a moment awards at least one star")
   check(L.unlocked(2), "timedodge: one star unlocks the next moment")
 
-  -- BACK from the grid -> mode select -> lobby menu.
+  -- BACK from the grid -> mode select.
   on_tap(L.back.x, L.back.y); step()
   check(DEBUG.mode() == "select", "timedodge: BACK from the grid returns to mode select")
+
+  -- ABSORB -----------------------------------------------------------
+  check(DEBUG.btn_absorb ~= nil, "timedodge: mode select exposes the ABSORB button")
+  clear_input()
+  on_tap(DEBUG.btn_absorb.x, DEBUG.btn_absorb.y); step()
+  d = DEBUG
+  check(d.mode() == "run" and d.absorb(), "timedodge: ABSORB starts an absorb run")
+  check(d.size() == 26, "timedodge: absorb starts at base mass")
+  -- Hold still at centre: rocks converge; eating smaller ones grows you,
+  -- bigger ones chip you, and the chain eventually fades you away.
+  game._down = true
+  local prev_m, saw_grow, saw_shrink, adied = d.size(), false, false, false
+  for _ = 1, 20000 do
+    step()
+    if not d.alive() then adied = true; break end
+    local m = d.size()
+    if m > prev_m + 0.01 then saw_grow = true end
+    if m < prev_m - 0.01 then saw_shrink = true end
+    check_once("ab_cap", m <= 120.5, "timedodge: absorb mass exceeded the cap")
+    check_once("ab_min", m >= 13 - 0.5, "timedodge: absorb mass below the floor while alive")
+    prev_m = m
+  end
+  check(saw_grow, "timedodge: eating a smaller rock grows you")
+  check(saw_shrink, "timedodge: a bigger rock chips you down")
+  check(adied, "timedodge: the chip chain eventually fades you away")
+  check(events_have("log", "lose"), "timedodge: absorb death is logged")
+  clear_input()
+  on_tap(0, -100); step()
+  check(DEBUG.alive() and DEBUG.absorb(), "timedodge: tap after fading restarts absorb")
+  check(DEBUG.size() == 26, "timedodge: absorb restart resets the mass")
+
+  -- BACK from absorb run -> mode select -> lobby menu.
+  on_tap(DEBUG.back.x, DEBUG.back.y); step()
+  check(DEBUG.mode() == "select", "timedodge: BACK from absorb returns to mode select")
   on_tap(DEBUG.back.x, DEBUG.back.y); step()
   check(DEBUG.game == "menu", "timedodge: BACK from mode select returns to the lobby")
 end

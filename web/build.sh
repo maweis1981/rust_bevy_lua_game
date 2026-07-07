@@ -48,6 +48,10 @@ fi
 
 echo ">> assembling game page (/play/)"
 cp "$ROOT/web/game.html" "$PLAY/index.html"
+# Inject the wasm's true (decompressed) byte size so the loading bar measures
+# progress correctly even when the host serves gzip (compressed Content-Length).
+WASM_BYTES=$(wc -c < "$PLAY/hollowlullaby_bg.wasm" | tr -d ' ')
+sed -i.bak "s/__WASM_SIZE__/$WASM_BYTES/" "$PLAY/index.html" && rm -f "$PLAY/index.html.bak"
 cp -r "$ROOT/assets" "$PLAY/assets"
 
 echo ">> assembling site pages (homepage / blog / docs)"
