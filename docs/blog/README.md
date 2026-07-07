@@ -6,7 +6,13 @@
 
 | 日期 | 标题 | 一句话 |
 | --- | --- | --- |
-| 2026-07-07 | [纯 Vibe Coding：用 Claude Code + Floniks 做 AI 时代的游戏（一步步教程）](./2026-07-07-vibe-coding-game-dev.md) | 从一句话加一个解谜游戏，到用文生图/图生图/去背景/TTS/文生音乐做出一个悬疑微恐视觉小说，再到系统性 debug 与一键发布 |
+| 2026-07-07 | [教程上篇 ·《小马拼图》：一张截图、一段视频，复刻一款解谜手游](./2026-07-07-tutorial-part1-pony-parade.md) | 输入只有截图/视频/一两句话：agent 调研玩法、抽视频关键帧还原 UI、爬山唯一解、广告视频——零复杂提示词 |
+| 2026-07-07 | [教程下篇 ·《深夜画廊》：一句题材词，做出有声有色的视觉小说](./2026-07-07-tutorial-part2-midnight-gallery.md) | 文生图/图生图/去背景/TTS/文生音乐五能力一条管线；基频分析证伪"听起来修好了"；一句现象换来三声道引擎重构 |
+| 2026-07-07 | [总览 · 纯 Vibe Coding：用 Claude Code + Floniks 做 AI 时代的游戏](./2026-07-07-vibe-coding-game-dev.md) | 7 步方法论总览（两篇教程的提纲版） |
+
+## 会话存档
+
+开发过程的讨论与思路原样归档在 [`docs/session-archive/2026-07-vibe-session/`](../session-archive/2026-07-vibe-session/)，每个游戏的任务分解可直接还原为项目 issue。
 
 ## 相关长文（`docs/`）
 

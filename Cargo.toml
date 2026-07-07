@@ -19,6 +19,10 @@ path = "src/main.rs"
 [dependencies]
 # `wav` adds the WAV decoder (not in Bevy's defaults) for the game's SFX/music.
 bevy = { version = "0.19", features = ["wav"] }
+# Rig definitions (cutout skeletal animation, src/rig.rs) are JSON: text,
+# diffable, and generatable by an agent — the point of roadmap §1.1 route B.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 
 # --- Lua backend, per platform ---------------------------------------------
 # Desktop/iOS use mlua (stock Lua 5.4, compiled from vendored C sources via `cc`).
@@ -31,9 +35,6 @@ mlua = { version = "0.11", features = ["lua54", "vendored"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 ottavino = "0.4"
-# localStorage backend for game.save/load (src/save.rs); bevy already pulls
-# web-sys on wasm, this just turns on the two APIs we need.
-web-sys = { version = "0.3", features = ["Window", "Storage"] }
 # getrandom needs its wasm backend enabled explicitly (both 0.2 and 0.3 are in
 # the tree via different deps); paired with the rustflag in .cargo/config.toml.
 getrandom = { version = "0.3", features = ["wasm_js"] }

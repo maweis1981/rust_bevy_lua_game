@@ -2965,7 +2965,8 @@ dependencies = [
  "getrandom 0.3.4",
  "mlua",
  "ottavino",
- "web-sys",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

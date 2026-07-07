@@ -19,18 +19,29 @@
 //!   game.spawn_sprite(x, y, w, h, name) -> id  (textured sprite from
 //!                                               assets/textures/<name>.png;
 //!                                               set_color tints it)
-//!   game.spawn_sheet(x, y, w, h, name,          (sprite-sheet sprite: the PNG is
-//!                    tile_w, tile_h,             a tile_w×tile_h grid of cols×rows
-//!                    cols, rows) -> id           frames; shows frame 0)
-//!   game.set_frame(id, i)                       (0-based frame index into the
-//!                                               sheet; out of range is clamped)
-//!   game.tilemap(x, y, cols, rows, tile_size,   (tile grid centered at x,y;
-//!                tileset, tile_px,               tiles come from the tileset
-//!                sheet_cols, sheet_rows) -> id   atlas; starts empty)
-//!   game.set_tile(id, tx, ty, index)            (put atlas frame `index` at
-//!                                               grid cell tx,ty (0,0 = top
-//!                                               left); nil/negative clears;
-//!                                               out-of-bounds is ignored)
+//!   game.spawn_sheet(x, y, w, h, name,
+//!                    fw, fh, cols, frames) -> id (sprite-sheet sprite: frames
+//!                                               are fw×fh px, `cols` per row,
+//!                                               `frames` total; shows frame 0)
+//!   game.set_frame(id, i)                      (switch a sheet sprite to frame
+//!                                               i, clamped to [0, frames-1] —
+//!                                               no texture rebind per frame)
+//!   game.tilemap(x, y, cols, rows, tw, th,
+//!                tileset, tcols, tframes) -> id (grid of tile cells centered
+//!                                               at x,y; cells start hidden;
+//!                                               move_to/despawn act on the
+//!                                               whole map via the root)
+//!   game.set_tile(id, tx, ty, index)           (show tileset frame at cell
+//!                                               tx,ty; -1 hides the cell;
+//!                                               out-of-range coords ignored)
+//!   game.spawn_rig(x, y, name [, scale]) -> id (cutout skeletal character
+//!                                               from assets/rigs/<name>.rig;
+//!                                               see src/rig.rs for the format)
+//!   game.play_anim(id, clip)                   (play a rig clip; looping is
+//!                                               declared in the rig data)
+//!   game.set_bone(id, bone, angle, dx, dy)     (manual bone override, wins
+//!                                               over the clip; omit angle to
+//!                                               clear the override)
 //!   game.move_to(id, x, y)
 //!   game.set_color(id, r, g, b, a)             (recolor a sprite; enables
 //!                                               flashes and fading trails)
@@ -42,42 +53,45 @@
 //!   game.spawn_text(x, y, size, r, g, b, a, s) -> id (world-space Text2d label,
 //!                                               centered at x,y; for menus/titles)
 //!   game.set_text(string)                      (updates the on-screen HUD text)
-//!   game.shake(intensity)                      (0..1 impulse; Rust decays a
-//!                                               camera screen-shake from it)
 //!   game.emit(preset, x, y [, count])          (CPU particle burst: "spark"/
 //!                                               "dust"/"confetti"/"splash";
-//!                                               flies/fades/despawns on its own,
-//!                                               global cap 512)
-//!   game.cam(x, y, zoom)                       (move/zoom the camera; eased
-//!                                               follow, zoom clamped 0.25..4,
-//!                                               composes with shake/zoom punch;
-//!                                               cam(0,0,1) is the default view)
+//!                                               default 16, global cap 512)
+//!   game.shake(intensity)                      (0..1 impulse; Rust decays a
+//!                                               camera screen-shake from it)
+//!   game.cam(x, y [, zoom])                    (camera base pose: follow a
+//!                                               hero, zoom 0.25..4 = magnify;
+//!                                               shake/punch layer on top)
 //!   game.play_sound(name)                      (one-shot SFX: assets/audio/<name>.wav)
 //!   game.play_music(name)                      (looping bg music; replaces any
 //!                                               currently-playing track)
 //!   game.play_voice(name)                      (single dialogue-voice channel;
 //!                                               stops any voice still playing)
 //!   game.stop_voice()                          (stop the current dialogue voice)
-//!   game.set_volume(channel, v)                ("music"/"sfx"/"voice", 0..1;
-//!                                               live tracks adjust immediately)
-//!   game.stop_music()                          (stop the looping music track;
-//!                                               play_music can then restart it)
+//!   game.stop_music()                          (stop the looping music track)
+//!   game.set_volume(channel, v)                ("sfx"/"music"/"voice", 0..1;
+//!                                               music/voice adjust live, sfx
+//!                                               applies from the next shot)
 //!   game.haptic(kind)                          ("light"/"medium"/"heavy"/
 //!                                               "success"; iOS only, else no-op)
+//!   game.track(event [, value])                (analytics: append to the local
+//!                                               ~/.hollowlullaby/analytics.log,
+//!                                               console on web; remote sink
+//!                                               can replace this later)
 //!   game.pointer() -> x, y, down               (mouse/touch in world coords;
 //!                                               x,y are nil when unavailable,
 //!                                               down = button/finger held)
-//!   game.touches() -> {{x,y,id},…}             (ALL active touches in world
-//!                                               coords with stable finger ids;
-//!                                               desktop synthesizes one touch
-//!                                               (id 0) while the mouse is held)
 //!   game.key(name) -> bool                     (held keys: "up"/"down"/"left"/
 //!                                               "right"/"w"/"a"/"s"/"d"/"space")
-//!   game.save(key, val)                        (persist a string/number/bool
-//!                                               across sessions; nil deletes.
-//!                                               iOS sandbox / desktop config
-//!                                               dir / web localStorage)
-//!   game.load(key) -> val | nil                (read back a persisted value)
+//!   game.touches() -> { {x,y,id}, ... }        (ALL active touches in world
+//!                                               coords, for multi-touch play;
+//!                                               desktop maps a held left click
+//!                                               to a single touch, id 0)
+//!   game.save(key, value) -> ok                (persist a string/number/boolean
+//!                                               across sessions; desktop+iOS
+//!                                               write ~/.hollowlullaby/save.txt,
+//!                                               web keeps it for the session)
+//!   game.load(key) -> value | nil              (read back a saved value with
+//!                                               its original type)
 //!
 //! Reads (pointer/keys) flow the other way: each frame `tick_lua` snapshots
 //! input into the `Bridge` app-data before calling `on_update`, so the Lua
@@ -94,7 +108,11 @@ use std::path::PathBuf;
 #[cfg(target_arch = "wasm32")]
 use std::{cell::RefCell, rc::Rc};
 
+use crate::rig::{
+    animate_rigs, build_rigs, BonePose, RigAsset, RigAssetLoader, RigRoot, RigState,
+};
 use bevy::asset::{io::Reader, AssetLoader, LoadContext, LoadState};
+use bevy::audio::{AudioSinkPlayback, Volume};
 use bevy::prelude::*;
 use bevy::sprite::Anchor;
 // The Lua VM host differs per platform (see Cargo.toml): mlua (C Lua) on
@@ -113,16 +131,17 @@ impl Plugin for ScriptPlugin {
     fn build(&self, app: &mut App) {
         app.init_asset::<LuaScript>()
             .init_asset_loader::<LuaScriptLoader>()
+            .init_asset::<RigAsset>()
+            .init_asset_loader::<RigAssetLoader>()
             .init_resource::<EntityRegistry>()
             .init_resource::<ScreenShake>()
+            .init_resource::<CameraRig>()
             .init_resource::<BackgroundTheme>()
             .init_resource::<CurrentMusic>()
+            .init_resource::<AudioVolumes>()
             .init_resource::<TextureCache>()
             .init_resource::<SheetRegistry>()
-            .init_resource::<CameraRig>()
-            .init_resource::<AudioVolumes>()
-            .init_resource::<Tilemaps>()
-            .init_resource::<crate::particles::ParticleRng>()
+            .init_resource::<TilemapRegistry>()
             .insert_non_send(LuaVm::new())
             .add_systems(Startup, (setup_scene, load_scripts))
             .add_systems(
@@ -131,7 +150,10 @@ impl Plugin for ScriptPlugin {
                     reload_changed_scripts,
                     tick_lua,
                     apply_lua,
-                    crate::particles::tick_particles,
+                    flush_save,
+                    particle_update,
+                    build_rigs,
+                    animate_rigs,
                     camera_shake,
                 )
                     .chain(),
@@ -165,22 +187,20 @@ pub(crate) struct ScreenShake {
     pub(crate) zoom: f32,
 }
 
-/// Scriptable camera target (roadmap 0.4). `game.cam` sets the target; the
-/// `camera_shake` system eases the current pose toward it (exponential,
-/// framerate-independent) and layers the trauma jitter + zoom punch ON TOP, so
-/// scrolling and juice compose. Defaults reproduce the fixed camera exactly.
+/// Camera base pose driven by `game.cam(x, y, zoom)`. The shake/zoom-punch
+/// effects layer ON TOP of this rig (they are transient juice; the rig is the
+/// scene's intent), so a game can follow its hero and still get impact punch.
+/// `zoom` is magnification: 2.0 = twice as close. Clamped by `cam_zoom_clamp`.
 #[derive(Resource)]
 pub(crate) struct CameraRig {
-    target: Vec3, // x, y, zoom
-    current: Vec3,
+    pub(crate) x: f32,
+    pub(crate) y: f32,
+    pub(crate) zoom: f32,
 }
 
 impl Default for CameraRig {
     fn default() -> Self {
-        Self {
-            target: Vec3::new(0.0, 0.0, 1.0),
-            current: Vec3::new(0.0, 0.0, 1.0),
-        }
+        Self { x: 0.0, y: 0.0, zoom: 1.0 }
     }
 }
 
@@ -209,23 +229,19 @@ pub(crate) struct BackgroundTheme {
 #[derive(Resource, Default)]
 struct CurrentMusic(Option<String>);
 
-/// Per-channel volumes set from Lua (roadmap 0.6). `set_volume` retunes live
-/// sinks immediately and every later spawn bakes the channel volume into its
-/// `PlaybackSettings`, so a settings slider is a single Lua call.
+/// Per-channel volume (0..1) driven by `game.set_volume`. New one-shots start
+/// at their channel volume; the looping music track and a playing voice line
+/// are adjusted live through their `AudioSink`s.
 #[derive(Resource)]
 struct AudioVolumes {
-    music: f32,
     sfx: f32,
+    music: f32,
     voice: f32,
 }
 
 impl Default for AudioVolumes {
     fn default() -> Self {
-        Self {
-            music: 1.0,
-            sfx: 1.0,
-            voice: 1.0,
-        }
+        Self { sfx: 1.0, music: 1.0, voice: 1.0 }
     }
 }
 
@@ -237,37 +253,166 @@ struct MusicSound;
 #[derive(Component)]
 struct VoiceSound;
 
-/// Sprite-sheet bookkeeping (roadmap 0.3): per Lua id, the frame count of its
-/// atlas so `set_frame` can clamp out-of-range indices — including on the
-/// same-frame spawn+set_frame Commands fallback, where the ECS entity (and its
-/// atlas) doesn't exist yet. Layouts are cached per (image, tile, grid) so a
-/// hundred sprites off one sheet share one `TextureAtlasLayout` asset.
-#[derive(Resource, Default)]
-struct SheetRegistry {
-    frame_counts: HashMap<u32, usize>,
-    layouts: HashMap<(String, u32, u32, u32, u32), Handle<TextureAtlasLayout>>,
+// ---------------------------------------------------------------------------
+// CPU particles (the roadmap's "fallback first" tier — the Lua API stays put
+// if the implementation is ever swapped for a GPU backend like bevy_hanabi)
+// ---------------------------------------------------------------------------
+
+/// Hard cap on simultaneously-alive particles: an emit that would exceed it is
+/// truncated, so no script can melt a phone with a confetti loop.
+const PARTICLE_CAP: usize = 512;
+
+/// One CPU particle: straight-line motion + gravity + linear alpha fade over
+/// its lifetime, despawned when `ttl` runs out.
+#[derive(Component)]
+struct Particle {
+    vel: Vec2,
+    gravity: f32,
+    ttl: f32,
+    life: f32,
+    rgb: (f32, f32, f32),
 }
 
-/// One live tile grid (roadmap 1.3, the sprite-grid fallback for
-/// bevy_ecs_tilemap). The root entity carries the map transform; tiles are
-/// lazily-spawned children, so `despawn(map_id)` cleans the whole grid up via
-/// Bevy's recursive despawn.
+/// Tuning for one emit preset. Angles: `up_fan` sprays into the upper
+/// half-plane (splash/confetti), otherwise the full circle (spark/dust).
+struct PresetParams {
+    speed: (f32, f32),
+    gravity: f32,
+    ttl: f32,
+    size: f32,
+    colors: &'static [(f32, f32, f32)],
+    up_fan: bool,
+}
+
+/// Look up an emit preset; unknown names fall back to "spark" so a typo in a
+/// script still shows *something* rather than silently nothing.
+fn preset_params(name: &str) -> PresetParams {
+    match name {
+        "dust" => PresetParams {
+            speed: (30.0, 90.0),
+            gravity: -60.0,
+            ttl: 0.7,
+            size: 4.0,
+            colors: &[(0.62, 0.55, 0.45), (0.72, 0.66, 0.55)],
+            up_fan: false,
+        },
+        "confetti" => PresetParams {
+            speed: (120.0, 260.0),
+            gravity: -220.0,
+            ttl: 1.2,
+            size: 6.0,
+            colors: &[
+                (0.95, 0.35, 0.45),
+                (0.35, 0.75, 0.95),
+                (0.95, 0.85, 0.35),
+                (0.55, 0.9, 0.5),
+                (0.8, 0.5, 0.95),
+            ],
+            up_fan: true,
+        },
+        "splash" => PresetParams {
+            speed: (140.0, 280.0),
+            gravity: -500.0,
+            ttl: 0.5,
+            size: 4.0,
+            colors: &[(0.5, 0.75, 0.95), (0.7, 0.88, 1.0)],
+            up_fan: true,
+        },
+        _ => PresetParams {
+            // "spark" and any unknown preset
+            speed: (180.0, 320.0),
+            gravity: -300.0,
+            ttl: 0.4,
+            size: 5.0,
+            colors: &[(1.0, 0.8, 0.3), (1.0, 0.55, 0.2)],
+            up_fan: false,
+        },
+    }
+}
+
+/// Deterministic LCG in [0, 1) — no OS entropy, so headless runs and replays
+/// are reproducible and wasm needs no getrandom call here.
+fn lcg(seed: &mut u64) -> f32 {
+    *seed = seed
+        .wrapping_mul(6364136223846793005)
+        .wrapping_add(1442695040888963407);
+    ((*seed >> 40) & 0xFF_FFFF) as f32 / 16_777_216.0
+}
+
+/// How many particles an emit may actually spawn under the global cap.
+fn emit_count_allowed(alive: usize, requested: u32, cap: usize) -> u32 {
+    (cap.saturating_sub(alive)).min(requested as usize) as u32
+}
+
+/// Linear fade: full alpha at birth, zero at death.
+fn particle_alpha(life_frac: f32) -> f32 {
+    life_frac.clamp(0.0, 1.0)
+}
+
+/// Advance every particle: integrate velocity + gravity, fade out, despawn on
+/// expiry — "life reaches zero, entity is gone" is the roadmap invariant.
+fn particle_update(
+    time: Res<Time>,
+    mut commands: Commands,
+    mut particles: Query<(Entity, &mut Particle, &mut Transform, &mut Sprite)>,
+) {
+    let dt = time.delta_secs();
+    for (entity, mut p, mut transform, mut sprite) in &mut particles {
+        p.ttl -= dt;
+        if p.ttl <= 0.0 {
+            commands.entity(entity).despawn();
+            continue;
+        }
+        let dv = p.gravity * dt;
+        p.vel.y += dv;
+        transform.translation.x += p.vel.x * dt;
+        transform.translation.y += p.vel.y * dt;
+        let (r, g, b) = p.rgb;
+        sprite.color = Color::srgba(r, g, b, particle_alpha(p.ttl / p.life));
+    }
+}
+
+/// Frame layout of a sprite-sheet entity spawned by `game.spawn_sheet`, keyed
+/// by Lua id. Kept in a resource (not a component) so `game.set_frame` works
+/// even in the same frame the sheet was spawned (the entity is not in the
+/// World yet, but this map is updated synchronously during the drain).
+#[derive(Resource, Default)]
+struct SheetRegistry(HashMap<u32, SheetInfo>);
+
+#[derive(Clone, Copy)]
+struct SheetInfo {
+    fw: f32,
+    fh: f32,
+    cols: u32,
+    frames: u32,
+}
+
+/// Layout + per-cell entities of a `game.tilemap` grid, keyed by Lua id. Cells
+/// are children of a root entity (which is what EntityRegistry maps the id to,
+/// so `move_to`/`despawn` act on the whole map; despawn is recursive).
+#[derive(Resource, Default)]
+struct TilemapRegistry(HashMap<u32, TilemapInfo>);
+
 struct TilemapInfo {
-    root: Entity,
     cols: u32,
     rows: u32,
-    tile_size: f32,
-    image: String,
-    layout: Handle<TextureAtlasLayout>,
-    frames: usize,
-    tiles: HashMap<(u32, u32), Entity>,
+    /// Tileset frame layout (frames are tile-sized, `tcols` per row).
+    tw: f32,
+    th: f32,
+    tcols: u32,
+    tframes: u32,
+    /// Row-major cell entities, `cols * rows` of them.
+    cells: Vec<Entity>,
 }
 
-/// All live tilemaps by Lua id. A resource (not a component) so a same-frame
-/// `tilemap` + `set_tile` works — the root entity isn't queryable until
-/// Commands apply, but this map is.
-#[derive(Resource, Default)]
-struct Tilemaps(HashMap<u32, TilemapInfo>);
+/// Row-major slot of cell (tx, ty) in a cols×rows grid; None when out of
+/// bounds — a stray `set_tile` must be a no-op, never a panic or wraparound.
+fn tile_slot(cols: u32, rows: u32, tx: i64, ty: i64) -> Option<usize> {
+    if tx < 0 || ty < 0 || tx >= cols as i64 || ty >= rows as i64 {
+        return None;
+    }
+    Some((ty as u32 * cols + tx as u32) as usize)
+}
 
 /// Retains a strong handle to every texture ever loaded, keyed by name, so a
 /// sprite that swaps its image (frame animation via `set_sprite_image`) never
@@ -486,32 +631,57 @@ enum LuaCommand {
         w: f32,
         h: f32,
         image: String,
-        tile: (u32, u32),
-        grid: (u32, u32),
+        fw: f32,
+        fh: f32,
+        cols: u32,
+        frames: u32,
     },
     SetFrame {
         id: u32,
-        index: i64,
+        frame: i64,
     },
-    SpawnTilemap {
+    Tilemap {
         id: u32,
         x: f32,
         y: f32,
         cols: u32,
         rows: u32,
-        tile_size: f32,
+        tw: f32,
+        th: f32,
         image: String,
-        tile_px: u32,
-        grid: (u32, u32),
+        tcols: u32,
+        tframes: u32,
     },
     SetTile {
         id: u32,
-        tx: u32,
-        ty: u32,
-        index: Option<i64>,
+        tx: i64,
+        ty: i64,
+        index: i64,
+    },
+    SpawnRig {
+        id: u32,
+        x: f32,
+        y: f32,
+        name: String,
+        scale: f32,
+    },
+    PlayAnim {
+        id: u32,
+        clip: String,
+    },
+    SetBone {
+        id: u32,
+        bone: String,
+        pose: Option<(f32, f32, f32)>,
     },
     Despawn {
         id: u32,
+    },
+    Emit {
+        preset: String,
+        x: f32,
+        y: f32,
+        count: u32,
     },
     SetText(String),
     Shake(f32),
@@ -525,22 +695,17 @@ enum LuaCommand {
     PlaySound(String),
     PlayMusic(String),
     PlayVoice(String),
-    Emit {
-        preset: String,
-        x: f32,
-        y: f32,
-        count: Option<u32>,
-    },
     StopVoice,
+    StopMusic,
     SetVolume {
         channel: String,
         volume: f32,
     },
-    StopMusic,
+    Track {
+        event: String,
+        value: Option<f64>,
+    },
     Haptic(i32),
-    /// Persist the (already serialized) save store. Serialization happens in
-    /// the `game.save` callback so this stays a plain data command.
-    FlushSave(String),
 }
 
 /// Shared state stored in `mlua` app-data: the command queue, the id counter,
@@ -555,24 +720,18 @@ struct Bridge {
     pointer: Option<(f32, f32)>,
     /// Whether the left mouse button or a touch is currently held.
     pointer_down: bool,
-    /// ALL active touches this frame in world coords, with their stable finger
-    /// ids (roadmap 0.2). `pointer` above stays the single-pointer view.
-    touches: Vec<(f32, f32, u64)>,
     /// Names of the keys held this frame (see `key_snapshot`).
     keys: std::collections::HashSet<&'static str>,
-    /// The persisted save store (roadmap 0.1). Loaded once at VM creation so
-    /// `game.load` is a synchronous read; `game.save` mutates it and queues a
-    /// `FlushSave` so the write still goes through the command queue.
-    save: HashMap<String, crate::save::SaveValue>,
-}
-
-impl Bridge {
-    fn with_save_store() -> Self {
-        Self {
-            save: crate::save::load_store(),
-            ..Default::default()
-        }
-    }
+    /// All active touches this frame in world coords (multi-touch read path).
+    /// On desktop a held left mouse button appears as a single touch with
+    /// id 0 so multi-touch code paths stay exercisable during development.
+    touches: Vec<(f32, f32, u64)>,
+    /// Persistent KV store backing `game.save`/`game.load`. Values are stored
+    /// pre-encoded (`s:`/`n:`/`b:` type prefix) so the file codec and the Lua
+    /// boundary share one representation. Loaded from disk once at VM creation;
+    /// `store_dirty` asks the flush system to write it back out.
+    store: HashMap<String, String>,
+    store_dirty: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -590,13 +749,28 @@ pub struct LuaVm {
 impl LuaVm {
     fn new() -> Self {
         let lua = Lua::new();
-        lua.set_app_data(Bridge::with_save_store());
+        let bridge = Bridge {
+            store: load_store_from_disk(),
+            ..Bridge::default()
+        };
+        lua.set_app_data(bridge);
         register_api(&lua).expect("failed to register Lua `game` API");
         Self {
             lua,
             has_update: false,
             has_tap: false,
         }
+    }
+
+    /// If `game.save` touched the store this frame, return the encoded file
+    /// content to persist and clear the dirty flag.
+    fn take_dirty_store(&mut self) -> Option<String> {
+        let mut bridge = self.lua.app_data_mut::<Bridge>()?;
+        if !bridge.store_dirty {
+            return None;
+        }
+        bridge.store_dirty = false;
+        Some(encode_store(&bridge.store))
     }
 
     /// Execute one Lua chunk (no lifecycle callbacks yet).
@@ -709,6 +883,25 @@ fn register_api(lua: &Lua) -> mlua::Result<()> {
     )?;
 
     game.set(
+        "touches",
+        lua.create_function(|lua, ()| {
+            let touches = lua
+                .app_data_ref::<Bridge>()
+                .map(|b| b.touches.clone())
+                .unwrap_or_default();
+            let list = lua.create_table()?;
+            for (i, (x, y, id)) in touches.iter().enumerate() {
+                let t = lua.create_table()?;
+                t.set("x", *x)?;
+                t.set("y", *y)?;
+                t.set("id", *id)?;
+                list.set(i + 1, t)?;
+            }
+            Ok(list)
+        })?,
+    )?;
+
+    game.set(
         "key",
         lua.create_function(|lua, name: String| {
             let held = lua
@@ -716,25 +909,6 @@ fn register_api(lua: &Lua) -> mlua::Result<()> {
                 .map(|b| b.keys.contains(name.as_str()))
                 .unwrap_or(false);
             Ok(held)
-        })?,
-    )?;
-
-    game.set(
-        "touches",
-        lua.create_function(|lua, ()| {
-            let snapshot = lua
-                .app_data_ref::<Bridge>()
-                .map(|b| b.touches.clone())
-                .unwrap_or_default();
-            let list = lua.create_table()?;
-            for (i, (x, y, id)) in snapshot.into_iter().enumerate() {
-                let touch = lua.create_table()?;
-                touch.set("x", x)?;
-                touch.set("y", y)?;
-                touch.set("id", id)?;
-                list.set(i + 1, touch)?;
-            }
-            Ok(list)
         })?,
     )?;
 
@@ -861,14 +1035,14 @@ fn register_api(lua: &Lua) -> mlua::Result<()> {
         lua.create_function(
             #[allow(clippy::type_complexity)]
             |lua,
-             (x, y, w, h, image, tile_w, tile_h, cols, rows): (
+             (x, y, w, h, image, fw, fh, cols, frames): (
                 f32,
                 f32,
                 f32,
                 f32,
                 String,
-                u32,
-                u32,
+                f32,
+                f32,
                 u32,
                 u32,
             )| {
@@ -884,8 +1058,10 @@ fn register_api(lua: &Lua) -> mlua::Result<()> {
                     w,
                     h,
                     image,
-                    tile: (tile_w, tile_h),
-                    grid: (cols, rows),
+                    fw,
+                    fh,
+                    cols,
+                    frames,
                 });
                 Ok(id)
             },
@@ -894,9 +1070,9 @@ fn register_api(lua: &Lua) -> mlua::Result<()> {
 
     game.set(
         "set_frame",
-        lua.create_function(|lua, (id, index): (u32, i64)| {
+        lua.create_function(|lua, (id, frame): (u32, i64)| {
             if let Some(mut bridge) = lua.app_data_mut::<Bridge>() {
-                bridge.queue.push(LuaCommand::SetFrame { id, index });
+                bridge.queue.push(LuaCommand::SetFrame { id, frame });
             }
             Ok(())
         })?,
@@ -907,14 +1083,14 @@ fn register_api(lua: &Lua) -> mlua::Result<()> {
         lua.create_function(
             #[allow(clippy::type_complexity)]
             |lua,
-             (x, y, cols, rows, tile_size, image, tile_px, sheet_cols, sheet_rows): (
+             (x, y, cols, rows, tw, th, image, tcols, tframes): (
                 f32,
                 f32,
                 u32,
                 u32,
+                f32,
                 f32,
                 String,
-                u32,
                 u32,
                 u32,
             )| {
@@ -923,16 +1099,17 @@ fn register_api(lua: &Lua) -> mlua::Result<()> {
                     .ok_or_else(|| mlua::Error::runtime("bridge missing"))?;
                 bridge.next_id += 1;
                 let id = bridge.next_id;
-                bridge.queue.push(LuaCommand::SpawnTilemap {
+                bridge.queue.push(LuaCommand::Tilemap {
                     id,
                     x,
                     y,
                     cols,
                     rows,
-                    tile_size,
+                    tw,
+                    th,
                     image,
-                    tile_px,
-                    grid: (sheet_cols, sheet_rows),
+                    tcols,
+                    tframes,
                 });
                 Ok(id)
             },
@@ -941,10 +1118,53 @@ fn register_api(lua: &Lua) -> mlua::Result<()> {
 
     game.set(
         "set_tile",
+        lua.create_function(|lua, (id, tx, ty, index): (u32, i64, i64, i64)| {
+            if let Some(mut bridge) = lua.app_data_mut::<Bridge>() {
+                bridge.queue.push(LuaCommand::SetTile { id, tx, ty, index });
+            }
+            Ok(())
+        })?,
+    )?;
+
+    game.set(
+        "spawn_rig",
         lua.create_function(
-            |lua, (id, tx, ty, index): (u32, u32, u32, Option<i64>)| {
+            |lua, (x, y, name, scale): (f32, f32, String, Option<f32>)| {
+                let mut bridge = lua
+                    .app_data_mut::<Bridge>()
+                    .ok_or_else(|| mlua::Error::runtime("bridge missing"))?;
+                bridge.next_id += 1;
+                let id = bridge.next_id;
+                bridge.queue.push(LuaCommand::SpawnRig {
+                    id,
+                    x,
+                    y,
+                    name,
+                    scale: scale.unwrap_or(1.0),
+                });
+                Ok(id)
+            },
+        )?,
+    )?;
+
+    game.set(
+        "play_anim",
+        lua.create_function(|lua, (id, clip): (u32, String)| {
+            if let Some(mut bridge) = lua.app_data_mut::<Bridge>() {
+                bridge.queue.push(LuaCommand::PlayAnim { id, clip });
+            }
+            Ok(())
+        })?,
+    )?;
+
+    game.set(
+        "set_bone",
+        lua.create_function(
+            #[allow(clippy::type_complexity)]
+            |lua, (id, bone, angle, dx, dy): (u32, String, Option<f32>, Option<f32>, Option<f32>)| {
+                let pose = angle.map(|a| (a, dx.unwrap_or(0.0), dy.unwrap_or(0.0)));
                 if let Some(mut bridge) = lua.app_data_mut::<Bridge>() {
-                    bridge.queue.push(LuaCommand::SetTile { id, tx, ty, index });
+                    bridge.queue.push(LuaCommand::SetBone { id, bone, pose });
                 }
                 Ok(())
             },
@@ -959,6 +1179,23 @@ fn register_api(lua: &Lua) -> mlua::Result<()> {
             }
             Ok(())
         })?,
+    )?;
+
+    game.set(
+        "emit",
+        lua.create_function(
+            |lua, (preset, x, y, count): (String, f32, f32, Option<u32>)| {
+                if let Some(mut bridge) = lua.app_data_mut::<Bridge>() {
+                    bridge.queue.push(LuaCommand::Emit {
+                        preset,
+                        x,
+                        y,
+                        count: count.unwrap_or(16),
+                    });
+                }
+                Ok(())
+            },
+        )?,
     )?;
 
     game.set(
@@ -989,18 +1226,6 @@ fn register_api(lua: &Lua) -> mlua::Result<()> {
             }
             Ok(())
         })?,
-    )?;
-
-    game.set(
-        "emit",
-        lua.create_function(
-            |lua, (preset, x, y, count): (String, f32, f32, Option<u32>)| {
-                if let Some(mut bridge) = lua.app_data_mut::<Bridge>() {
-                    bridge.queue.push(LuaCommand::Emit { preset, x, y, count });
-                }
-                Ok(())
-            },
-        )?,
     )?;
 
     game.set(
@@ -1069,6 +1294,16 @@ fn register_api(lua: &Lua) -> mlua::Result<()> {
     )?;
 
     game.set(
+        "stop_music",
+        lua.create_function(|lua, ()| {
+            if let Some(mut bridge) = lua.app_data_mut::<Bridge>() {
+                bridge.queue.push(LuaCommand::StopMusic);
+            }
+            Ok(())
+        })?,
+    )?;
+
+    game.set(
         "set_volume",
         lua.create_function(|lua, (channel, volume): (String, f32)| {
             if let Some(mut bridge) = lua.app_data_mut::<Bridge>() {
@@ -1079,12 +1314,51 @@ fn register_api(lua: &Lua) -> mlua::Result<()> {
     )?;
 
     game.set(
-        "stop_music",
-        lua.create_function(|lua, ()| {
+        "track",
+        lua.create_function(|lua, (event, value): (String, Option<f64>)| {
             if let Some(mut bridge) = lua.app_data_mut::<Bridge>() {
-                bridge.queue.push(LuaCommand::StopMusic);
+                bridge.queue.push(LuaCommand::Track { event, value });
             }
             Ok(())
+        })?,
+    )?;
+
+    game.set(
+        "save",
+        lua.create_function(|lua, (key, value): (String, mlua::Value)| {
+            let encoded = match &value {
+                mlua::Value::String(s) => format!("s:{}", s.to_string_lossy()),
+                mlua::Value::Integer(i) => format!("n:{i}"),
+                mlua::Value::Number(n) => format!("n:{n}"),
+                mlua::Value::Boolean(b) => format!("b:{b}"),
+                _ => return Ok(false), // unsupported type: refuse, don't crash
+            };
+            if let Some(mut bridge) = lua.app_data_mut::<Bridge>() {
+                bridge.store.insert(key, encoded);
+                bridge.store_dirty = true;
+            }
+            Ok(true)
+        })?,
+    )?;
+
+    game.set(
+        "load",
+        lua.create_function(|lua, key: String| {
+            let encoded = lua
+                .app_data_ref::<Bridge>()
+                .and_then(|b| b.store.get(&key).cloned());
+            let Some(encoded) = encoded else {
+                return Ok(mlua::Value::Nil);
+            };
+            Ok(match encoded.split_at_checked(2) {
+                Some(("s:", rest)) => mlua::Value::String(lua.create_string(rest)?),
+                Some(("n:", rest)) => rest
+                    .parse::<f64>()
+                    .map(mlua::Value::Number)
+                    .unwrap_or(mlua::Value::Nil),
+                Some(("b:", rest)) => mlua::Value::Boolean(rest == "true"),
+                _ => mlua::Value::Nil,
+            })
         })?,
     )?;
 
@@ -1096,55 +1370,6 @@ fn register_api(lua: &Lua) -> mlua::Result<()> {
                 bridge.queue.push(LuaCommand::Haptic(style));
             }
             Ok(())
-        })?,
-    )?;
-
-    game.set(
-        "save",
-        lua.create_function(|lua, (key, val): (String, mlua::Value)| {
-            use crate::save::SaveValue;
-            let value = match val {
-                mlua::Value::Nil => None,
-                mlua::Value::Boolean(b) => Some(SaveValue::Bool(b)),
-                mlua::Value::Integer(i) => Some(SaveValue::Num(i as f64)),
-                mlua::Value::Number(n) => Some(SaveValue::Num(n)),
-                mlua::Value::String(s) => Some(SaveValue::Str(s.to_str()?.to_string())),
-                other => {
-                    return Err(mlua::Error::runtime(format!(
-                        "game.save: unsupported type {} (use string/number/bool)",
-                        other.type_name()
-                    )))
-                }
-            };
-            if let Some(mut bridge) = lua.app_data_mut::<Bridge>() {
-                match value {
-                    Some(v) => {
-                        bridge.save.insert(key, v);
-                    }
-                    None => {
-                        bridge.save.remove(&key);
-                    }
-                }
-                let json = crate::save::encode_save(&bridge.save);
-                bridge.queue.push(LuaCommand::FlushSave(json));
-            }
-            Ok(())
-        })?,
-    )?;
-
-    game.set(
-        "load",
-        lua.create_function(|lua, key: String| {
-            use crate::save::SaveValue;
-            let stored = lua
-                .app_data_ref::<Bridge>()
-                .and_then(|b| b.save.get(&key).cloned());
-            Ok(match stored {
-                Some(SaveValue::Str(s)) => mlua::Value::String(lua.create_string(&s)?),
-                Some(SaveValue::Num(n)) => mlua::Value::Number(n),
-                Some(SaveValue::Bool(b)) => mlua::Value::Boolean(b),
-                None => mlua::Value::Nil,
-            })
         })?,
     )?;
 
@@ -1164,7 +1389,7 @@ pub struct LuaVm {
 impl LuaVm {
     fn new() -> Self {
         let mut lua = Lua::full();
-        let bridge = Rc::new(RefCell::new(Bridge::with_save_store()));
+        let bridge = Rc::new(RefCell::new(Bridge::default()));
         register_api(&mut lua, bridge.clone());
         Self {
             lua,
@@ -1269,6 +1494,13 @@ impl LuaVm {
     fn drain(&mut self) -> Vec<LuaCommand> {
         std::mem::take(&mut self.bridge.borrow_mut().queue)
     }
+
+    /// wasm has no filesystem: the store lives for the session only, so there
+    /// is never anything to flush (clearing the flag keeps the system cheap).
+    fn take_dirty_store(&mut self) -> Option<String> {
+        self.bridge.borrow_mut().store_dirty = false;
+        None
+    }
 }
 
 /// Register the global `game` table. Each callback captures a clone of the shared
@@ -1306,25 +1538,25 @@ fn register_api(lua: &mut Lua, bridge: Rc<RefCell<Bridge>>) {
         })).unwrap();
 
         let b = bridge.clone();
-        game.set(ctx, "key", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
-            let name: ottavino::String = stack.consume(ctx)?;
-            let held = b.borrow().keys.contains(name.to_str().unwrap_or(""));
-            stack.replace(ctx, held);
+        game.set(ctx, "touches", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let touches = b.borrow().touches.clone();
+            let list = Table::new(&ctx);
+            for (i, (x, y, id)) in touches.iter().enumerate() {
+                let t = Table::new(&ctx);
+                t.set(ctx, "x", *x as f64).unwrap();
+                t.set(ctx, "y", *y as f64).unwrap();
+                t.set(ctx, "id", *id as i64).unwrap();
+                list.set(ctx, (i + 1) as i64, t).unwrap();
+            }
+            stack.replace(ctx, list);
             Ok(CallbackReturn::Return)
         })).unwrap();
 
         let b = bridge.clone();
-        game.set(ctx, "touches", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
-            let snapshot = b.borrow().touches.clone();
-            let list = Table::new(&ctx);
-            for (i, (x, y, id)) in snapshot.into_iter().enumerate() {
-                let touch = Table::new(&ctx);
-                touch.set(ctx, "x", x as f64).unwrap();
-                touch.set(ctx, "y", y as f64).unwrap();
-                touch.set(ctx, "id", id as i64).unwrap();
-                list.set(ctx, (i + 1) as i64, touch).unwrap();
-            }
-            stack.replace(ctx, list);
+        game.set(ctx, "key", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let name: ottavino::String = stack.consume(ctx)?;
+            let held = b.borrow().keys.contains(name.to_str().unwrap_or(""));
+            stack.replace(ctx, held);
             Ok(CallbackReturn::Return)
         })).unwrap();
 
@@ -1394,39 +1626,68 @@ fn register_api(lua: &mut Lua, bridge: Rc<RefCell<Bridge>>) {
 
         let b = bridge.clone();
         game.set(ctx, "spawn_sheet", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
-            let (x, y, w, h, image, tile_w, tile_h, cols, rows):
-                (f32, f32, f32, f32, ottavino::String, u32, u32, u32, u32) = stack.consume(ctx)?;
+            let (x, y, w, h, image, fw, fh, cols, frames):
+                (f32, f32, f32, f32, ottavino::String, f32, f32, u32, u32) = stack.consume(ctx)?;
             let id = { let mut br = b.borrow_mut(); br.next_id += 1; let id = br.next_id;
                 br.queue.push(LuaCommand::SpawnSheet { id, x, y, w, h,
-                    image: image.to_str().unwrap_or("").to_string(),
-                    tile: (tile_w, tile_h), grid: (cols, rows) }); id };
+                    image: image.to_str().unwrap_or("").to_string(), fw, fh, cols, frames }); id };
             stack.replace(ctx, id as i64);
             Ok(CallbackReturn::Return)
         })).unwrap();
 
         let b = bridge.clone();
         game.set(ctx, "set_frame", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
-            let (id, index): (u32, i64) = stack.consume(ctx)?;
-            b.borrow_mut().queue.push(LuaCommand::SetFrame { id, index });
+            let (id, frame): (u32, i64) = stack.consume(ctx)?;
+            b.borrow_mut().queue.push(LuaCommand::SetFrame { id, frame });
             Ok(CallbackReturn::Return)
         })).unwrap();
 
         let b = bridge.clone();
         game.set(ctx, "tilemap", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
-            let (x, y, cols, rows, tile_size, image, tile_px, sheet_cols, sheet_rows):
-                (f32, f32, u32, u32, f32, ottavino::String, u32, u32, u32) = stack.consume(ctx)?;
+            let (x, y, cols, rows, tw, th, image, tcols, tframes):
+                (f32, f32, u32, u32, f32, f32, ottavino::String, u32, u32) = stack.consume(ctx)?;
             let id = { let mut br = b.borrow_mut(); br.next_id += 1; let id = br.next_id;
-                br.queue.push(LuaCommand::SpawnTilemap { id, x, y, cols, rows, tile_size,
-                    image: image.to_str().unwrap_or("").to_string(),
-                    tile_px, grid: (sheet_cols, sheet_rows) }); id };
+                br.queue.push(LuaCommand::Tilemap { id, x, y, cols, rows, tw, th,
+                    image: image.to_str().unwrap_or("").to_string(), tcols, tframes }); id };
             stack.replace(ctx, id as i64);
             Ok(CallbackReturn::Return)
         })).unwrap();
 
         let b = bridge.clone();
         game.set(ctx, "set_tile", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
-            let (id, tx, ty, index): (u32, u32, u32, Option<i64>) = stack.consume(ctx)?;
+            let (id, tx, ty, index): (u32, i64, i64, i64) = stack.consume(ctx)?;
             b.borrow_mut().queue.push(LuaCommand::SetTile { id, tx, ty, index });
+            Ok(CallbackReturn::Return)
+        })).unwrap();
+
+        let b = bridge.clone();
+        game.set(ctx, "spawn_rig", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let (x, y, name, scale): (f32, f32, ottavino::String, Option<f32>) =
+                stack.consume(ctx)?;
+            let id = { let mut br = b.borrow_mut(); br.next_id += 1; let id = br.next_id;
+                br.queue.push(LuaCommand::SpawnRig { id, x, y,
+                    name: name.to_str().unwrap_or("").to_string(),
+                    scale: scale.unwrap_or(1.0) }); id };
+            stack.replace(ctx, id as i64);
+            Ok(CallbackReturn::Return)
+        })).unwrap();
+
+        let b = bridge.clone();
+        game.set(ctx, "play_anim", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let (id, clip): (u32, ottavino::String) = stack.consume(ctx)?;
+            b.borrow_mut().queue.push(LuaCommand::PlayAnim { id,
+                clip: clip.to_str().unwrap_or("").to_string() });
+            Ok(CallbackReturn::Return)
+        })).unwrap();
+
+        let b = bridge.clone();
+        game.set(ctx, "set_bone", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let (id, bone, angle, dx, dy):
+                (u32, ottavino::String, Option<f32>, Option<f32>, Option<f32>) =
+                stack.consume(ctx)?;
+            let pose = angle.map(|a| (a, dx.unwrap_or(0.0), dy.unwrap_or(0.0)));
+            b.borrow_mut().queue.push(LuaCommand::SetBone { id,
+                bone: bone.to_str().unwrap_or("").to_string(), pose });
             Ok(CallbackReturn::Return)
         })).unwrap();
 
@@ -1434,6 +1695,19 @@ fn register_api(lua: &mut Lua, bridge: Rc<RefCell<Bridge>>) {
         game.set(ctx, "despawn", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
             let id: u32 = stack.consume(ctx)?;
             b.borrow_mut().queue.push(LuaCommand::Despawn { id });
+            Ok(CallbackReturn::Return)
+        })).unwrap();
+
+        let b = bridge.clone();
+        game.set(ctx, "emit", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let (preset, x, y, count): (ottavino::String, f32, f32, Option<u32>) =
+                stack.consume(ctx)?;
+            b.borrow_mut().queue.push(LuaCommand::Emit {
+                preset: preset.to_str().unwrap_or("").to_string(),
+                x,
+                y,
+                count: count.unwrap_or(16),
+            });
             Ok(CallbackReturn::Return)
         })).unwrap();
 
@@ -1455,15 +1729,6 @@ fn register_api(lua: &mut Lua, bridge: Rc<RefCell<Bridge>>) {
         game.set(ctx, "zoom", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
             let intensity: f32 = stack.consume(ctx)?;
             b.borrow_mut().queue.push(LuaCommand::Zoom(intensity));
-            Ok(CallbackReturn::Return)
-        })).unwrap();
-
-        let b = bridge.clone();
-        game.set(ctx, "emit", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
-            let (preset, x, y, count): (ottavino::String, f32, f32, Option<u32>) =
-                stack.consume(ctx)?;
-            b.borrow_mut().queue.push(LuaCommand::Emit {
-                preset: preset.to_str().unwrap_or("").to_string(), x, y, count });
             Ok(CallbackReturn::Return)
         })).unwrap();
 
@@ -1510,17 +1775,68 @@ fn register_api(lua: &mut Lua, bridge: Rc<RefCell<Bridge>>) {
         })).unwrap();
 
         let b = bridge.clone();
-        game.set(ctx, "set_volume", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
-            let (channel, volume): (ottavino::String, f32) = stack.consume(ctx)?;
-            b.borrow_mut().queue.push(LuaCommand::SetVolume {
-                channel: channel.to_str().unwrap_or("").to_string(), volume });
+        game.set(ctx, "stop_music", Callback::from_fn(&ctx, move |_ctx, _, mut stack| {
+            b.borrow_mut().queue.push(LuaCommand::StopMusic);
+            stack.clear();
             Ok(CallbackReturn::Return)
         })).unwrap();
 
         let b = bridge.clone();
-        game.set(ctx, "stop_music", Callback::from_fn(&ctx, move |_ctx, _, mut stack| {
-            b.borrow_mut().queue.push(LuaCommand::StopMusic);
-            stack.clear();
+        game.set(ctx, "set_volume", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let (channel, volume): (ottavino::String, f32) = stack.consume(ctx)?;
+            b.borrow_mut().queue.push(LuaCommand::SetVolume {
+                channel: channel.to_str().unwrap_or("").to_string(),
+                volume,
+            });
+            Ok(CallbackReturn::Return)
+        })).unwrap();
+
+        let b = bridge.clone();
+        game.set(ctx, "track", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let (event, value): (ottavino::String, Option<f64>) = stack.consume(ctx)?;
+            b.borrow_mut().queue.push(LuaCommand::Track {
+                event: event.to_str().unwrap_or("").to_string(),
+                value,
+            });
+            Ok(CallbackReturn::Return)
+        })).unwrap();
+
+        let b = bridge.clone();
+        game.set(ctx, "save", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let (key, value): (ottavino::String, Value) = stack.consume(ctx)?;
+            let encoded = match value {
+                Value::String(s) => Some(format!("s:{}", String::from_utf8_lossy(s.as_bytes()))),
+                Value::Integer(i) => Some(format!("n:{i}")),
+                Value::Number(n) => Some(format!("n:{n}")),
+                Value::Boolean(v) => Some(format!("b:{v}")),
+                _ => None,
+            };
+            let ok = encoded.is_some();
+            if let Some(encoded) = encoded {
+                let mut br = b.borrow_mut();
+                br.store.insert(key.to_str().unwrap_or("").to_string(), encoded);
+                br.store_dirty = true;
+            }
+            stack.replace(ctx, ok);
+            Ok(CallbackReturn::Return)
+        })).unwrap();
+
+        let b = bridge.clone();
+        game.set(ctx, "load", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let key: ottavino::String = stack.consume(ctx)?;
+            let encoded = b.borrow().store.get(key.to_str().unwrap_or("")).cloned();
+            match encoded.as_deref().and_then(|e| e.split_at_checked(2)) {
+                Some(("s:", rest)) => {
+                    let s = ctx.intern(rest.as_bytes());
+                    stack.replace(ctx, Value::String(s));
+                }
+                Some(("n:", rest)) => match rest.parse::<f64>() {
+                    Ok(n) => stack.replace(ctx, n),
+                    Err(_) => stack.replace(ctx, Value::Nil),
+                },
+                Some(("b:", rest)) => stack.replace(ctx, rest == "true"),
+                _ => stack.replace(ctx, Value::Nil),
+            }
             Ok(CallbackReturn::Return)
         })).unwrap();
 
@@ -1532,52 +1848,105 @@ fn register_api(lua: &mut Lua, bridge: Rc<RefCell<Bridge>>) {
             Ok(CallbackReturn::Return)
         })).unwrap();
 
-        let b = bridge.clone();
-        game.set(ctx, "save", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
-            use crate::save::SaveValue;
-            let (key, val): (ottavino::String, Value) = stack.consume(ctx)?;
-            let key = key.to_str().unwrap_or("").to_string();
-            let value = match val {
-                Value::Nil => None,
-                Value::Boolean(v) => Some(SaveValue::Bool(v)),
-                Value::Integer(i) => Some(SaveValue::Num(i as f64)),
-                Value::Number(n) => Some(SaveValue::Num(n)),
-                Value::String(s) => Some(SaveValue::Str(s.to_str().unwrap_or("").to_string())),
-                _ => None, // tables/functions can't persist; ignore rather than error
-            };
-            let mut br = b.borrow_mut();
-            match value {
-                Some(v) => {
-                    br.save.insert(key, v);
-                }
-                None => {
-                    br.save.remove(&key);
-                }
-            }
-            let json = crate::save::encode_save(&br.save);
-            br.queue.push(LuaCommand::FlushSave(json));
-            Ok(CallbackReturn::Return)
-        })).unwrap();
-
-        let b = bridge.clone();
-        game.set(ctx, "load", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
-            use crate::save::SaveValue;
-            let key: ottavino::String = stack.consume(ctx)?;
-            let stored = b.borrow().save.get(key.to_str().unwrap_or("")).cloned();
-            let value = match stored {
-                Some(SaveValue::Str(s)) => {
-                    Value::String(ottavino::String::from_slice(&ctx, s.as_bytes()))
-                }
-                Some(SaveValue::Num(n)) => Value::Number(n),
-                Some(SaveValue::Bool(v)) => Value::Boolean(v),
-                None => Value::Nil,
-            };
-            stack.replace(ctx, value);
-            Ok(CallbackReturn::Return)
-        })).unwrap();
-
         ctx.set_global("game", game);
     });
+}
+
+// ---------------------------------------------------------------------------
+// Save-store codec (game.save / game.load)
+// ---------------------------------------------------------------------------
+// One line per key: `key<TAB>value`, where value carries a type prefix
+// (`s:` string, `n:` number, `b:` boolean). Keys and values are escaped so
+// tabs/newlines in user strings can't break the framing. Text, diffable,
+// no serde needed.
+
+/// Escape `\`, TAB and NL so a store entry always fits one `key\tvalue` line.
+fn store_escape(s: &str) -> String {
+    s.replace('\\', "\\\\").replace('\t', "\\t").replace('\n', "\\n")
+}
+
+fn store_unescape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars();
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            match chars.next() {
+                Some('t') => out.push('\t'),
+                Some('n') => out.push('\n'),
+                Some('\\') => out.push('\\'),
+                Some(other) => out.push(other), // tolerate unknown escapes
+                None => {}
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// Serialize the store deterministically (sorted keys) for stable diffs.
+fn encode_store(store: &HashMap<String, String>) -> String {
+    let mut keys: Vec<&String> = store.keys().collect();
+    keys.sort();
+    let mut out = String::new();
+    for k in keys {
+        out.push_str(&store_escape(k));
+        out.push('\t');
+        out.push_str(&store_escape(&store[k]));
+        out.push('\n');
+    }
+    out
+}
+
+/// Parse a store file. Malformed lines (no TAB) are skipped, not fatal — a
+/// corrupt save must never brick the game.
+fn decode_store(text: &str) -> HashMap<String, String> {
+    let mut map = HashMap::new();
+    for line in text.lines() {
+        if let Some((k, v)) = line.split_once('\t') {
+            map.insert(store_unescape(k), store_unescape(v));
+        }
+    }
+    map
+}
+
+/// Where the save file lives. `$HOME` exists on desktop and inside the iOS app
+/// sandbox alike; fall back to the working directory if it's unset.
+#[cfg(not(target_arch = "wasm32"))]
+fn save_file_path() -> PathBuf {
+    let base = std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."));
+    base.join(".hollowlullaby").join("save.txt")
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn load_store_from_disk() -> HashMap<String, String> {
+    std::fs::read_to_string(save_file_path())
+        .map(|text| decode_store(&text))
+        .unwrap_or_default()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn write_store_to_disk(content: &str) {
+    let path = save_file_path();
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    if let Err(err) = std::fs::write(&path, content) {
+        error!("failed to write save file {}: {err}", path.display());
+    }
+}
+
+/// Flush `game.save` writes to disk once per frame at most (no-op on wasm,
+/// where the store lives for the session only).
+fn flush_save(mut vm: NonSendMut<LuaVm>) {
+    if let Some(content) = vm.take_dirty_store() {
+        #[cfg(not(target_arch = "wasm32"))]
+        write_store_to_disk(&content);
+        #[cfg(target_arch = "wasm32")]
+        let _ = content;
+    }
 }
 
 /// Map a Lua haptic kind name to the integer style `hl_haptic` expects.
@@ -1741,9 +2110,9 @@ fn tick_lua(
         .and_then(|p| camera.viewport_to_world_2d(cam_transform, p).ok())
         .map(|w| (w.x, w.y));
 
-    // Multi-touch snapshot (roadmap 0.2): every active finger in world coords.
-    // Desktop has no touchscreen, so a held left button becomes one synthetic
-    // touch (id 0) — multi-touch game logic stays debuggable with a mouse.
+    // Multi-touch snapshot: every active touch in world coords. On desktop a
+    // held left click doubles as touch id 0 so two-finger code paths can at
+    // least be single-finger-exercised without a touchscreen.
     let mut touch_list: Vec<(f32, f32, u64)> = touches
         .iter()
         .filter_map(|t| {
@@ -1763,36 +2132,6 @@ fn tick_lua(
     vm.update(time.delta_secs());
 }
 
-/// The audio-channel state `apply_lua` needs, grouped so the system stays
-/// under Bevy's 16-parameter limit.
-#[derive(bevy::ecs::system::SystemParam)]
-struct AudioParams<'w, 's> {
-    current_music: ResMut<'w, CurrentMusic>,
-    volumes: ResMut<'w, AudioVolumes>,
-    music_q: Query<'w, 's, Entity, With<MusicSound>>,
-    voice_q: Query<'w, 's, Entity, With<VoiceSound>>,
-    music_sinks: Query<'w, 's, &'static mut AudioSink, With<MusicSound>>,
-    voice_sinks: Query<'w, 's, &'static mut AudioSink, (With<VoiceSound>, Without<MusicSound>)>,
-}
-
-/// Particle state for `apply_lua`'s Emit handling (also one param, see above).
-#[derive(bevy::ecs::system::SystemParam)]
-struct ParticleParams<'w, 's> {
-    rng: ResMut<'w, crate::particles::ParticleRng>,
-    live: Query<'w, 's, (), With<crate::particles::Particle>>,
-}
-
-/// Everything `apply_lua` needs to materialize textures, sheets and tilemaps
-/// (also grouped for the 16-parameter cap).
-#[derive(bevy::ecs::system::SystemParam)]
-struct SpawnAssets<'w> {
-    tex_cache: ResMut<'w, TextureCache>,
-    sheets: ResMut<'w, SheetRegistry>,
-    tilemaps: ResMut<'w, Tilemaps>,
-    layouts: ResMut<'w, Assets<TextureAtlasLayout>>,
-    server: Res<'w, AssetServer>,
-}
-
 /// Apply everything Lua queued this frame.
 #[allow(clippy::too_many_arguments)] // Bevy systems legitimately take many params
 fn apply_lua(
@@ -1803,31 +2142,47 @@ fn apply_lua(
     mut sprites: Query<&mut Sprite>,
     mut texts: Query<&mut Text>,
     mut shake: ResMut<ScreenShake>,
-    mut rig: ResMut<CameraRig>,
+    mut cam_rig: ResMut<CameraRig>,
     mut bg_theme: ResMut<BackgroundTheme>,
-    mut audio: AudioParams,
-    mut particles: ParticleParams,
-    mut spawn_assets: SpawnAssets,
+    // Audio channel state, bundled into one SystemParam tuple to stay under
+    // Bevy's 16-parameter system limit.
+    mut audio: (
+        ResMut<CurrentMusic>,
+        ResMut<AudioVolumes>,
+        Query<Entity, With<MusicSound>>,
+        Query<Entity, With<VoiceSound>>,
+        Query<&'static mut AudioSink, (With<MusicSound>, Without<VoiceSound>)>,
+        Query<&'static mut AudioSink, (With<VoiceSound>, Without<MusicSound>)>,
+    ),
+    // Visual registries, bundled for the same 16-parameter reason.
+    mut vis: (
+        ResMut<TextureCache>,
+        ResMut<SheetRegistry>,
+        ResMut<TilemapRegistry>,
+    ),
+    particles_alive: Query<(), With<Particle>>,
+    mut emit_seed: Local<u64>,
+    mut rig_states: Query<&mut RigState>,
+    assets: Res<AssetServer>,
     hud: Option<Res<Hud>>,
 ) {
-    // Local aliases keep the match arms below unchanged in shape.
-    let SpawnAssets {
-        tex_cache,
-        sheets,
-        tilemaps,
-        layouts,
-        server,
-    } = &mut spawn_assets;
-    let (tex_cache, sheets, tilemaps, layouts) = (tex_cache, sheets, tilemaps, layouts);
-    let assets = server;
+    let (ref mut tex_cache, ref mut sheet_registry, ref mut tilemaps) = vis;
     // Sprites spawn at increasing z so later-spawned things (ball) draw in front
     // of earlier ones (net, trail) without depending on transparent-sort order.
     // De-dup identical SFX within this frame so a burst of the same impact plays
     // once rather than stacking into a harsh cluster.
     let mut sfx_this_frame: std::collections::HashSet<String> = std::collections::HashSet::new();
-    // Live-particle count once per drain; bursts spawned below won't be visible
-    // to the query until Commands apply, so track the additions locally.
-    let mut particles_live = particles.live.iter().count();
+    // Particles spawned by earlier commands in THIS drain aren't in the World
+    // yet; count them so a burst of emits still respects PARTICLE_CAP.
+    let mut emitted_this_frame: usize = 0;
+    let (
+        ref mut current_music,
+        ref mut volumes,
+        ref music_q,
+        ref voice_q,
+        ref mut music_sinks,
+        ref mut voice_sinks,
+    ) = audio;
     for command in vm.drain() {
         match command {
             LuaCommand::Spawn {
@@ -1983,176 +2338,221 @@ fn apply_lua(
                 w,
                 h,
                 image,
-                tile: (tile_w, tile_h),
-                grid: (cols, rows),
+                fw,
+                fh,
+                cols,
+                frames,
             } => {
                 let z = 0.001 * id as f32;
-                let texture = tex_cache
+                let handle = tex_cache
                     .0
                     .entry(image.clone())
                     .or_insert_with(|| assets.load(format!("textures/{image}.png")))
                     .clone();
-                let layout_key = (image, tile_w, tile_h, cols, rows);
-                let layout = sheets
-                    .layouts
-                    .entry(layout_key)
-                    .or_insert_with(|| {
-                        layouts.add(TextureAtlasLayout::from_grid(
-                            UVec2::new(tile_w.max(1), tile_h.max(1)),
-                            cols.max(1),
-                            rows.max(1),
-                            None,
-                            None,
-                        ))
-                    })
-                    .clone();
-                sheets
-                    .frame_counts
-                    .insert(id, (cols.max(1) * rows.max(1)) as usize);
+                let info = SheetInfo { fw, fh, cols, frames };
+                let (x0, y0, x1, y1) = frame_rect(fw, fh, cols, frames, 0);
                 let entity = commands
                     .spawn((
                         Sprite {
-                            image: texture,
-                            texture_atlas: Some(TextureAtlas { layout, index: 0 }),
+                            image: handle,
                             custom_size: Some(Vec2::new(w, h)),
+                            rect: Some(Rect::new(x0, y0, x1, y1)),
                             ..default()
                         },
                         Transform::from_xyz(x, y, z),
                     ))
                     .id();
                 registry.0.insert(id, entity);
+                sheet_registry.0.insert(id, info);
             }
-            LuaCommand::SetFrame { id, index } => {
-                let total = sheets.frame_counts.get(&id).copied().unwrap_or(0);
-                if total == 0 {
-                    continue; // not a sheet sprite; ignore rather than error
-                }
-                let frame = clamp_frame(index, total);
-                if let Some(&entity) = registry.0.get(&id) {
+            LuaCommand::SetFrame { id, frame } => {
+                if let (Some(&entity), Some(info)) =
+                    (registry.0.get(&id), sheet_registry.0.get(&id).copied())
+                {
+                    let (x0, y0, x1, y1) = frame_rect(info.fw, info.fh, info.cols, info.frames, frame);
+                    let rect = Some(Rect::new(x0, y0, x1, y1));
                     if let Ok(mut sprite) = sprites.get_mut(entity) {
-                        if let Some(atlas) = sprite.texture_atlas.as_mut() {
-                            atlas.index = frame;
-                        }
+                        sprite.rect = rect;
                     } else {
-                        commands.entity(entity).entry::<Sprite>().and_modify(
-                            move |mut s| {
-                                if let Some(atlas) = s.texture_atlas.as_mut() {
-                                    atlas.index = frame;
-                                }
-                            },
-                        );
+                        commands
+                            .entity(entity)
+                            .entry::<Sprite>()
+                            .and_modify(move |mut s| s.rect = rect);
                     }
                 }
             }
-            LuaCommand::SpawnTilemap {
+            LuaCommand::Tilemap {
                 id,
                 x,
                 y,
                 cols,
                 rows,
-                tile_size,
+                tw,
+                th,
                 image,
-                tile_px,
-                grid: (sheet_cols, sheet_rows),
+                tcols,
+                tframes,
             } => {
-                let z = 0.001 * id as f32;
-                let layout_key = (image.clone(), tile_px, tile_px, sheet_cols, sheet_rows);
-                let layout = sheets
-                    .layouts
-                    .entry(layout_key)
-                    .or_insert_with(|| {
-                        layouts.add(TextureAtlasLayout::from_grid(
-                            UVec2::splat(tile_px.max(1)),
-                            sheet_cols.max(1),
-                            sheet_rows.max(1),
-                            None,
-                            None,
-                        ))
-                    })
+                let handle = tex_cache
+                    .0
+                    .entry(image.clone())
+                    .or_insert_with(|| assets.load(format!("textures/{image}.png")))
                     .clone();
-                // The root is an empty transform node; tiles attach as children.
+                let z = 0.001 * id as f32;
                 let root = commands.spawn(Transform::from_xyz(x, y, z)).id();
+                // Cells sit at grid offsets relative to the root (map center)
+                // and start invisible; set_tile reveals them with a frame rect.
+                let (x0, y0, x1, y1) = frame_rect(tw, th, tcols, tframes, 0);
+                let mut cells = Vec::with_capacity((cols * rows) as usize);
+                for row in 0..rows {
+                    for col in 0..cols {
+                        let cx = (col as f32 - (cols as f32 - 1.0) * 0.5) * tw;
+                        let cy = ((rows as f32 - 1.0) * 0.5 - row as f32) * th;
+                        let cell = commands
+                            .spawn((
+                                Sprite {
+                                    image: handle.clone(),
+                                    custom_size: Some(Vec2::new(tw, th)),
+                                    rect: Some(Rect::new(x0, y0, x1, y1)),
+                                    color: Color::srgba(1.0, 1.0, 1.0, 0.0),
+                                    ..default()
+                                },
+                                Transform::from_xyz(cx, cy, 0.0),
+                                ChildOf(root),
+                            ))
+                            .id();
+                        cells.push(cell);
+                    }
+                }
                 registry.0.insert(id, root);
                 tilemaps.0.insert(
                     id,
-                    TilemapInfo {
-                        root,
-                        cols: cols.max(1),
-                        rows: rows.max(1),
-                        tile_size,
-                        image,
-                        layout,
-                        frames: (sheet_cols.max(1) * sheet_rows.max(1)) as usize,
-                        tiles: HashMap::new(),
-                    },
+                    TilemapInfo { cols, rows, tw, th, tcols, tframes, cells },
                 );
             }
             LuaCommand::SetTile { id, tx, ty, index } => {
-                let Some(map) = tilemaps.0.get_mut(&id) else {
-                    continue; // not a tilemap id; ignore
-                };
-                if !tile_in_bounds(tx, ty, map.cols, map.rows) {
-                    continue; // off-grid writes are safely ignored
-                }
-                match index {
-                    Some(i) if i >= 0 => {
-                        let frame = clamp_frame(i, map.frames);
-                        if let Some(&tile) = map.tiles.get(&(tx, ty)) {
-                            if let Ok(mut sprite) = sprites.get_mut(tile) {
-                                if let Some(atlas) = sprite.texture_atlas.as_mut() {
-                                    atlas.index = frame;
-                                }
-                            } else {
-                                commands.entity(tile).entry::<Sprite>().and_modify(
-                                    move |mut s| {
-                                        if let Some(atlas) = s.texture_atlas.as_mut() {
-                                            atlas.index = frame;
-                                        }
-                                    },
-                                );
-                            }
+                if let Some(info) = tilemaps.0.get(&id) {
+                    if let Some(slot) = tile_slot(info.cols, info.rows, tx, ty) {
+                        let Some(&cell) = info.cells.get(slot) else { continue };
+                        // index -1 (or any negative) hides the cell; otherwise
+                        // show the clamped tileset frame at full alpha.
+                        let (rect, alpha) = if index < 0 {
+                            (None, 0.0)
                         } else {
-                            let (lx, ly) =
-                                tile_local_pos(tx, ty, map.cols, map.rows, map.tile_size);
-                            let texture = tex_cache
-                                .0
-                                .entry(map.image.clone())
-                                .or_insert_with(|| {
-                                    assets.load(format!("textures/{}.png", map.image))
-                                })
-                                .clone();
-                            let tile = commands
-                                .spawn((
-                                    Sprite {
-                                        image: texture,
-                                        texture_atlas: Some(TextureAtlas {
-                                            layout: map.layout.clone(),
-                                            index: frame,
-                                        }),
-                                        custom_size: Some(Vec2::splat(map.tile_size)),
-                                        ..default()
-                                    },
-                                    Transform::from_xyz(lx, ly, 0.0),
-                                    ChildOf(map.root),
-                                ))
-                                .id();
-                            map.tiles.insert((tx, ty), tile);
+                            let (x0, y0, x1, y1) =
+                                frame_rect(info.tw, info.th, info.tcols, info.tframes, index);
+                            (Some(Rect::new(x0, y0, x1, y1)), 1.0)
+                        };
+                        if let Ok(mut sprite) = sprites.get_mut(cell) {
+                            if let Some(r) = rect {
+                                sprite.rect = Some(r);
+                            }
+                            sprite.color = Color::srgba(1.0, 1.0, 1.0, alpha);
+                        } else {
+                            commands.entity(cell).entry::<Sprite>().and_modify(
+                                move |mut s| {
+                                    if let Some(r) = rect {
+                                        s.rect = Some(r);
+                                    }
+                                    s.color = Color::srgba(1.0, 1.0, 1.0, alpha);
+                                },
+                            );
                         }
                     }
-                    _ => {
-                        // nil / negative index clears the cell.
-                        if let Some(tile) = map.tiles.remove(&(tx, ty)) {
-                            commands.entity(tile).despawn();
+                }
+            }
+            LuaCommand::SpawnRig { id, x, y, name, scale } => {
+                let handle = assets.load::<RigAsset>(format!("rigs/{name}.rig"));
+                let z = 0.001 * id as f32;
+                let root = commands
+                    .spawn((
+                        Transform::from_xyz(x, y, z).with_scale(Vec3::splat(scale.max(0.01))),
+                        Visibility::default(),
+                        RigRoot { handle, built: false },
+                        RigState::default(),
+                    ))
+                    .id();
+                registry.0.insert(id, root);
+            }
+            LuaCommand::PlayAnim { id, clip } => {
+                if let Some(&entity) = registry.0.get(&id) {
+                    // RigState is data the animate system reads, so this works
+                    // even before the rig asset finishes loading; same-frame
+                    // spawn_rig + play_anim goes through the Commands fallback.
+                    if let Ok(mut state) = rig_states.get_mut(entity) {
+                        state.clip = Some(clip);
+                        state.t = 0.0;
+                    } else {
+                        commands.entity(entity).entry::<RigState>().and_modify(
+                            move |mut s| {
+                                s.clip = Some(clip);
+                                s.t = 0.0;
+                            },
+                        );
+                    }
+                }
+            }
+            LuaCommand::SetBone { id, bone, pose } => {
+                if let Some(&entity) = registry.0.get(&id) {
+                    let apply = move |state: &mut RigState| match pose {
+                        Some((rot, x, y)) => {
+                            state.overrides.insert(bone.clone(), BonePose { rot, x, y });
                         }
+                        None => {
+                            state.overrides.remove(&bone);
+                        }
+                    };
+                    if let Ok(mut state) = rig_states.get_mut(entity) {
+                        apply(&mut state);
+                    } else {
+                        commands
+                            .entity(entity)
+                            .entry::<RigState>()
+                            .and_modify(move |mut s| apply(&mut s));
                     }
                 }
             }
             LuaCommand::Despawn { id } => {
-                sheets.frame_counts.remove(&id);
-                // A tilemap root despawns its tile children recursively.
-                tilemaps.0.remove(&id);
                 if let Some(entity) = registry.0.remove(&id) {
                     commands.entity(entity).despawn();
+                }
+                sheet_registry.0.remove(&id);
+                tilemaps.0.remove(&id);
+            }
+            LuaCommand::Emit { preset, x, y, count } => {
+                let params = preset_params(&preset);
+                // Cap check counts particles alive in the World plus the ones
+                // queued by earlier Emits this frame (tracked via the counter).
+                let alive = particles_alive.iter().count() + emitted_this_frame;
+                let n = emit_count_allowed(alive, count, PARTICLE_CAP);
+                emitted_this_frame += n as usize;
+                for _ in 0..n {
+                    let angle = if params.up_fan {
+                        // Upward fan: 0.15π..0.85π (mostly up, a little sideways).
+                        std::f32::consts::PI * (0.15 + 0.7 * lcg(&mut emit_seed))
+                    } else {
+                        std::f32::consts::TAU * lcg(&mut emit_seed)
+                    };
+                    let speed =
+                        params.speed.0 + (params.speed.1 - params.speed.0) * lcg(&mut emit_seed);
+                    let rgb = params.colors
+                        [(lcg(&mut emit_seed) * params.colors.len() as f32) as usize
+                            % params.colors.len()];
+                    let ttl = params.ttl * (0.7 + 0.6 * lcg(&mut emit_seed));
+                    commands.spawn((
+                        Sprite::from_color(
+                            Color::srgba(rgb.0, rgb.1, rgb.2, 1.0),
+                            Vec2::splat(params.size),
+                        ),
+                        Transform::from_xyz(x, y, 50.0),
+                        Particle {
+                            vel: Vec2::new(angle.cos(), angle.sin()) * speed,
+                            gravity: params.gravity,
+                            ttl,
+                            life: ttl,
+                            rgb,
+                        },
+                    ));
                 }
             }
             LuaCommand::SetText(text) => {
@@ -2169,7 +2569,9 @@ fn apply_lua(
                 shake.zoom = shake.zoom.max(intensity.clamp(0.0, 1.0));
             }
             LuaCommand::Cam { x, y, zoom } => {
-                rig.target = Vec3::new(x, y, cam_zoom_clamp(zoom));
+                cam_rig.x = x;
+                cam_rig.y = y;
+                cam_rig.zoom = cam_zoom_clamp(zoom);
             }
             LuaCommand::SetBgTheme(theme) => {
                 bg_theme.target = theme.clamp(0.0, 1.0);
@@ -2179,120 +2581,92 @@ fn apply_lua(
                 // same sound within one frame (e.g. many bounces in a tick).
                 if sfx_this_frame.insert(name.clone()) {
                     let handle = assets.load::<AudioSource>(format!("audio/{name}.wav"));
-                    commands.spawn((
-                        AudioPlayer::new(handle),
-                        channel_playback(PlaybackSettings::DESPAWN, audio.volumes.sfx),
-                    ));
+                    let settings = PlaybackSettings {
+                        volume: Volume::Linear(volumes.sfx),
+                        ..PlaybackSettings::DESPAWN
+                    };
+                    commands.spawn((AudioPlayer::new(handle), settings));
                 }
             }
             LuaCommand::PlayMusic(name) => {
                 // Music channel: one looping track. If the same track is already
                 // playing, do nothing (re-requesting it on scene re-entry must not
                 // restart or double it). Otherwise stop the old track and start new.
-                let same = audio.current_music.0.as_deref() == Some(name.as_str());
-                if !(same && !audio.music_q.is_empty()) {
-                    for e in &audio.music_q {
+                let same = current_music.0.as_deref() == Some(name.as_str());
+                if !(same && !music_q.is_empty()) {
+                    for e in music_q.iter() {
                         commands.entity(e).despawn();
                     }
                     let handle = assets.load::<AudioSource>(format!("audio/{name}.wav"));
-                    commands.spawn((
-                        AudioPlayer::new(handle),
-                        channel_playback(PlaybackSettings::LOOP, audio.volumes.music),
-                        MusicSound,
-                    ));
-                    audio.current_music.0 = Some(name);
+                    let settings = PlaybackSettings {
+                        volume: Volume::Linear(volumes.music),
+                        ..PlaybackSettings::LOOP
+                    };
+                    commands.spawn((AudioPlayer::new(handle), settings, MusicSound));
+                    current_music.0 = Some(name);
                 }
             }
             LuaCommand::PlayVoice(name) => {
                 // Voice channel: single one-shot. Stop any voice still playing so
                 // dialogue lines never talk over one another, then start this one.
-                for e in &audio.voice_q {
+                for e in voice_q.iter() {
                     commands.entity(e).despawn();
                 }
                 let handle = assets.load::<AudioSource>(format!("audio/{name}.wav"));
-                commands.spawn((
-                    AudioPlayer::new(handle),
-                    channel_playback(PlaybackSettings::DESPAWN, audio.volumes.voice),
-                    VoiceSound,
-                ));
-            }
-            LuaCommand::Emit {
-                preset,
-                x,
-                y,
-                count,
-            } => {
-                let before = particles_live;
-                crate::particles::spawn_burst(
-                    &mut commands,
-                    &mut particles.rng,
-                    before,
-                    &preset,
-                    x,
-                    y,
-                    count,
-                );
-                let p = crate::particles::preset(&preset);
-                particles_live += crate::particles::emit_budget(
-                    before,
-                    count.unwrap_or(p.count),
-                    crate::particles::MAX_PARTICLES,
-                ) as usize;
+                let settings = PlaybackSettings {
+                    volume: Volume::Linear(volumes.voice),
+                    ..PlaybackSettings::DESPAWN
+                };
+                commands.spawn((AudioPlayer::new(handle), settings, VoiceSound));
             }
             LuaCommand::StopVoice => {
-                for e in &audio.voice_q {
+                for e in voice_q.iter() {
                     commands.entity(e).despawn();
                 }
+            }
+            LuaCommand::StopMusic => {
+                for e in music_q.iter() {
+                    commands.entity(e).despawn();
+                }
+                current_music.0 = None;
             }
             LuaCommand::SetVolume { channel, volume } => {
                 let v = volume_clamp(volume);
                 match channel.as_str() {
+                    // SFX are one-shots: the new volume applies from the next
+                    // shot on (a burst mid-flight keeps its launch volume).
+                    "sfx" => volumes.sfx = v,
                     "music" => {
-                        audio.volumes.music = v;
-                        // Retune the live track: a settings slider must be heard
-                        // immediately, not on the next song change.
-                        for mut sink in audio.music_sinks.iter_mut() {
-                            sink.set_volume(bevy::audio::Volume::Linear(v));
+                        volumes.music = v;
+                        for mut sink in music_sinks.iter_mut() {
+                            sink.set_volume(Volume::Linear(v));
                         }
                     }
                     "voice" => {
-                        audio.volumes.voice = v;
-                        for mut sink in audio.voice_sinks.iter_mut() {
-                            sink.set_volume(bevy::audio::Volume::Linear(v));
+                        volumes.voice = v;
+                        for mut sink in voice_sinks.iter_mut() {
+                            sink.set_volume(Volume::Linear(v));
                         }
                     }
-                    "sfx" => audio.volumes.sfx = v, // one-shots are too short to retune
                     other => warn!("game.set_volume: unknown channel {other:?}"),
                 }
-            }
-            LuaCommand::StopMusic => {
-                for e in &audio.music_q {
-                    commands.entity(e).despawn();
-                }
-                // Forget the track name so a later play_music of the same song
-                // starts fresh instead of no-opping.
-                audio.current_music.0 = None;
             }
             LuaCommand::Haptic(style) => {
                 trigger_haptic(style);
             }
-            LuaCommand::FlushSave(json) => {
-                if let Err(err) = crate::save::persist(&json) {
-                    warn!("failed to persist save data: {err:?}");
-                }
+            LuaCommand::Track { event, value } => {
+                track_event(&event, value);
             }
         }
     }
 }
 
-/// Bleed the screen-shake trauma toward zero each frame and drive the camera:
-/// the eased `CameraRig` pose is the base, the trauma jitter and zoom punch
-/// layer on top. With the rig at rest (0,0,1) this reproduces the old fixed
-/// camera exactly.
+/// Bleed the screen-shake trauma toward zero each frame and offset the camera by
+/// a jittering amount derived from it. At zero trauma the camera sits at origin.
 fn camera_shake(
     time: Res<Time>,
     mut shake: ResMut<ScreenShake>,
-    mut rig: ResMut<CameraRig>,
+    rig: Res<CameraRig>,
     mut cameras: Query<&mut Transform, With<GameCamera>>,
 ) {
     shake.trauma = (shake.trauma - time.delta_secs() * 1.6).max(0.0);
@@ -2300,12 +2674,88 @@ fn camera_shake(
         return;
     };
     shake.zoom = (shake.zoom - time.delta_secs() * 2.5).max(0.0);
-    let target = rig.target;
-    rig.current = rig_approach(rig.current, target, time.delta_secs());
+    // Compose: the rig is the scene's base pose, shake/punch layer on top.
+    // Camera Transform.scale is inverse magnification, hence the division.
     let (x, y) = shake_offset(shake.trauma, time.elapsed_secs());
-    transform.translation.x = rig.current.x + x;
-    transform.translation.y = rig.current.y + y;
-    transform.scale = Vec3::splat(rig.current.z * zoom_scale(shake.zoom));
+    transform.translation.x = rig.x + x;
+    transform.translation.y = rig.y + y;
+    transform.scale = Vec3::splat(zoom_scale(shake.zoom) / rig.zoom);
+}
+
+/// Pixel rect (min x, min y, max x, max y) of frame `i` in a sprite sheet laid
+/// out row-major with `cols` frames per row. The index is CLAMPED into
+/// `[0, frames-1]` — an animation driver overshooting its last frame shows the
+/// last frame, never garbage texels. `cols`/`frames` are floored to at least 1.
+fn frame_rect(fw: f32, fh: f32, cols: u32, frames: u32, i: i64) -> (f32, f32, f32, f32) {
+    let cols = cols.max(1) as i64;
+    let frames = frames.max(1) as i64;
+    let i = i.clamp(0, frames - 1);
+    let (col, row) = ((i % cols) as f32, (i / cols) as f32);
+    (col * fw, row * fh, (col + 1.0) * fw, (row + 1.0) * fh)
+}
+
+/// Sanitize an analytics event name: strip framing characters (tab/newline →
+/// `_` so the TSV log stays line-per-event), cap the length, and give empty
+/// names a stable placeholder.
+fn track_sanitize(event: &str) -> String {
+    let cleaned: String = event
+        .trim()
+        .chars()
+        .map(|c| if c == '\t' || c == '\n' || c == '\r' { '_' } else { c })
+        .take(64)
+        .collect();
+    if cleaned.is_empty() {
+        "unnamed".to_string()
+    } else {
+        cleaned
+    }
+}
+
+/// Append one analytics event to the local log (same directory as the save
+/// file). Local-first: swapping in a remote endpoint later only changes this
+/// sink, not the Lua API. On wasm the event goes to the console instead.
+fn track_event(event: &str, value: Option<f64>) {
+    let name = track_sanitize(event);
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let line = match value {
+            Some(v) => format!("{ts}\t{name}\t{v}\n"),
+            None => format!("{ts}\t{name}\t\n"),
+        };
+        let path = save_file_path().with_file_name("analytics.log");
+        if let Some(dir) = path.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        use std::io::Write;
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+            let _ = f.write_all(line.as_bytes());
+        }
+    }
+    #[cfg(target_arch = "wasm32")]
+    info!("[track] {name} {:?}", value);
+}
+
+/// Clamp a channel volume to 0..1; non-finite input falls back to full volume
+/// (a wrong expression should never mute the game silently).
+fn volume_clamp(v: f32) -> f32 {
+    if !v.is_finite() {
+        return 1.0;
+    }
+    v.clamp(0.0, 1.0)
+}
+
+/// Clamp a `game.cam` magnification to sane bounds; non-finite input (NaN/inf
+/// from a Lua expression gone wrong) falls back to 1.0 so the camera never
+/// disappears into a degenerate scale.
+fn cam_zoom_clamp(zoom: f32) -> f32 {
+    if !zoom.is_finite() {
+        return 1.0;
+    }
+    zoom.clamp(0.25, 4.0)
 }
 
 /// Camera scale for a zoom punch: quadratic ease (light taps barely move it),
@@ -2314,292 +2764,63 @@ fn zoom_scale(zoom: f32) -> f32 {
     1.0 - 0.06 * zoom * zoom
 }
 
-/// Legal `game.cam` zoom range: 4x out to 4x in. Keeps a runaway script from
-/// zooming the scene into invisibility (or into a single pixel).
-fn cam_zoom_clamp(zoom: f32) -> f32 {
-    if zoom.is_finite() {
-        zoom.clamp(0.25, 4.0)
-    } else {
-        1.0
-    }
-}
-
-/// Ease the camera rig toward its target: exponential approach with a
-/// framerate-independent rate (~99% converged in half a second). Never
-/// overshoots, so a followed target settles instead of oscillating.
-fn rig_approach(current: Vec3, target: Vec3, dt: f32) -> Vec3 {
-    let blend = 1.0 - (-10.0 * dt.clamp(0.0, 0.25)).exp();
-    current + (target - current) * blend
-}
-
-/// Clamp a Lua-supplied channel volume into 0..1 (NaN mutes rather than blasts).
-fn volume_clamp(v: f32) -> f32 {
-    if v.is_finite() {
-        v.clamp(0.0, 1.0)
-    } else {
-        0.0
-    }
-}
-
-/// A channel's `PlaybackSettings` with its current volume baked in.
-fn channel_playback(base: PlaybackSettings, volume: f32) -> PlaybackSettings {
-    PlaybackSettings {
-        volume: bevy::audio::Volume::Linear(volume),
-        ..base
-    }
-}
-
-/// Clamp a Lua-supplied sprite-sheet frame index (0-based, may be negative or
-/// past the end) into the atlas's valid range. A script animating off the end
-/// of a sheet shows the last frame instead of panicking the render pass.
-fn clamp_frame(index: i64, total: usize) -> usize {
-    index.clamp(0, total.saturating_sub(1) as i64) as usize
-}
-
-/// Whether a tile coordinate is inside a cols×rows grid.
-fn tile_in_bounds(tx: u32, ty: u32, cols: u32, rows: u32) -> bool {
-    tx < cols && ty < rows
-}
-
-/// A tile's position local to the map root, which sits at the map's CENTER.
-/// (0,0) is the top-left cell; +ty walks down the screen like the row order of
-/// a level file, so agent-generated JSON grids paste in without a flip.
-fn tile_local_pos(tx: u32, ty: u32, cols: u32, rows: u32, tile_size: f32) -> (f32, f32) {
-    let half_w = cols as f32 * tile_size * 0.5;
-    let half_h = rows as f32 * tile_size * 0.5;
-    (
-        -half_w + (tx as f32 + 0.5) * tile_size,
-        half_h - (ty as f32 + 0.5) * tile_size,
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::{
-        cam_zoom_clamp, clamp_frame, haptic_style, rig_approach, shake_offset, tile_in_bounds,
-        tile_local_pos, volume_clamp, zoom_scale, LuaCommand, LuaVm,
+        cam_zoom_clamp, decode_store, emit_count_allowed, encode_store, frame_rect, haptic_style,
+        lcg, particle_alpha, preset_params, shake_offset, store_escape, store_unescape, tile_slot,
+        track_sanitize, volume_clamp, zoom_scale, PARTICLE_CAP,
     };
-    use bevy::prelude::Vec3;
+    use std::collections::HashMap;
 
     #[test]
-    fn tile_grid_is_centered_and_row_major_downward() {
-        // A 2x2 grid of 10px tiles centered on the root: quadrant centers.
-        assert_eq!(tile_local_pos(0, 0, 2, 2, 10.0), (-5.0, 5.0), "top-left");
-        assert_eq!(tile_local_pos(1, 0, 2, 2, 10.0), (5.0, 5.0), "top-right");
-        assert_eq!(tile_local_pos(0, 1, 2, 2, 10.0), (-5.0, -5.0), "bottom-left");
-        assert_eq!(tile_local_pos(1, 1, 2, 2, 10.0), (5.0, -5.0), "bottom-right");
-        // Odd grid: the middle cell lands exactly on the root.
-        assert_eq!(tile_local_pos(1, 1, 3, 3, 16.0), (0.0, 0.0), "center cell");
-    }
-
-    #[test]
-    fn tile_bounds_reject_off_grid_writes() {
-        assert!(tile_in_bounds(0, 0, 4, 3));
-        assert!(tile_in_bounds(3, 2, 4, 3));
-        assert!(!tile_in_bounds(4, 0, 4, 3), "x == cols is out");
-        assert!(!tile_in_bounds(0, 3, 4, 3), "y == rows is out");
-    }
-
-    #[test]
-    fn tilemap_and_set_tile_queue_commands() {
-        let mut vm = LuaVm::new();
-        vm.exec_chunk(
-            r#"
-            local id = game.tilemap(0.0, 0.0, 8, 6, 32.0, "tileset", 16, 4, 4)
-            assert(id > 0, "tilemap must return an id")
-            game.set_tile(id, 2, 3, 7)
-            game.set_tile(id, 2, 3, nil)
-            "#,
-            "tilemap_test",
-        )
-        .expect("tilemap Lua chunk failed");
-        let commands = vm.drain();
-        assert_eq!(commands.len(), 3);
-        match &commands[0] {
-            LuaCommand::SpawnTilemap {
-                cols, rows, image, tile_px, grid, ..
-            } => {
-                assert_eq!((*cols, *rows), (8, 6));
-                assert_eq!(image, "tileset");
-                assert_eq!(*tile_px, 16);
-                assert_eq!(*grid, (4, 4));
-            }
-            _ => panic!("first command should be SpawnTilemap"),
+    fn store_roundtrips_awkward_strings() {
+        // CJK, tabs, newlines, backslashes — nothing may break line framing.
+        let cases = [
+            "最高分",
+            "line1\nline2",
+            "tab\there",
+            "back\\slash",
+            "\\t not a tab",
+            "",
+        ];
+        for case in cases {
+            assert_eq!(store_unescape(&store_escape(case)), case, "case: {case:?}");
         }
-        assert!(matches!(
-            &commands[1],
-            LuaCommand::SetTile { tx: 2, ty: 3, index: Some(7), .. }
-        ));
-        assert!(
-            matches!(&commands[2], LuaCommand::SetTile { index: None, .. }),
-            "nil index clears the cell"
-        );
     }
 
     #[test]
-    fn volume_is_clamped_and_nan_mutes() {
-        assert_eq!(volume_clamp(0.5), 0.5);
-        assert_eq!(volume_clamp(-1.0), 0.0);
-        assert_eq!(volume_clamp(9.0), 1.0);
-        assert_eq!(volume_clamp(f32::NAN), 0.0, "NaN mutes rather than blasts");
+    fn store_codec_roundtrips_typed_values() {
+        let mut store = HashMap::new();
+        store.insert("hiscore".to_string(), "n:9001".to_string());
+        store.insert("玩家名".to_string(), "s:小马\t冠军".to_string());
+        store.insert("muted".to_string(), "b:true".to_string());
+        let decoded = decode_store(&encode_store(&store));
+        assert_eq!(decoded, store);
     }
 
     #[test]
-    fn emit_queues_a_particle_burst_command() {
-        let mut vm = LuaVm::new();
-        vm.exec_chunk(
-            "game.emit('confetti', 5.0, -3.0); game.emit('spark', 0.0, 0.0, 8)",
-            "emit_test",
-        )
-        .expect("emit Lua chunk failed");
-        let commands = vm.drain();
-        assert_eq!(commands.len(), 2);
-        match &commands[0] {
-            LuaCommand::Emit {
-                preset, x, y, count,
-            } => {
-                assert_eq!(preset, "confetti");
-                assert_eq!((*x, *y), (5.0, -3.0));
-                assert_eq!(*count, None, "count is optional");
-            }
-            _ => panic!("first command should be Emit"),
-        }
-        assert!(matches!(
-            &commands[1],
-            LuaCommand::Emit { count: Some(8), .. }
-        ));
+    fn store_decode_skips_malformed_lines() {
+        // A corrupt save (missing TAB separator) must never brick loading.
+        let text = "good\ts:ok\nno-tab-in-this-line\nalso\tn:5\n";
+        let decoded = decode_store(text);
+        assert_eq!(decoded.len(), 2);
+        assert_eq!(decoded["good"], "s:ok");
+        assert_eq!(decoded["also"], "n:5");
     }
 
     #[test]
-    fn set_volume_and_stop_music_queue_commands() {
-        let mut vm = LuaVm::new();
-        vm.exec_chunk(
-            "game.set_volume('music', 0.25); game.stop_music()",
-            "audio_test",
-        )
-        .expect("audio Lua chunk failed");
-        let commands = vm.drain();
-        assert_eq!(commands.len(), 2);
-        match &commands[0] {
-            LuaCommand::SetVolume { channel, volume } => {
-                assert_eq!(channel, "music");
-                assert_eq!(*volume, 0.25);
-            }
-            _ => panic!("first command should be SetVolume"),
-        }
-        assert!(matches!(&commands[1], LuaCommand::StopMusic));
-    }
-
-    #[test]
-    fn cam_zoom_has_upper_and_lower_bounds() {
-        assert_eq!(cam_zoom_clamp(1.0), 1.0);
-        assert_eq!(cam_zoom_clamp(0.0), 0.25, "zoom-out floor");
-        assert_eq!(cam_zoom_clamp(100.0), 4.0, "zoom-in ceiling");
-        assert_eq!(cam_zoom_clamp(f32::NAN), 1.0, "NaN falls back to identity");
-        assert_eq!(cam_zoom_clamp(f32::INFINITY), 1.0);
-    }
-
-    #[test]
-    fn rig_follow_converges_without_overshoot() {
-        let target = Vec3::new(300.0, -120.0, 2.0);
-        let mut current = Vec3::new(0.0, 0.0, 1.0);
-        let mut last_dist = (target - current).length();
-        for _ in 0..120 {
-            current = rig_approach(current, target, 1.0 / 60.0);
-            let dist = (target - current).length();
-            assert!(dist <= last_dist + 1e-4, "follow must never diverge/overshoot");
-            last_dist = dist;
-        }
-        assert!(last_dist < 1.0, "after 2s the camera has converged: {last_dist}");
-        // A huge dt hitch must not slingshot past the target either.
-        let hitch = rig_approach(Vec3::ZERO, target, 5.0);
-        assert!((target - hitch).length() < target.length(), "hitch moves toward target");
-        assert!(hitch.x <= target.x && hitch.z <= target.z, "hitch never overshoots");
-    }
-
-    #[test]
-    fn resting_rig_reproduces_the_fixed_camera() {
-        // cam(0,0,1) (the default) converged means translation 0 and scale 1 —
-        // bit-identical to the pre-rig camera, so existing games don't regress.
-        let rest = rig_approach(Vec3::new(0.0, 0.0, 1.0), Vec3::new(0.0, 0.0, 1.0), 0.016);
-        assert_eq!(rest, Vec3::new(0.0, 0.0, 1.0));
-    }
-
-    #[test]
-    fn frame_index_is_clamped_into_the_sheet() {
-        assert_eq!(clamp_frame(0, 12), 0);
-        assert_eq!(clamp_frame(11, 12), 11);
-        assert_eq!(clamp_frame(12, 12), 11, "past the end shows the last frame");
-        assert_eq!(clamp_frame(9999, 12), 11);
-        assert_eq!(clamp_frame(-1, 12), 0, "negative clamps to the first frame");
-        assert_eq!(clamp_frame(5, 0), 0, "an empty sheet can't underflow");
-    }
-
-    // Real-bridge test: a script spawns a sheet sprite and sets a frame; the
-    // drained command queue must carry the exact grid so slice_sheet.py output
-    // (cols×1 strips) plugs straight in.
-    #[test]
-    fn spawn_sheet_and_set_frame_queue_commands() {
-        let mut vm = LuaVm::new();
-        vm.exec_chunk(
-            r#"
-            local id = game.spawn_sheet(1.0, 2.0, 64.0, 64.0, "walk", 32, 48, 6, 1)
-            assert(id > 0, "spawn_sheet must return an id")
-            game.set_frame(id, 4)
-            "#,
-            "sheet_test",
-        )
-        .expect("sheet Lua chunk failed");
-        let commands = vm.drain();
-        assert_eq!(commands.len(), 2);
-        match &commands[0] {
-            LuaCommand::SpawnSheet {
-                image, tile, grid, ..
-            } => {
-                assert_eq!(image, "walk");
-                assert_eq!(*tile, (32, 48));
-                assert_eq!(*grid, (6, 1));
-            }
-            _ => panic!("first command should be SpawnSheet"),
-        }
-        assert!(matches!(&commands[1], LuaCommand::SetFrame { index: 4, .. }));
-    }
-
-    // Drives the REAL bridge (mlua host): inject a two-finger snapshot and let
-    // Lua itself assert both touches arrive with world coords and stable ids —
-    // the roadmap-0.2 "mock two fingers" acceptance at the bridge level.
-    #[test]
-    fn multi_touch_snapshot_reaches_lua() {
-        let mut vm = LuaVm::new();
-        vm.set_input(
-            Some((10.0, 20.0)),
-            true,
-            Default::default(),
-            vec![(10.0, 20.0, 3), (-42.5, 7.0, 8)],
-        );
-        vm.exec_chunk(
-            r#"
-            local t = game.touches()
-            assert(#t == 2, "expected two active touches")
-            assert(t[1].x == 10.0 and t[1].y == 20.0 and t[1].id == 3, "touch 1 mismatch")
-            assert(t[2].x == -42.5 and t[2].y == 7.0 and t[2].id == 8, "touch 2 mismatch")
-            local x, y, down = game.pointer()
-            assert(x == 10.0 and y == 20.0 and down == true, "pointer() must stay compatible")
-            "#,
-            "touch_test",
-        )
-        .expect("multi-touch Lua assertions failed");
-    }
-
-    #[test]
-    fn no_touches_yields_empty_table_not_nil() {
-        let mut vm = LuaVm::new();
-        vm.set_input(None, false, Default::default(), Vec::new());
-        vm.exec_chunk(
-            "local t = game.touches(); assert(type(t) == 'table' and #t == 0)",
-            "touch_empty_test",
-        )
-        .expect("empty-touch Lua assertions failed");
+    fn store_survives_a_simulated_process_kill() {
+        // Write the encoded store to a real file, "kill the process" (drop
+        // everything), then read it back cold — the roadmap acceptance test.
+        let mut store = HashMap::new();
+        store.insert("hiscore".to_string(), "n:12.5".to_string());
+        store.insert("seen_intro".to_string(), "b:true".to_string());
+        let path = std::env::temp_dir().join("hollowlullaby_save_test.txt");
+        std::fs::write(&path, encode_store(&store)).unwrap();
+        let reread = decode_store(&std::fs::read_to_string(&path).unwrap());
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(reread, store);
     }
 
     #[test]
@@ -2627,6 +2848,96 @@ mod tests {
             let (x, y) = shake_offset(1.0, t);
             assert!(x.abs() <= 24.0 + 1e-3, "x={x} out of range");
             assert!(y.abs() <= 24.0 + 1e-3, "y={y} out of range");
+        }
+    }
+
+    #[test]
+    fn track_names_are_sanitized() {
+        assert_eq!(track_sanitize("level_won"), "level_won");
+        assert_eq!(track_sanitize("  spaced  "), "spaced");
+        assert_eq!(track_sanitize("tab\there\nnl"), "tab_here_nl"); // no TSV framing breaks
+        assert_eq!(track_sanitize(""), "unnamed");
+        assert_eq!(track_sanitize("   "), "unnamed");
+        assert_eq!(track_sanitize(&"x".repeat(200)).len(), 64); // capped
+    }
+
+    #[test]
+    fn tile_slot_is_row_major_and_bounds_safe() {
+        // 4×3 grid: row-major slots 0..11.
+        assert_eq!(tile_slot(4, 3, 0, 0), Some(0));
+        assert_eq!(tile_slot(4, 3, 3, 0), Some(3));
+        assert_eq!(tile_slot(4, 3, 0, 1), Some(4));
+        assert_eq!(tile_slot(4, 3, 3, 2), Some(11));
+        // Out of range in any direction is None — never wraps to a wrong cell.
+        assert_eq!(tile_slot(4, 3, 4, 0), None);
+        assert_eq!(tile_slot(4, 3, 0, 3), None);
+        assert_eq!(tile_slot(4, 3, -1, 0), None);
+        assert_eq!(tile_slot(4, 3, 0, -1), None);
+        assert_eq!(tile_slot(0, 0, 0, 0), None); // degenerate empty grid
+    }
+
+    #[test]
+    fn particle_cap_is_enforced_and_lifetime_fades() {
+        // Cap: an emit may only fill the remaining headroom, never exceed it.
+        assert_eq!(emit_count_allowed(0, 16, PARTICLE_CAP), 16);
+        assert_eq!(emit_count_allowed(PARTICLE_CAP - 5, 16, PARTICLE_CAP), 5);
+        assert_eq!(emit_count_allowed(PARTICLE_CAP, 16, PARTICLE_CAP), 0);
+        assert_eq!(emit_count_allowed(PARTICLE_CAP + 99, 16, PARTICLE_CAP), 0);
+        // Fade: alpha runs 1 → 0 with life and clamps outside the range.
+        assert_eq!(particle_alpha(1.0), 1.0);
+        assert_eq!(particle_alpha(0.0), 0.0);
+        assert_eq!(particle_alpha(-0.3), 0.0);
+        assert_eq!(particle_alpha(7.0), 1.0);
+        // Unknown preset falls back to spark (never "no particles" on a typo).
+        let fallback = preset_params("definitely-not-a-preset");
+        let spark = preset_params("spark");
+        assert_eq!(fallback.speed, spark.speed);
+        assert_eq!(fallback.ttl, spark.ttl);
+        // LCG stays in [0, 1) and is deterministic for a fixed seed.
+        let mut a = 42u64;
+        let mut b = 42u64;
+        for _ in 0..1000 {
+            let (va, vb) = (lcg(&mut a), lcg(&mut b));
+            assert_eq!(va, vb);
+            assert!((0.0..1.0).contains(&va));
+        }
+    }
+
+    #[test]
+    fn frame_rect_walks_rows_and_clamps() {
+        // 3 columns of 16×24 frames, 5 frames total (2 rows, last row partial).
+        assert_eq!(frame_rect(16.0, 24.0, 3, 5, 0), (0.0, 0.0, 16.0, 24.0));
+        assert_eq!(frame_rect(16.0, 24.0, 3, 5, 2), (32.0, 0.0, 48.0, 24.0)); // end of row 0
+        assert_eq!(frame_rect(16.0, 24.0, 3, 5, 3), (0.0, 24.0, 16.0, 48.0)); // wraps to row 1
+        // Clamping: negative → frame 0, past-the-end → last frame (index 4).
+        assert_eq!(frame_rect(16.0, 24.0, 3, 5, -7), frame_rect(16.0, 24.0, 3, 5, 0));
+        assert_eq!(frame_rect(16.0, 24.0, 3, 5, 99), frame_rect(16.0, 24.0, 3, 5, 4));
+        // Degenerate layout (0 cols / 0 frames) must not divide by zero.
+        assert_eq!(frame_rect(8.0, 8.0, 0, 0, 5), (0.0, 0.0, 8.0, 8.0));
+    }
+
+    #[test]
+    fn volume_is_clamped_and_survives_nan() {
+        assert_eq!(volume_clamp(0.5), 0.5);
+        assert_eq!(volume_clamp(-1.0), 0.0); // floor: silence, not negative gain
+        assert_eq!(volume_clamp(3.0), 1.0); // ceiling: no boost past unity
+        assert_eq!(volume_clamp(f32::NAN), 1.0); // bad math never silently mutes
+    }
+
+    #[test]
+    fn cam_zoom_is_clamped_and_survives_nan() {
+        assert_eq!(cam_zoom_clamp(1.0), 1.0);
+        assert_eq!(cam_zoom_clamp(0.0), 0.25); // lower bound
+        assert_eq!(cam_zoom_clamp(100.0), 4.0); // upper bound
+        assert_eq!(cam_zoom_clamp(f32::NAN), 1.0); // degenerate input falls back
+        assert_eq!(cam_zoom_clamp(f32::INFINITY), 1.0);
+        // Composed camera scale stays positive & finite across the whole range:
+        // scale = zoom_scale(punch) / rig_zoom.
+        for punch in [0.0_f32, 0.5, 1.0] {
+            for z in [0.25_f32, 1.0, 4.0] {
+                let scale = zoom_scale(punch) / cam_zoom_clamp(z);
+                assert!(scale.is_finite() && scale > 0.0, "scale={scale}");
+            }
         }
     }
 
