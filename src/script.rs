@@ -32,6 +32,9 @@
 //!   game.set_text(string)                      (updates the on-screen HUD text)
 //!   game.shake(intensity)                      (0..1 impulse; Rust decays a
 //!                                               camera screen-shake from it)
+//!   game.cam(x, y [, zoom])                    (camera base pose: follow a
+//!                                               hero, zoom 0.25..4 = magnify;
+//!                                               shake/punch layer on top)
 //!   game.play_sound(name)                      (one-shot SFX: assets/audio/<name>.wav)
 //!   game.play_music(name)                      (looping bg music; replaces any
 //!                                               currently-playing track)
@@ -92,6 +95,7 @@ impl Plugin for ScriptPlugin {
             .init_asset_loader::<LuaScriptLoader>()
             .init_resource::<EntityRegistry>()
             .init_resource::<ScreenShake>()
+            .init_resource::<CameraRig>()
             .init_resource::<BackgroundTheme>()
             .init_resource::<CurrentMusic>()
             .init_resource::<TextureCache>()
@@ -128,6 +132,23 @@ pub(crate) struct ScreenShake {
     /// Camera zoom "punch" 0..1: impacts push it up, `camera_shake` eases it
     /// back to zero; the camera scales by `zoom_scale(zoom)` (punch-IN).
     pub(crate) zoom: f32,
+}
+
+/// Camera base pose driven by `game.cam(x, y, zoom)`. The shake/zoom-punch
+/// effects layer ON TOP of this rig (they are transient juice; the rig is the
+/// scene's intent), so a game can follow its hero and still get impact punch.
+/// `zoom` is magnification: 2.0 = twice as close. Clamped by `cam_zoom_clamp`.
+#[derive(Resource)]
+pub(crate) struct CameraRig {
+    pub(crate) x: f32,
+    pub(crate) y: f32,
+    pub(crate) zoom: f32,
+}
+
+impl Default for CameraRig {
+    fn default() -> Self {
+        Self { x: 0.0, y: 0.0, zoom: 1.0 }
+    }
 }
 
 /// Per-scene background palette selector, set from Lua via `game.set_bg_theme`.
@@ -379,6 +400,11 @@ enum LuaCommand {
     SetText(String),
     Shake(f32),
     Zoom(f32),
+    Cam {
+        x: f32,
+        y: f32,
+        zoom: f32,
+    },
     SetBgTheme(f32),
     PlaySound(String),
     PlayMusic(String),
@@ -744,6 +770,20 @@ fn register_api(lua: &Lua) -> mlua::Result<()> {
         lua.create_function(|lua, intensity: f32| {
             if let Some(mut bridge) = lua.app_data_mut::<Bridge>() {
                 bridge.queue.push(LuaCommand::Zoom(intensity));
+            }
+            Ok(())
+        })?,
+    )?;
+
+    game.set(
+        "cam",
+        lua.create_function(|lua, (x, y, zoom): (f32, f32, Option<f32>)| {
+            if let Some(mut bridge) = lua.app_data_mut::<Bridge>() {
+                bridge.queue.push(LuaCommand::Cam {
+                    x,
+                    y,
+                    zoom: zoom.unwrap_or(1.0),
+                });
             }
             Ok(())
         })?,
@@ -1130,6 +1170,13 @@ fn register_api(lua: &mut Lua, bridge: Rc<RefCell<Bridge>>) {
         })).unwrap();
 
         let b = bridge.clone();
+        game.set(ctx, "cam", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let (x, y, zoom): (f32, f32, Option<f32>) = stack.consume(ctx)?;
+            b.borrow_mut().queue.push(LuaCommand::Cam { x, y, zoom: zoom.unwrap_or(1.0) });
+            Ok(CallbackReturn::Return)
+        })).unwrap();
+
+        let b = bridge.clone();
         game.set(ctx, "set_bg_theme", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
             let theme: f32 = stack.consume(ctx)?;
             b.borrow_mut().queue.push(LuaCommand::SetBgTheme(theme));
@@ -1505,6 +1552,7 @@ fn apply_lua(
     mut sprites: Query<&mut Sprite>,
     mut texts: Query<&mut Text>,
     mut shake: ResMut<ScreenShake>,
+    mut cam_rig: ResMut<CameraRig>,
     mut bg_theme: ResMut<BackgroundTheme>,
     mut current_music: ResMut<CurrentMusic>,
     music_q: Query<Entity, With<MusicSound>>,
@@ -1684,6 +1732,11 @@ fn apply_lua(
             LuaCommand::Zoom(intensity) => {
                 shake.zoom = shake.zoom.max(intensity.clamp(0.0, 1.0));
             }
+            LuaCommand::Cam { x, y, zoom } => {
+                cam_rig.x = x;
+                cam_rig.y = y;
+                cam_rig.zoom = cam_zoom_clamp(zoom);
+            }
             LuaCommand::SetBgTheme(theme) => {
                 bg_theme.target = theme.clamp(0.0, 1.0);
             }
@@ -1735,6 +1788,7 @@ fn apply_lua(
 fn camera_shake(
     time: Res<Time>,
     mut shake: ResMut<ScreenShake>,
+    rig: Res<CameraRig>,
     mut cameras: Query<&mut Transform, With<GameCamera>>,
 ) {
     shake.trauma = (shake.trauma - time.delta_secs() * 1.6).max(0.0);
@@ -1742,10 +1796,22 @@ fn camera_shake(
         return;
     };
     shake.zoom = (shake.zoom - time.delta_secs() * 2.5).max(0.0);
+    // Compose: the rig is the scene's base pose, shake/punch layer on top.
+    // Camera Transform.scale is inverse magnification, hence the division.
     let (x, y) = shake_offset(shake.trauma, time.elapsed_secs());
-    transform.translation.x = x;
-    transform.translation.y = y;
-    transform.scale = Vec3::splat(zoom_scale(shake.zoom));
+    transform.translation.x = rig.x + x;
+    transform.translation.y = rig.y + y;
+    transform.scale = Vec3::splat(zoom_scale(shake.zoom) / rig.zoom);
+}
+
+/// Clamp a `game.cam` magnification to sane bounds; non-finite input (NaN/inf
+/// from a Lua expression gone wrong) falls back to 1.0 so the camera never
+/// disappears into a degenerate scale.
+fn cam_zoom_clamp(zoom: f32) -> f32 {
+    if !zoom.is_finite() {
+        return 1.0;
+    }
+    zoom.clamp(0.25, 4.0)
 }
 
 /// Camera scale for a zoom punch: quadratic ease (light taps barely move it),
@@ -1757,8 +1823,8 @@ fn zoom_scale(zoom: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::{
-        decode_store, encode_store, haptic_style, shake_offset, store_escape, store_unescape,
-        zoom_scale,
+        cam_zoom_clamp, decode_store, encode_store, haptic_style, shake_offset, store_escape,
+        store_unescape, zoom_scale,
     };
     use std::collections::HashMap;
 
@@ -1837,6 +1903,23 @@ mod tests {
             let (x, y) = shake_offset(1.0, t);
             assert!(x.abs() <= 24.0 + 1e-3, "x={x} out of range");
             assert!(y.abs() <= 24.0 + 1e-3, "y={y} out of range");
+        }
+    }
+
+    #[test]
+    fn cam_zoom_is_clamped_and_survives_nan() {
+        assert_eq!(cam_zoom_clamp(1.0), 1.0);
+        assert_eq!(cam_zoom_clamp(0.0), 0.25); // lower bound
+        assert_eq!(cam_zoom_clamp(100.0), 4.0); // upper bound
+        assert_eq!(cam_zoom_clamp(f32::NAN), 1.0); // degenerate input falls back
+        assert_eq!(cam_zoom_clamp(f32::INFINITY), 1.0);
+        // Composed camera scale stays positive & finite across the whole range:
+        // scale = zoom_scale(punch) / rig_zoom.
+        for punch in [0.0_f32, 0.5, 1.0] {
+            for z in [0.25_f32, 1.0, 4.0] {
+                let scale = zoom_scale(punch) / cam_zoom_clamp(z);
+                assert!(scale.is_finite() && scale > 0.0, "scale={scale}");
+            }
         }
     }
 
