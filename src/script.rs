@@ -2331,6 +2331,7 @@ fn apply_lua(
         ResMut<Rock3dState>,
         ResMut<Assets<Mesh>>,
         ResMut<Assets<StandardMaterial>>,
+        ResMut<Assets<crate::rock3d::SpaceMaterial>>,
         Query<&'static mut Camera, With<GameCamera>>,
     ),
     particles_alive: Query<(), With<Particle>>,
@@ -2346,6 +2347,7 @@ fn apply_lua(
         ref mut rocks,
         ref mut meshes,
         ref mut std_materials,
+        ref mut space_materials,
         ref mut cameras_2d,
     ) = vis;
     // Sprites spawn at increasing z so later-spawned things (ball) draw in front
@@ -2650,7 +2652,13 @@ fn apply_lua(
                 // rock3d.rs, which also restores it when the last rock dies.
                 if !rocks.booted {
                     rocks.booted = true;
-                    spawn_3d_rig(&mut commands, &mut *meshes, &mut *std_materials, &assets);
+                    spawn_3d_rig(
+                        &mut commands,
+                        &mut *meshes,
+                        &mut *std_materials,
+                        &mut *space_materials,
+                        &assets,
+                    );
                     for mut cam in cameras_2d.iter_mut() {
                         cam.order = 1;
                         cam.clear_color = ClearColorConfig::None;
@@ -2665,10 +2673,10 @@ fn apply_lua(
                 // Fully matte (rock, not plastic) so the flat facets read as
                 // stone; a touch of reflectance keeps lit faces from going flat.
                 let material = std_materials.add(StandardMaterial {
-                    base_color: Color::srgb(0.55, 0.55, 0.58),
-                    perceptual_roughness: 0.95,
+                    base_color: Color::srgb(0.42, 0.42, 0.46),
+                    perceptual_roughness: 1.0,
                     metallic: 0.0,
-                    reflectance: 0.25,
+                    reflectance: 0.18,
                     ..default()
                 });
                 let entity = commands

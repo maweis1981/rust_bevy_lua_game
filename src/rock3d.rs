@@ -31,10 +31,29 @@
 
 use bevy::mesh::VertexAttributeValues;
 use bevy::prelude::*;
+use bevy::render::render_resource::AsBindGroup;
+use bevy::shader::ShaderRef;
 use std::collections::HashMap;
 
 use crate::background::BackgroundQuad;
 use crate::script::{shake_offset, ScreenShake};
+
+const SPACE_SHADER: &str = "shaders/space.wgsl";
+
+/// Custom 3D material for the animated deep-space backdrop. `data` packs
+/// (time, aspect, energy, _) and is refreshed every frame; the fragment shader
+/// (`assets/shaders/space.wgsl`) draws a procedural nebula + parallax stars.
+#[derive(Asset, TypePath, AsBindGroup, Clone)]
+pub(crate) struct SpaceMaterial {
+    #[uniform(0)]
+    data: Vec4,
+}
+
+impl Material for SpaceMaterial {
+    fn fragment_shader() -> ShaderRef {
+        SPACE_SHADER.into()
+    }
+}
 
 /// Camera distance from the z = 0 gameplay plane. Lua's depth mapping
 /// (`-420 * z`) keeps rocks well inside the near/far range.
@@ -44,11 +63,16 @@ const CAM_DIST: f32 = 900.0;
 const CLEAR_3D: Color = Color::srgb(0.015, 0.02, 0.05);
 
 /// Radial displacement amplitude as a fraction of the sphere radius. Higher =
-/// more jagged; combined with FLAT normals this gives a faceted, angular rock.
-const ROCK_NOISE: f32 = 0.34;
+/// more jagged; with FLAT normals + few subdivisions this gives big, hard,
+/// crystalline facets — a proper angular asteroid.
+const ROCK_NOISE: f32 = 0.46;
 
-/// The starfield backdrop plane sits this far behind the gameplay plane and is
-/// this big — large enough to fill the view at that depth on any window.
+/// Icosphere subdivisions for the rock. 1 = 80 chunky faces (very faceted);
+/// 2 would be 320 (smoother). We want angular, so 1.
+const ROCK_SUBDIV: u32 = 1;
+
+/// The space backdrop plane sits this far behind the gameplay plane and is this
+/// big — large enough to fill the view at that depth on any window.
 const BACKDROP_Z: f32 = -2600.0;
 const BACKDROP_SIZE: f32 = 9000.0;
 
@@ -57,7 +81,11 @@ pub struct Rock3dPlugin;
 impl Plugin for Rock3dPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Rock3dState>()
-            .add_systems(Update, (sync_rock3d_camera, toggle_2d_backdrop));
+            .add_plugins(MaterialPlugin::<SpaceMaterial>::default())
+            .add_systems(
+                Update,
+                (sync_rock3d_camera, drive_space_backdrop, toggle_2d_backdrop),
+            );
     }
 }
 
@@ -90,8 +118,9 @@ pub(crate) struct Rock3dBackdrop;
 pub(crate) fn spawn_3d_rig(
     commands: &mut Commands,
     meshes: &mut Assets<Mesh>,
-    materials: &mut Assets<StandardMaterial>,
-    assets: &AssetServer,
+    _materials: &mut Assets<StandardMaterial>,
+    space_materials: &mut Assets<SpaceMaterial>,
+    _assets: &AssetServer,
 ) {
     commands.spawn((
         Camera3d::default(),
@@ -106,42 +135,39 @@ pub(crate) fn spawn_3d_rig(
             ..default()
         }),
         Transform::from_xyz(0.0, 0.0, CAM_DIST).looking_at(Vec3::ZERO, Vec3::Y),
-        // Low ambient: the unlit side of a rock stays dark, so the key light
-        // carves out every facet. Cool tint reads as reflected starlight.
+        // Very low ambient: the unlit side of a rock goes near-black, so the key
+        // light alone carves out every facet — deep shadows, hard edges. Cool
+        // tint reads as faint reflected starlight.
         AmbientLight {
-            color: Color::srgb(0.55, 0.65, 0.95),
-            brightness: 45.0,
+            color: Color::srgb(0.45, 0.55, 0.9),
+            brightness: 16.0,
             affects_lightmapped_meshes: true,
         },
         Rock3dCamera,
     ));
-    // Key light: hard, warm-white, from the upper-left-front — the main sculptor.
+    // Key light: hard, warm-white, low-angle from the upper-left-front — a
+    // grazing light rakes across every facet edge, maximizing the angular look.
     commands.spawn((
         DirectionalLight {
-            illuminance: 17_000.0,
-            color: Color::srgb(1.0, 0.97, 0.9),
+            illuminance: 24_000.0,
+            color: Color::srgb(1.0, 0.96, 0.86),
             ..default()
         },
-        Transform::from_xyz(-700.0, 850.0, 700.0).looking_at(Vec3::ZERO, Vec3::Y),
+        Transform::from_xyz(-900.0, 620.0, 480.0).looking_at(Vec3::ZERO, Vec3::Y),
     ));
-    // Fill/rim: dim cool light from the lower-right-back so the shadow side
-    // keeps a readable edge without washing out the contrast.
+    // Cool rim from behind-right: a thin bright edge separates rocks from the
+    // dark space without lifting the shadow side (keeps contrast punchy).
     commands.spawn((
         DirectionalLight {
-            illuminance: 3_200.0,
-            color: Color::srgb(0.5, 0.62, 1.0),
+            illuminance: 6_500.0,
+            color: Color::srgb(0.45, 0.6, 1.0),
             ..default()
         },
-        Transform::from_xyz(650.0, -500.0, -400.0).looking_at(Vec3::ZERO, Vec3::Y),
+        Transform::from_xyz(760.0, -260.0, -520.0).looking_at(Vec3::ZERO, Vec3::Y),
     ));
-    // Starfield backdrop: a big unlit textured plane facing the camera, far
-    // behind the rocks. Unlit + emissive-free means it shows the texture as-is.
-    let tex = assets.load("textures/starfield.png");
-    let backdrop_mat = materials.add(StandardMaterial {
-        base_color_texture: Some(tex),
-        unlit: true,
-        ..default()
-    });
+    // Space backdrop: a big plane far behind the rocks with the animated
+    // SpaceMaterial shader (procedural nebula + parallax stars).
+    let backdrop_mat = space_materials.add(SpaceMaterial { data: Vec4::ZERO });
     let backdrop_mesh = meshes.add(Rectangle::new(BACKDROP_SIZE, BACKDROP_SIZE));
     commands.spawn((
         Mesh3d(backdrop_mesh),
@@ -182,6 +208,23 @@ fn sync_rock3d_camera(
     let (x, y) = shake_offset(shake.trauma, time.elapsed_secs());
     transform.translation.x = x;
     transform.translation.y = y;
+}
+
+/// Feed time/aspect/energy to the animated space backdrop shader each frame.
+fn drive_space_backdrop(
+    time: Res<Time>,
+    shake: Res<ScreenShake>,
+    windows: Query<&Window>,
+    mut mats: ResMut<Assets<SpaceMaterial>>,
+) {
+    let aspect = windows
+        .single()
+        .map(|w| w.width() / w.height().max(1.0))
+        .unwrap_or(1.0);
+    let data = Vec4::new(time.elapsed_secs(), aspect, shake.trauma, 0.0);
+    for (_, m) in mats.iter_mut() {
+        m.data = data;
+    }
 }
 
 /// While any rock is alive, hide the opaque aurora quad (it would cover the 3D
@@ -237,8 +280,8 @@ fn vertex_noise(p: [f32; 3]) -> f32 {
 pub(crate) fn rock_mesh() -> Mesh {
     let mut mesh = Sphere::new(0.5)
         .mesh()
-        .ico(2)
-        .expect("2 subdivisions is far below the icosphere vertex limit");
+        .ico(ROCK_SUBDIV)
+        .expect("subdivisions are far below the icosphere vertex limit");
     if let Some(VertexAttributeValues::Float32x3(positions)) =
         mesh.attribute_mut(Mesh::ATTRIBUTE_POSITION)
     {
