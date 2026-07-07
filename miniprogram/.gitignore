@@ -5,3 +5,4 @@ wechat/boot/
 wechat/engine/shared/
 douyin/boot/
 douyin/engine/shared/
+tiktok/engine.bundle.js

@@ -1,4 +1,4 @@
-# 上架 Checklist — 微信小游戏 + 抖音小游戏
+# 上架 Checklist — 微信小游戏 + 抖音小游戏 + TikTok Mini Games
 
 Time Dodge 小游戏（`miniprogram/`）从「代码就绪」到「商店上线」的完整步骤。
 代码已按官方文档实现并做过无头验证（引擎不变量 + 分包启动接线，`node
@@ -111,6 +111,29 @@ ABSORB 模式「取消这次撞击 YES」触发激励视频（看完才免除扣
 - 微信：开发者工具「上传」→ mp 后台「版本管理」提交审核 → 通过后发布。
 - 抖音：开发者工具「上传」→ 开放平台提交审核 → 通过后发布。
 - 含激励视频广告的，会一并走**变现合规**审核；确保广告位与内容分级一致。
+
+---
+
+## 8. TikTok Mini Games（国际版，`tiktok/`，跟抖音是两回事）
+
+TikTok 用的是 **`TTMinis.game.*`** SDK，**HTML 运行时是真 webview**（有 DOM、
+`<canvas>`、`localStorage`），所以 `tiktok/` 就是一个普通 HTML5 页面——比微信/抖音
+简单，无分包概念。
+
+| # | 事项 | 状态 |
+|---|------|------|
+| 8.1 | 在 **developers.tiktok.com** 注册开发者、创建 **Mini Game** 应用，拿 **client key** | 🔴 |
+| 8.2 | `tiktok/index.html` 里 `clientKey: 'YOUR_TIKTOK_CLIENT_KEY'` 换成你的 | 🟡 |
+| 8.3 | `tiktok/adapter.js` 里 `adUnitId: 'YOUR_TIKTOK_AD_UNIT_ID'` 换成真实激励视频广告位 | 🟡 |
+| 8.4 | 跑 `sh prepare.sh` 生成 `tiktok/engine.bundle.js`（由 `shared/` 打包，gitignore）| 🟢 |
+| 8.5 | 本地预览：`cd miniprogram/tiktok && python3 -m http.server` 打开——SDK 在 TikTok 外自动 no-op，游戏照跑 | 🟢 |
+| 8.6 | 按 TikTok 文档打包（HTML runtime：通常压缩 `tiktok/` 目录上传；具体产物格式以门户「Develop your mini game」为准）| 🔴 |
+| 8.7 | 真机/TikTok 内验证：触控、`localStorage` 存档、`createRewardedVideoAd` 生命周期（**确认 close/奖励回调字段**，代码里按 `isEnded` 建模，标了 `NOTE(ship)`）| 🔴 |
+| 8.8 | 提交 TikTok 审核（内容 + 变现）| 🔴 |
+
+> 与抖音的区别：抖音 = `tt.*`、无 DOM、`tt.createCanvas`、走 open-douyin 门户；
+> TikTok = `TTMinis.game.*`、HTML webview、普通 `<canvas>`、走 developers.tiktok.com。
+> 两者各是独立工程、独立账号、独立广告位。
 
 ---
 
