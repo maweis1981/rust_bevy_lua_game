@@ -251,6 +251,45 @@ local function forge_teaching()
   on_tap(d.back.x, d.back.y); step()
 end
 
+local function forge_daily()
+  boot(); rand_mode = "mixed"
+  local d = enter("forge")
+  check(d.mode() == "normal", "forge should start in normal mode")
+  local chip = d.daily_chip()
+  check(chip ~= nil, "the DAILY chip must exist")
+  on_tap(chip.x, chip.y); step()
+  check(d.mode() == "daily", "tapping the chip must enter daily mode")
+  local function record_deals()
+    local seq = {}
+    for k = 1, 8 do
+      seq[k] = d.next_level()
+      inject_at(150 + k * 8, k * 9)
+      for _ = 1, 14 do step() end
+    end
+    return seq
+  end
+  local seq1 = record_deals()
+  chip = d.daily_chip()
+  on_tap(chip.x, chip.y); step()               -- toggle back to normal
+  check(d.mode() == "normal", "chip must toggle back to normal")
+  chip = d.daily_chip()
+  on_tap(chip.x, chip.y); step()               -- fresh daily run, same date
+  local seq2 = record_deals()
+  for k = 1, 8 do
+    check(seq1[k] == seq2[k],
+      string.format("daily deal %d must match across runs of the same date (%s vs %s)",
+        k, tostring(seq1[k]), tostring(seq2[k])))
+  end
+  -- pressing the chip must never inject a star (it is UI, not play space)
+  local tm0 = d.total_mass()
+  chip = d.daily_chip()
+  game._px, game._py, game._down = chip.x, chip.y, true
+  step(); game._down = false; step()
+  check(d.total_mass() <= tm0 + 1e-6, "holding/releasing on the DAILY chip must not inject")
+  clear_input()
+  on_tap(d.back.x, d.back.y); step()
+end
+
 ----------------------------------------------------------------------
 -- Fireflies — boids contracts
 ----------------------------------------------------------------------
@@ -349,6 +388,7 @@ forge_orbit_stability()
 forge_fusion()
 forge_long_run()
 forge_teaching()
+forge_daily()
 fireflies_cohesion()
 fireflies_scoring_and_loss()
 

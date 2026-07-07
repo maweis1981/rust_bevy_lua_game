@@ -66,11 +66,33 @@ function make_forge()
   local rmax = 900
   local trail_k = 0          -- frame counter for the speed trail
 
+  -- Daily challenge (M2): everyone in the world gets the same deal sequence
+  -- for the same UTC date — an independent LCG seeded by the date, so the
+  -- global math.random stream (and the teaching hand) stays untouched.
+  local daily, daily_rng = false, 0
+  local daily_chip = nil     -- tap target that toggles the mode
+
+  local function date_key()
+    local y, m, d = game.date_utc()
+    return string.format("%04d%02d%02d", y, m, d)
+  end
+
+  local function daily_seed()
+    local y, m, d = game.date_utc()
+    return (y * 10000 + m * 100 + d) % 2147483648
+  end
+
+  local function next_daily()
+    daily_rng = (1103515245 * daily_rng + 12345) % 2147483648
+    return math.floor((daily_rng / 2147483648) * 3) + 1
+  end
+
   local function gm() return GM0 * (1 + total_mass / MASS_SCALE) end
 
   local function hud()
     local combo = combo_n >= 2 and string.format("   x%d", combo_n) or ""
-    game.set_text(string.format("SCORE %d   NEXT L%d   CORES %d%s", score, next_level, lives, combo))
+    local tag = daily and "DAILY   " or ""
+    game.set_text(string.format("%sSCORE %d   NEXT L%d   CORES %d%s", tag, score, next_level, lives, combo))
   end
 
   local function tint(id, level)
@@ -84,8 +106,11 @@ function make_forge()
   end
 
   local function draw_next()
-    -- deal from the teaching sequence on early runs, then true random
-    if teach_i > 0 and teach_i <= #TEACH_SEQ then
+    -- daily deals from the date-seeded LCG; otherwise the teaching sequence
+    -- on early runs, then true random
+    if daily then
+      next_level = next_daily()
+    elseif teach_i > 0 and teach_i <= #TEACH_SEQ then
       next_level = TEACH_SEQ[teach_i]
       teach_i = teach_i + 1
     else
@@ -148,13 +173,15 @@ function make_forge()
   local function game_over()
     playing = false
     hide_aim()
-    local best = game.load("forge_best") or 0
+    local best_key = daily and ("forge_daily_" .. date_key()) or "forge_best"
+    local best = game.load(best_key) or 0
     local is_best = score > best
-    if is_best then best = score; game.save("forge_best", score) end
+    if is_best then best = score; game.save(best_key, score) end
     -- settlement card (E2: a dignified failure screen, one tap to retry)
     local P = over_ids
     P[#P + 1] = game.spawn(0, 30, 330, 250, 0.06, 0.05, 0.13, 0.92)
-    P[#P + 1] = game.spawn_text(0, 120, 30, 1.0, 0.75, 0.35, 1, "THE FORGE COOLED")
+    P[#P + 1] = game.spawn_text(0, 120, 30, 1.0, 0.75, 0.35, 1,
+      daily and ("DAILY " .. date_key()) or "THE FORGE COOLED")
     P[#P + 1] = game.spawn_text(0, 66, 26, 1, 1, 1, 1, string.format("SCORE  %d", score))
     P[#P + 1] = game.spawn_text(0, 26, 20, 0.8, 0.85, 1.0, 1,
       is_best and "NEW BEST!" or string.format("BEST  %d", best))
@@ -245,13 +272,24 @@ function make_forge()
       game.set_color(aim_dots[k], 1, 1, 1, 0)
     end
     back = K.make_back(T, hw, hh)
+    -- DAILY chip: everyone plays the same deal today; tap toggles the mode
+    local chip_x, chip_y = hw - 62, hh - 84
+    local chip_id = T.spawn(chip_x, chip_y, 96, 34, 0.25, 0.2, 0.45, daily and 1 or 0.55)
+    T.text(chip_x, chip_y, 16, 1, 1, 1, 1, daily and "DAILY ON" or "DAILY")
+    daily_chip = { x = chip_x, y = chip_y, w = 96, h = 34, id = chip_id }
     clear_bodies()
     clear_over_card()
     score, lives, best_level = 0, LIVES0, 1
     total_mass, combo_n, combo_t = 0, 0, 0
-    local runs = (game.load("forge_runs") or 0) + 1
-    game.save("forge_runs", runs)
-    teach_i = (runs <= TEACH_RUNS) and 1 or 0
+    if daily then
+      daily_rng = daily_seed()
+      teach_i = 0
+      game.track("forge_daily_start", daily_seed())
+    else
+      local runs = (game.load("forge_runs") or 0) + 1
+      game.save("forge_runs", runs)
+      teach_i = (runs <= TEACH_RUNS) and 1 or 0
+    end
     draw_next()
     spawn_cd, playing = 0, true
     aiming, was_down = false, false
@@ -266,6 +304,8 @@ function make_forge()
       alive = function() return playing end,
       next_level = function() return next_level end,
       again = function() return again_rect end,
+      mode = function() return daily and "daily" or "normal" end,
+      daily_chip = function() return daily_chip end,
       body_count = function() return #bodies end,
       total_mass = function() return total_mass end,
       gm = function() return gm() end,
@@ -291,6 +331,12 @@ function make_forge()
     -- Taps only drive UI now; injection is hold-to-aim + release (see update).
     tap = function(x, y)
       if back and inr(back, x, y) then K.switch("menu"); return end
+      if daily_chip and inr(daily_chip, x, y) then
+        daily = not daily
+        game.play_sound("hit"); game.haptic("light")
+        restart()
+        return
+      end
       if not playing then restart(); return end
     end,
 
@@ -304,7 +350,8 @@ function make_forge()
 
       -- hold to aim, release to launch (the ghost + tangent dots preview)
       local px, py, down = game.pointer()
-      if down and px and not (back and inr(back, px, py)) then
+      if down and px and not (back and inr(back, px, py))
+          and not (daily_chip and inr(daily_chip, px, py)) then
         aiming, aim_x, aim_y = true, px, py
         show_aim(px, py)
       elseif aiming and not down then
