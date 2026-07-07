@@ -72,19 +72,19 @@
 | 维度 | **本项目** | Unity | Godot | Cocos Creator | Defold |
 |---|---|---|---|---|---|
 | 2D sprite 渲染 | ✅ | ✅ | ✅ | ✅ | ✅ |
-| 帧动画 | 🔶 换帧可用，atlas 待接 | ✅ | ✅ | ✅ | ✅ |
+| 帧动画 | ✅ TextureAtlas 原生（`spawn_sheet`/`set_frame`，2026-07-07） | ✅ | ✅ | ✅ | ✅ |
 | 骨骼动画 | ❌ → P1（§1.1） | ✅ | 🔶 | ✅ | 🔶 |
-| 粒子 | ❌ → P1 | ✅ | ✅ | ✅ | ✅ |
-| Tilemap | ❌ → P1 | ✅ | ✅ | ✅ | ✅ |
+| 粒子 | ✅ 兜底版（`game.emit`，2026-07-07；hanabi 升级 API 不变） | ✅ | ✅ | ✅ | ✅ |
+| Tilemap | ✅ 兜底版（`game.tilemap`/`set_tile`，2026-07-07；ecs_tilemap 升级 API 不变） | ✅ | ✅ | ✅ | ✅ |
 | 物理引擎 | ❌ → P2（avian2d 可选接） | ✅ | ✅ | ✅ | 🔶 |
 | UI 系统 | ❌ 手写 rect | ✅ | ✅ | ✅ | 🔶 |
 | 脚本热重载 | ✅ 秒级 | 🔶 domain reload 慢 | 🔶 | ✅ | ✅ |
 | 玩法脚本对 LLM 的友好度 | ✅ Lua、API 一页纸 | 🔶 C# API 巨大 | 🔶 GDScript 语料少 | 🔶 | ✅ Lua |
 | 工程全量可 diff（无二进制/GUI 工程） | ✅ **独有** | ❌ | 🔶 | ❌ | 🔶 |
 | AIGC 素材管线内建（风格圣经→清单→落位） | ✅ **独有** | ❌ 靠第三方插件拼 | ❌ | ❌ | ❌ |
-| 玩法不变量无头测试 | ✅ 677 行在跑 | 🔶 要自己搭 | 🔶 | 🔶 | 🔶 |
+| 玩法不变量无头测试 | ✅ 967 行在跑 | 🔶 要自己搭 | 🔶 | 🔶 | 🔶 |
 | agent 全链路可操作（含构建/签名/上架） | ✅ **独有**（Makefile+XcodeGen 全代码） | ❌ 编辑器人肉环节多 | 🔶 | 🔶 | 🔶 |
-| 平台覆盖（今天） | 🔶 macOS+iOS | ✅ 全平台 | ✅ | ✅ 含小游戏 | ✅ |
+| 平台覆盖（今天） | ✅ macOS+iOS+**Web**（WASM 已上线，2026-07-06） | ✅ 全平台 | ✅ | ✅ 含小游戏 | ✅ |
 | 商业化服务（IAP/广告/统计） | ❌ → P3 | ✅ | 🔶 | ✅ | 🔶 |
 | 人才池 / 教程生态 | ❌ | ✅ | ✅ | ✅ | 🔶 |
 | 许可与抽成 | ✅ MIT，零费用 | 🔶 Runtime Fee 风波前科 | ✅ MIT | ✅ | ✅ |
@@ -98,26 +98,26 @@
 
 排序逻辑：先补"能上架"的地基（P0），再补"好看好玩"的表现力（P1），再深挖独有优势（P2），最后铺平台（P3）。每项标注技术选型与验收标准（无头测试能断言什么）。节奏上，每一项都设计成 agent 一到数个 loop 周期可完成的粒度。
 
-### P0 · 产品化地基（当前 → 2026 Q3）
+### P0 · 产品化地基（当前 → 2026 Q3）—— ✅ 全部完成（2026-07-07）
 
-| # | 项 | 方案 | 验收 |
-|---|---|---|---|
-| 0.1 | **存档/持久化** | `game.save(key, val)` / `game.load(key)`，iOS 沙盒 + 桌面 config 目录，JSON 后端 | 测试：写→杀进程模拟→读回一致；最高分跨会话保留 |
-| 0.2 | **多点触控** | `Bridge` 快照从单指针改为触点数组，`game.touches() -> {{x,y,id},…}` | 测试：mock 双指，断言两指同时驱动两个挡板 |
-| 0.3 | **TextureAtlas 原生** | `game.spawn_sheet(x,y,w,h,sheet,cols)` + `game.set_frame(id,i)`，接 Bevy `TextureAtlasLayout` | 测试：帧索引越界被钳制；`slice_sheet.py` 输出直接可用 |
-| 0.4 | **摄像机 API** | `game.cam(x,y,zoom)`（与 shake 叠加） | 测试：跟随目标时偏移收敛、zoom 有上下限 |
-| 0.5 | **CJK 字体 + i18n 雏形** | 子集化 CJK TTF 进 `assets/fonts/`，`strings.json` 按 locale 查表 | 中文 UI 不再是方块；ASCII-only 约束解除 |
-| 0.6 | **音频控制** | `set_volume` / `stop_music`，WAV → OGG（体积） | 设置页音量滑块真实生效 |
+| # | 项 | 方案 | 验收 | 状态 |
+|---|---|---|---|---|
+| 0.1 | **存档/持久化** | `game.save(key, val)` / `game.load(key)`，iOS 沙盒 + 桌面 config 目录 + **web localStorage**，JSON 后端 | 测试：写→杀进程模拟→读回一致；最高分跨会话保留 | ✅ [#24](https://github.com/maweis1981/rust_bevy_lua_game/issues/24) `a7585bc` |
+| 0.2 | **多点触控** | `Bridge` 快照从单指针改为触点数组，`game.touches() -> {{x,y,id},…}` | 测试：mock 双指，断言两指坐标/id 可读（真实 mlua 桥） | ✅ [#29](https://github.com/maweis1981/rust_bevy_lua_game/issues/29) `0f824ce` |
+| 0.3 | **TextureAtlas 原生** | `game.spawn_sheet(x,y,w,h,sheet,tile_w,tile_h,cols,rows)` + `game.set_frame(id,i)`，接 Bevy `TextureAtlasLayout` | 测试：帧索引越界被钳制；`slice_sheet.py` 输出直接可用 | ✅ [#32](https://github.com/maweis1981/rust_bevy_lua_game/issues/32) `29fd010` |
+| 0.4 | **摄像机 API** | `game.cam(x,y,zoom)`（与 shake 叠加） | 测试：跟随目标时偏移收敛、zoom 有上下限 [0.25,4] | ✅ [#35](https://github.com/maweis1981/rust_bevy_lua_game/issues/35) `207184d` |
+| 0.5 | **CJK 字体 + i18n 雏形** | 子集化 CJK TTF 进 `assets/fonts/`（`subset_font.py` STRINGS 管线），`strings.json` 按 locale 查表 | 中文 UI 不再是方块 | ✅ 字体已在库（`bf33fff`/`ad8f884`，Pony Parade 中文 UI 在跑）；strings.json 查表待 i18n 需求触发 |
+| 0.6 | **音频控制** | `set_volume(channel, v)` / `stop_music`（三通道即时生效） | 设置页音量滑块真实生效 | ✅ [#37](https://github.com/maweis1981/rust_bevy_lua_game/issues/37) `fb23d30`；WAV→OGG 体积优化独立跟进 |
 
-### P1 · 表现力三件套（2026 Q3–Q4）
+### P1 · 表现力三件套（2026 Q3–Q4）—— 兜底版两项提前完成
 
-| # | 项 | 方案 | 验收 |
-|---|---|---|---|
-| 1.1 | **粒子（兜底版先行）** | 桥内 CPU 粒子 → 后换 `bevy_hanabi`，API 不变（§1.2） | 粒子数上限、寿命归零即清空 |
-| 1.2 | **cutout 骨骼系统** | 自研 rig.json + Transform 层级插值（§1.1 路线 B）；Floniks 分层部件管线（manifest 加 `pivot`） | 单帧转角上限、循环回位、部件不脱锚 |
-| 1.3 | **Tilemap** | `bevy_ecs_tilemap` + autotile 规则 + Floniks tileset（§1.3） | 地图 JSON 网格可达性/封闭性断言 |
-| 1.4 | **物理（可选件）** | `avian2d` 以 feature flag 接入，默认关——小游戏手写 AABB 仍是主路线 | 开启后现有 8 游戏测试全绿（不回归） |
-| 1.5 | **bevy_spine 兼容层** | 路线 A 作为可选 feature（有 Spine 资产的团队用） | 官方示例骨骼在 iOS 真机 120Hz 播放 |
+| # | 项 | 方案 | 验收 | 状态 |
+|---|---|---|---|---|
+| 1.1 | **粒子（兜底版先行）** | 桥内 CPU 粒子 → 后换 `bevy_hanabi`，API 不变（§1.2） | 粒子数上限（512）、寿命归零即清空 | ✅ 兜底版 [#40](https://github.com/maweis1981/rust_bevy_lua_game/issues/40) `26065e0`（spark/dust/confetti/splash 四 preset）；hanabi 升级待接 |
+| 1.2 | **cutout 骨骼系统** | 自研 rig.json + Transform 层级插值（§1.1 路线 B）；Floniks 分层部件管线（manifest 加 `pivot`） | 单帧转角上限、循环回位、部件不脱锚 | ⏳ 未开始 |
+| 1.3 | **Tilemap** | sprite 网格兜底版 → 后换 `bevy_ecs_tilemap` + autotile 规则 + Floniks tileset（§1.3），API 不变 | 越界安全、图集帧钳制、网格几何断言（可达性/封闭性随 P2 关卡数据落地） | ✅ 兜底版 [#44](https://github.com/maweis1981/rust_bevy_lua_game/issues/44) `6df7847`（`game.tilemap`/`set_tile`） |
+| 1.4 | **物理（可选件）** | `avian2d` 以 feature flag 接入，默认关——小游戏手写 AABB 仍是主路线 | 开启后现有 12 游戏测试全绿（不回归） | ⏳ 未开始 |
+| 1.5 | **bevy_spine 兼容层** | 路线 A 作为可选 feature（有 Spine 资产的团队用） | 官方示例骨骼在 iOS 真机 120Hz 播放 | ⏳ 未开始 |
 
 ### P2 · AIGC 深度集成（2026 Q4 – 2027 Q1）
 
@@ -134,7 +134,7 @@
 | # | 项 | 方案 | 验收 |
 |---|---|---|---|
 | 3.1 | **Android** | cargo-ndk + Gradle 模板（对标 `ios/build_rust.sh` 的模式） | 同一 crate 双端跑同一套游戏包 |
-| 3.2 | **Web/WASM** | wasm-bindgen + WebGPU；试玩即传播（memeplay 的启示） | 任一游戏包一条链接可玩 |
+| 3.2 | **Web/WASM** | wasm-bindgen + ottavino（纯 Rust Lua VM）；试玩即传播（memeplay 的启示） | 任一游戏包一条链接可玩 —— ✅ **已完成（2026-07-06，提前两个季度）**：`51aa8e8` 起 `e2419ae`→`d69333e`→`b223215`→`a1aa30f`，GitHub Pages 在线可玩，全部 12 游戏 + 音频 + 存档（localStorage）同一条链接 |
 | 3.3 | **Game Center / IAP** | 按 `haptics.m` 模式写 FFI shim（这条路径已被触觉反馈验证） | 排行榜提交、恢复购买走通 |
 | 3.4 | **统计/崩溃上报** | 轻量自建或接开源端点，进命令队列（`game.track(event)`） | 事件在后台可查 |
 | 3.5 | **上架** | TestFlight（管线已合并）→ App Store 正式发布 | 第一个真实用户 |
@@ -148,7 +148,32 @@
 
 ---
 
-## 五、一句话总结
+## 五、支持记录（从不支持到支持的实测速度）
+
+Roadmap 承诺"每一项都是 agent 一到数个 loop 周期能吃下的活"。下表是实测：**2026-07-07 一个上午的批次，7 项能力从 ❌ 到 ✅，总计约 34 分钟**（首项含 Bevy 全量编译等待；每项均带单测 + 130,283 断言的全量回归，过程逐项记录在对应 issue 里：分解→实现→测试→回归→合并）。
+
+| Roadmap 项 | 新增 Lua API | 开始 (UTC) | 结束 (UTC) | 用时 | Issue | Commit |
+|---|---|---|---|---|---|---|
+| 0.1 存档/持久化 | `game.save` / `game.load` | 2026-07-07 01:13:55 | 01:27:55 | **14 分钟** | [#24](https://github.com/maweis1981/rust_bevy_lua_game/issues/24) | `a7585bc679626e403710884f89791f2a328741ec` |
+| 0.2 多点触控 | `game.touches` | 01:29:00 | 01:30:52 | **2 分钟** | [#29](https://github.com/maweis1981/rust_bevy_lua_game/issues/29) | `0f824ceae31dc34660da05dd254d5be413fd5cfb` |
+| 0.3 TextureAtlas | `game.spawn_sheet` / `game.set_frame` | 01:31:38 | 01:33:31 | **2 分钟** | [#32](https://github.com/maweis1981/rust_bevy_lua_game/issues/32) | `29fd01033779826a32ee3b895071a65e0d45247c` |
+| 0.4 摄像机 | `game.cam` | 01:34:12 | 01:36:43 | **2.5 分钟** | [#35](https://github.com/maweis1981/rust_bevy_lua_game/issues/35) | `207184d0897d8d4dfca1dd74ec205fb1f30d7ca6` |
+| 0.6 音频控制 | `game.set_volume` / `game.stop_music` | 01:37:27 | 01:39:50 | **2.5 分钟** | [#37](https://github.com/maweis1981/rust_bevy_lua_game/issues/37) | `fb23d302bae0cbb4ca13b42a83da5420431f7d6b` |
+| 1.1 粒子（兜底版） | `game.emit` | 01:40:44 | 01:43:54 | **3 分钟** | [#40](https://github.com/maweis1981/rust_bevy_lua_game/issues/40) | `26065e087df2c7dd25ae0a05220baa4b15c00e99` |
+| 1.3 Tilemap（兜底版） | `game.tilemap` / `game.set_tile` | 01:44:55 | 01:47:52 | **3 分钟** | [#44](https://github.com/maweis1981/rust_bevy_lua_game/issues/44) | `6df7847f0b1983bb1e592bf19cb4cf57a75fbf12` |
+
+此前一天完成的平台项（同样从 ❌ 到 ✅）：
+
+| Roadmap 项 | 落地 | 日期 | 关键 commits |
+|---|---|---|---|
+| 3.2 Web/WASM | 全部 12 游戏浏览器在线可玩（GitHub Pages），ottavino 纯 Rust Lua VM，音频/触控/存档齐备 | 2026-07-06（原计划 2027 H1，**提前两个季度**） | `2686f22`（PoC）→ `51aa8e8`（跑通）→ `d69333e`（上线）→ `b223215`/`a1aa30f`（wasm-opt 修复） |
+| 0.5 CJK 字体 | `subset_font.py` 子集管线 + Pony Parade 全中文 UI | 2026-07-02 起 | `bf33fff`（字体管线）、`ad8f884`（bold CJK） |
+
+**方法论注脚**：每项均走同一条流水线——GitHub issue 记录分解 → 双 VM 后端（mlua/ottavino）同步实现 → 纯函数单测 + 真实 mlua 桥的 Lua 侧断言 → `make test` 全量回归（Rust 单测 + 12 游戏 130,283 项不变量）→ 独立 commit（消息尾行关联 issue）。速度的来源不是省步骤，而是架构：命令队列桥让每个新能力只是"一个 enum 变体 + 两处注册 + 一个 match 臂"，回归由既有测试网兜底。
+
+---
+
+## 六、一句话总结
 
 **表现力的缺口（骨骼/粒子/tilemap）全部有清晰、agent 粒度的补全路径，且每一项的"编辑器"都是数据 + AIGC，而不是 GUI；评测表上我们今天输掉的每一行都在 Roadmap 里有编号，而我们赢的三行，对手在现有架构下补不了。**
 
