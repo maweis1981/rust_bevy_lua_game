@@ -43,6 +43,10 @@
 //!   game.pointer() -> x, y, down               (mouse/touch in world coords;
 //!                                               x,y are nil when unavailable,
 //!                                               down = button/finger held)
+//!   game.touches() -> {{x,y,id},…}             (ALL active touches in world
+//!                                               coords with stable finger ids;
+//!                                               desktop synthesizes one touch
+//!                                               (id 0) while the mouse is held)
 //!   game.key(name) -> bool                     (held keys: "up"/"down"/"left"/
 //!                                               "right"/"w"/"a"/"s"/"d"/"space")
 //!   game.save(key, val)                        (persist a string/number/bool
@@ -397,6 +401,9 @@ struct Bridge {
     pointer: Option<(f32, f32)>,
     /// Whether the left mouse button or a touch is currently held.
     pointer_down: bool,
+    /// ALL active touches this frame in world coords, with their stable finger
+    /// ids (roadmap 0.2). `pointer` above stays the single-pointer view.
+    touches: Vec<(f32, f32, u64)>,
     /// Names of the keys held this frame (see `key_snapshot`).
     keys: std::collections::HashSet<&'static str>,
     /// The persisted save store (roadmap 0.1). Loaded once at VM creation so
@@ -466,11 +473,13 @@ impl LuaVm {
         pointer: Option<(f32, f32)>,
         pointer_down: bool,
         keys: std::collections::HashSet<&'static str>,
+        touches: Vec<(f32, f32, u64)>,
     ) {
         if let Some(mut bridge) = self.lua.app_data_mut::<Bridge>() {
             bridge.pointer = pointer;
             bridge.pointer_down = pointer_down;
             bridge.keys = keys;
+            bridge.touches = touches;
         }
     }
 
@@ -553,6 +562,25 @@ fn register_api(lua: &Lua) -> mlua::Result<()> {
                 .map(|b| b.keys.contains(name.as_str()))
                 .unwrap_or(false);
             Ok(held)
+        })?,
+    )?;
+
+    game.set(
+        "touches",
+        lua.create_function(|lua, ()| {
+            let snapshot = lua
+                .app_data_ref::<Bridge>()
+                .map(|b| b.touches.clone())
+                .unwrap_or_default();
+            let list = lua.create_table()?;
+            for (i, (x, y, id)) in snapshot.into_iter().enumerate() {
+                let touch = lua.create_table()?;
+                touch.set("x", x)?;
+                touch.set("y", y)?;
+                touch.set("id", id)?;
+                list.set(i + 1, touch)?;
+            }
+            Ok(list)
         })?,
     )?;
 
@@ -896,11 +924,13 @@ impl LuaVm {
         pointer: Option<(f32, f32)>,
         pointer_down: bool,
         keys: std::collections::HashSet<&'static str>,
+        touches: Vec<(f32, f32, u64)>,
     ) {
         let mut b = self.bridge.borrow_mut();
         b.pointer = pointer;
         b.pointer_down = pointer_down;
         b.keys = keys;
+        b.touches = touches;
     }
 
     fn on_tap(&mut self, x: f32, y: f32) {
@@ -985,6 +1015,21 @@ fn register_api(lua: &mut Lua, bridge: Rc<RefCell<Bridge>>) {
             let name: ottavino::String = stack.consume(ctx)?;
             let held = b.borrow().keys.contains(name.to_str().unwrap_or(""));
             stack.replace(ctx, held);
+            Ok(CallbackReturn::Return)
+        })).unwrap();
+
+        let b = bridge.clone();
+        game.set(ctx, "touches", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let snapshot = b.borrow().touches.clone();
+            let list = Table::new(&ctx);
+            for (i, (x, y, id)) in snapshot.into_iter().enumerate() {
+                let touch = Table::new(&ctx);
+                touch.set(ctx, "x", x as f64).unwrap();
+                touch.set(ctx, "y", y as f64).unwrap();
+                touch.set(ctx, "id", id as i64).unwrap();
+                list.set(ctx, (i + 1) as i64, touch).unwrap();
+            }
+            stack.replace(ctx, list);
             Ok(CallbackReturn::Return)
         })).unwrap();
 
@@ -1332,7 +1377,25 @@ fn tick_lua(
         .and_then(|p| camera.viewport_to_world_2d(cam_transform, p).ok())
         .map(|w| (w.x, w.y));
 
-    vm.set_input(pointer_world, pointer_down, key_snapshot(&keyboard));
+    // Multi-touch snapshot (roadmap 0.2): every active finger in world coords.
+    // Desktop has no touchscreen, so a held left button becomes one synthetic
+    // touch (id 0) — multi-touch game logic stays debuggable with a mouse.
+    let mut touch_list: Vec<(f32, f32, u64)> = touches
+        .iter()
+        .filter_map(|t| {
+            camera
+                .viewport_to_world_2d(cam_transform, t.position())
+                .ok()
+                .map(|w| (w.x, w.y, t.id()))
+        })
+        .collect();
+    if touch_list.is_empty() && mouse.pressed(MouseButton::Left) {
+        if let Some((x, y)) = pointer_world {
+            touch_list.push((x, y, 0));
+        }
+    }
+
+    vm.set_input(pointer_world, pointer_down, key_snapshot(&keyboard), touch_list);
     vm.update(time.delta_secs());
 }
 
@@ -1602,7 +1665,44 @@ fn zoom_scale(zoom: f32) -> f32 {
 
 #[cfg(test)]
 mod tests {
-    use super::{haptic_style, shake_offset, zoom_scale};
+    use super::{haptic_style, shake_offset, zoom_scale, LuaVm};
+
+    // Drives the REAL bridge (mlua host): inject a two-finger snapshot and let
+    // Lua itself assert both touches arrive with world coords and stable ids —
+    // the roadmap-0.2 "mock two fingers" acceptance at the bridge level.
+    #[test]
+    fn multi_touch_snapshot_reaches_lua() {
+        let mut vm = LuaVm::new();
+        vm.set_input(
+            Some((10.0, 20.0)),
+            true,
+            Default::default(),
+            vec![(10.0, 20.0, 3), (-42.5, 7.0, 8)],
+        );
+        vm.exec_chunk(
+            r#"
+            local t = game.touches()
+            assert(#t == 2, "expected two active touches")
+            assert(t[1].x == 10.0 and t[1].y == 20.0 and t[1].id == 3, "touch 1 mismatch")
+            assert(t[2].x == -42.5 and t[2].y == 7.0 and t[2].id == 8, "touch 2 mismatch")
+            local x, y, down = game.pointer()
+            assert(x == 10.0 and y == 20.0 and down == true, "pointer() must stay compatible")
+            "#,
+            "touch_test",
+        )
+        .expect("multi-touch Lua assertions failed");
+    }
+
+    #[test]
+    fn no_touches_yields_empty_table_not_nil() {
+        let mut vm = LuaVm::new();
+        vm.set_input(None, false, Default::default(), Vec::new());
+        vm.exec_chunk(
+            "local t = game.touches(); assert(type(t) == 'table' and #t == 0)",
+            "touch_empty_test",
+        )
+        .expect("empty-touch Lua assertions failed");
+    }
 
     #[test]
     fn haptic_kinds_map_to_styles() {
