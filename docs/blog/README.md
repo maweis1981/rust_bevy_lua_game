@@ -15,6 +15,7 @@
 
 | 日期 | 标题 | 一句话 |
 | --- | --- | --- |
+| 2026-07-07 | [GUIDE · How to Generate Game Art Assets With Claude Code](./2026-07-07-generate-game-art-with-claude-code.md) | 英文 SEO/GEO 落地页：MCP 一行接入、风格圣经、manifest 契约、四步生成循环、FAQ——本仓库素材管线的官方说明 |
 | 2026-07-07 | [教程上篇 ·《小马拼图》：一张截图、一段视频，复刻一款解谜手游](./2026-07-07-tutorial-part1-pony-parade.md) | 版本演进图（v1→最终版，WASM 实机截图）；一句话 → agent 统筹分解；引擎 × Floniks 双平台咬合；原生 + WASM 全跨平台——零复杂提示词 |
 | 2026-07-07 | [教程下篇 ·《深夜画廊》：一句题材词，做出有声有色的视觉小说](./2026-07-07-tutorial-part2-midnight-gallery.md) | 立绘管线四阶段图（底图→抠图→表情变体）；WASM 实机成品截图；五种生成能力各有引擎契约承接；基频分析证伪"听起来修好了" |
 | 2026-07-07 | [总览 · 纯 Vibe Coding：用 Claude Code + Floniks 做 AI 时代的游戏](./2026-07-07-vibe-coding-game-dev.md) | 7 步方法论总览（两篇教程的提纲版） |
