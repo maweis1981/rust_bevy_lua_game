@@ -37,6 +37,10 @@
 //!   game.set_text(string)                      (updates the on-screen HUD text)
 //!   game.shake(intensity)                      (0..1 impulse; Rust decays a
 //!                                               camera screen-shake from it)
+//!   game.cam(x, y, zoom)                       (move/zoom the camera; eased
+//!                                               follow, zoom clamped 0.25..4,
+//!                                               composes with shake/zoom punch;
+//!                                               cam(0,0,1) is the default view)
 //!   game.play_sound(name)                      (one-shot SFX: assets/audio/<name>.wav)
 //!   game.play_music(name)                      (looping bg music; replaces any
 //!                                               currently-playing track)
@@ -100,6 +104,7 @@ impl Plugin for ScriptPlugin {
             .init_resource::<CurrentMusic>()
             .init_resource::<TextureCache>()
             .init_resource::<SheetRegistry>()
+            .init_resource::<CameraRig>()
             .insert_non_send(LuaVm::new())
             .add_systems(Startup, (setup_scene, load_scripts))
             .add_systems(
@@ -133,6 +138,25 @@ pub(crate) struct ScreenShake {
     /// Camera zoom "punch" 0..1: impacts push it up, `camera_shake` eases it
     /// back to zero; the camera scales by `zoom_scale(zoom)` (punch-IN).
     pub(crate) zoom: f32,
+}
+
+/// Scriptable camera target (roadmap 0.4). `game.cam` sets the target; the
+/// `camera_shake` system eases the current pose toward it (exponential,
+/// framerate-independent) and layers the trauma jitter + zoom punch ON TOP, so
+/// scrolling and juice compose. Defaults reproduce the fixed camera exactly.
+#[derive(Resource)]
+pub(crate) struct CameraRig {
+    target: Vec3, // x, y, zoom
+    current: Vec3,
+}
+
+impl Default for CameraRig {
+    fn default() -> Self {
+        Self {
+            target: Vec3::new(0.0, 0.0, 1.0),
+            current: Vec3::new(0.0, 0.0, 1.0),
+        }
+    }
 }
 
 /// Per-scene background palette selector, set from Lua via `game.set_bg_theme`.
@@ -409,6 +433,11 @@ enum LuaCommand {
     SetText(String),
     Shake(f32),
     Zoom(f32),
+    Cam {
+        x: f32,
+        y: f32,
+        zoom: f32,
+    },
     SetBgTheme(f32),
     PlaySound(String),
     PlayMusic(String),
@@ -820,6 +849,20 @@ fn register_api(lua: &Lua) -> mlua::Result<()> {
     )?;
 
     game.set(
+        "cam",
+        lua.create_function(|lua, (x, y, zoom): (f32, f32, Option<f32>)| {
+            if let Some(mut bridge) = lua.app_data_mut::<Bridge>() {
+                bridge.queue.push(LuaCommand::Cam {
+                    x,
+                    y,
+                    zoom: zoom.unwrap_or(1.0),
+                });
+            }
+            Ok(())
+        })?,
+    )?;
+
+    game.set(
         "set_bg_theme",
         lua.create_function(|lua, theme: f32| {
             if let Some(mut bridge) = lua.app_data_mut::<Bridge>() {
@@ -1222,6 +1265,13 @@ fn register_api(lua: &mut Lua, bridge: Rc<RefCell<Bridge>>) {
         })).unwrap();
 
         let b = bridge.clone();
+        game.set(ctx, "cam", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let (x, y, zoom): (f32, f32, Option<f32>) = stack.consume(ctx)?;
+            b.borrow_mut().queue.push(LuaCommand::Cam { x, y, zoom: zoom.unwrap_or(1.0) });
+            Ok(CallbackReturn::Return)
+        })).unwrap();
+
+        let b = bridge.clone();
         game.set(ctx, "set_bg_theme", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
             let theme: f32 = stack.consume(ctx)?;
             b.borrow_mut().queue.push(LuaCommand::SetBgTheme(theme));
@@ -1495,6 +1545,15 @@ fn tick_lua(
     vm.update(time.delta_secs());
 }
 
+/// The audio-channel state `apply_lua` needs, grouped so the system stays
+/// under Bevy's 16-parameter limit.
+#[derive(bevy::ecs::system::SystemParam)]
+struct AudioParams<'w, 's> {
+    current_music: ResMut<'w, CurrentMusic>,
+    music_q: Query<'w, 's, Entity, With<MusicSound>>,
+    voice_q: Query<'w, 's, Entity, With<VoiceSound>>,
+}
+
 /// Apply everything Lua queued this frame.
 #[allow(clippy::too_many_arguments)] // Bevy systems legitimately take many params
 fn apply_lua(
@@ -1505,10 +1564,9 @@ fn apply_lua(
     mut sprites: Query<&mut Sprite>,
     mut texts: Query<&mut Text>,
     mut shake: ResMut<ScreenShake>,
+    mut rig: ResMut<CameraRig>,
     mut bg_theme: ResMut<BackgroundTheme>,
-    mut current_music: ResMut<CurrentMusic>,
-    music_q: Query<Entity, With<MusicSound>>,
-    voice_q: Query<Entity, With<VoiceSound>>,
+    mut audio: AudioParams,
     mut tex_cache: ResMut<TextureCache>,
     mut sheets: ResMut<SheetRegistry>,
     mut layouts: ResMut<Assets<TextureAtlasLayout>>,
@@ -1755,6 +1813,9 @@ fn apply_lua(
             LuaCommand::Zoom(intensity) => {
                 shake.zoom = shake.zoom.max(intensity.clamp(0.0, 1.0));
             }
+            LuaCommand::Cam { x, y, zoom } => {
+                rig.target = Vec3::new(x, y, cam_zoom_clamp(zoom));
+            }
             LuaCommand::SetBgTheme(theme) => {
                 bg_theme.target = theme.clamp(0.0, 1.0);
             }
@@ -1770,27 +1831,27 @@ fn apply_lua(
                 // Music channel: one looping track. If the same track is already
                 // playing, do nothing (re-requesting it on scene re-entry must not
                 // restart or double it). Otherwise stop the old track and start new.
-                let same = current_music.0.as_deref() == Some(name.as_str());
-                if !(same && !music_q.is_empty()) {
-                    for e in &music_q {
+                let same = audio.current_music.0.as_deref() == Some(name.as_str());
+                if !(same && !audio.music_q.is_empty()) {
+                    for e in &audio.music_q {
                         commands.entity(e).despawn();
                     }
                     let handle = assets.load::<AudioSource>(format!("audio/{name}.wav"));
                     commands.spawn((AudioPlayer::new(handle), PlaybackSettings::LOOP, MusicSound));
-                    current_music.0 = Some(name);
+                    audio.current_music.0 = Some(name);
                 }
             }
             LuaCommand::PlayVoice(name) => {
                 // Voice channel: single one-shot. Stop any voice still playing so
                 // dialogue lines never talk over one another, then start this one.
-                for e in &voice_q {
+                for e in &audio.voice_q {
                     commands.entity(e).despawn();
                 }
                 let handle = assets.load::<AudioSource>(format!("audio/{name}.wav"));
                 commands.spawn((AudioPlayer::new(handle), PlaybackSettings::DESPAWN, VoiceSound));
             }
             LuaCommand::StopVoice => {
-                for e in &voice_q {
+                for e in &audio.voice_q {
                     commands.entity(e).despawn();
                 }
             }
@@ -1806,11 +1867,14 @@ fn apply_lua(
     }
 }
 
-/// Bleed the screen-shake trauma toward zero each frame and offset the camera by
-/// a jittering amount derived from it. At zero trauma the camera sits at origin.
+/// Bleed the screen-shake trauma toward zero each frame and drive the camera:
+/// the eased `CameraRig` pose is the base, the trauma jitter and zoom punch
+/// layer on top. With the rig at rest (0,0,1) this reproduces the old fixed
+/// camera exactly.
 fn camera_shake(
     time: Res<Time>,
     mut shake: ResMut<ScreenShake>,
+    mut rig: ResMut<CameraRig>,
     mut cameras: Query<&mut Transform, With<GameCamera>>,
 ) {
     shake.trauma = (shake.trauma - time.delta_secs() * 1.6).max(0.0);
@@ -1818,16 +1882,36 @@ fn camera_shake(
         return;
     };
     shake.zoom = (shake.zoom - time.delta_secs() * 2.5).max(0.0);
+    let target = rig.target;
+    rig.current = rig_approach(rig.current, target, time.delta_secs());
     let (x, y) = shake_offset(shake.trauma, time.elapsed_secs());
-    transform.translation.x = x;
-    transform.translation.y = y;
-    transform.scale = Vec3::splat(zoom_scale(shake.zoom));
+    transform.translation.x = rig.current.x + x;
+    transform.translation.y = rig.current.y + y;
+    transform.scale = Vec3::splat(rig.current.z * zoom_scale(shake.zoom));
 }
 
 /// Camera scale for a zoom punch: quadratic ease (light taps barely move it),
 /// capped punch-IN so UI never leaves the screen. 0 -> exactly 1.0.
 fn zoom_scale(zoom: f32) -> f32 {
     1.0 - 0.06 * zoom * zoom
+}
+
+/// Legal `game.cam` zoom range: 4x out to 4x in. Keeps a runaway script from
+/// zooming the scene into invisibility (or into a single pixel).
+fn cam_zoom_clamp(zoom: f32) -> f32 {
+    if zoom.is_finite() {
+        zoom.clamp(0.25, 4.0)
+    } else {
+        1.0
+    }
+}
+
+/// Ease the camera rig toward its target: exponential approach with a
+/// framerate-independent rate (~99% converged in half a second). Never
+/// overshoots, so a followed target settles instead of oscillating.
+fn rig_approach(current: Vec3, target: Vec3, dt: f32) -> Vec3 {
+    let blend = 1.0 - (-10.0 * dt.clamp(0.0, 0.25)).exp();
+    current + (target - current) * blend
 }
 
 /// Clamp a Lua-supplied sprite-sheet frame index (0-based, may be negative or
@@ -1839,7 +1923,46 @@ fn clamp_frame(index: i64, total: usize) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use super::{clamp_frame, haptic_style, shake_offset, zoom_scale, LuaCommand, LuaVm};
+    use super::{
+        cam_zoom_clamp, clamp_frame, haptic_style, rig_approach, shake_offset, zoom_scale,
+        LuaCommand, LuaVm,
+    };
+    use bevy::prelude::Vec3;
+
+    #[test]
+    fn cam_zoom_has_upper_and_lower_bounds() {
+        assert_eq!(cam_zoom_clamp(1.0), 1.0);
+        assert_eq!(cam_zoom_clamp(0.0), 0.25, "zoom-out floor");
+        assert_eq!(cam_zoom_clamp(100.0), 4.0, "zoom-in ceiling");
+        assert_eq!(cam_zoom_clamp(f32::NAN), 1.0, "NaN falls back to identity");
+        assert_eq!(cam_zoom_clamp(f32::INFINITY), 1.0);
+    }
+
+    #[test]
+    fn rig_follow_converges_without_overshoot() {
+        let target = Vec3::new(300.0, -120.0, 2.0);
+        let mut current = Vec3::new(0.0, 0.0, 1.0);
+        let mut last_dist = (target - current).length();
+        for _ in 0..120 {
+            current = rig_approach(current, target, 1.0 / 60.0);
+            let dist = (target - current).length();
+            assert!(dist <= last_dist + 1e-4, "follow must never diverge/overshoot");
+            last_dist = dist;
+        }
+        assert!(last_dist < 1.0, "after 2s the camera has converged: {last_dist}");
+        // A huge dt hitch must not slingshot past the target either.
+        let hitch = rig_approach(Vec3::ZERO, target, 5.0);
+        assert!((target - hitch).length() < target.length(), "hitch moves toward target");
+        assert!(hitch.x <= target.x && hitch.z <= target.z, "hitch never overshoots");
+    }
+
+    #[test]
+    fn resting_rig_reproduces_the_fixed_camera() {
+        // cam(0,0,1) (the default) converged means translation 0 and scale 1 —
+        // bit-identical to the pre-rig camera, so existing games don't regress.
+        let rest = rig_approach(Vec3::new(0.0, 0.0, 1.0), Vec3::new(0.0, 0.0, 1.0), 0.016);
+        assert_eq!(rest, Vec3::new(0.0, 0.0, 1.0));
+    }
 
     #[test]
     fn frame_index_is_clamped_into_the_sheet() {
