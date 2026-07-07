@@ -70,3 +70,5 @@ Run `make` with no target list available — see the `Makefile` for all commands
   overview: layout, architecture, the full game roster & `game.*` API, build/test/ship.
 - [`CLAUDE.md`](./CLAUDE.md) — architecture & conventions (the deepest technical reference).
 - [`tools/PACK_SPEC.md`](./tools/PACK_SPEC.md) — how to author a new playable game pack.
+- [`docs/blog/`](./docs/blog/) — game dev blog: step-by-step vibe-coding build logs
+  (how each game was built with Claude Code + Floniks, from real git history).
