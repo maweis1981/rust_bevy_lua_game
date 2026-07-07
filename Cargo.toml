@@ -60,6 +60,12 @@ opt-level = 3
 [profile.dev]
 opt-level = 1
 
-# Web ships Release; keep the wasm small.
+# Web ships Release; keep the wasm small. `z` optimizes purely for size (the
+# wasm engine is tens of MB), `strip` drops symbols/debuginfo, `lto`+1 codegen
+# unit let the linker delete more dead code, and `panic=abort` removes unwinding
+# tables. wasm-opt (web/build.sh) shrinks it further post-link.
 [profile.release]
-opt-level = "s"
+opt-level = "z"
+strip = true
+lto = "thin"
+panic = "abort"
