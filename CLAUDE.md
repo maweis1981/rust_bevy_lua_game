@@ -113,6 +113,19 @@ held keys into the `Bridge` app-data each frame *before* calling `on_update`, an
 (e.g. entity positions) the same way — stash a snapshot in app-data (or the Lua
 registry) before `on_update`, never hand Lua a `&World`.
 
+### Engine capability sprint (2026-07-07) — new `game.*` APIs
+
+One sprint closed the roadmap's P0/P1 gaps (times + commits in
+`docs/roadmap-and-benchmark.md` §5; full process per issue #22–#50):
+`game.save/load` (typed KV persistence), `game.touches()` (multi-touch),
+`game.cam(x,y,zoom)` (camera rig composed with shake), `game.set_volume`/
+`game.stop_music` (per-channel volume, live via AudioSink), `game.spawn_sheet`/
+`game.set_frame` (sprite-sheet frames via `Sprite.rect`), `game.emit` (CPU
+particles, 4 presets, 512 cap), `game.tilemap`/`game.set_tile` (lite tilemap),
+`game.spawn_rig`/`game.play_anim`/`game.set_bone` (cutout skeletal rigs from
+`assets/rigs/*.rig` JSON — see `src/rig.rs`), `game.track` (local analytics
+log). The doc comment atop `src/script.rs` is the authoritative API reference.
+
 ### Presentation: audio, haptics, screen shake
 
 The bridge also exposes juice primitives that scripts drive:
