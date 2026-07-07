@@ -200,7 +200,7 @@ function make_timedodge()
     for i = 1, TRAIL_N do
       trail[i] = { id = T.spawn(0, 0, PLAYER * 0.6, PLAYER * 0.6, 0.7, 0.9, 1.0, 0), a = 0 }
     end
-    player = T.sprite(S.px, S.py, PLAYER, PLAYER, "orb")
+    player = T.sprite(S.px, S.py, PLAYER, PLAYER, "rockball")
     if S.trial then
       gate_id = T.sprite(0, 0, GATE, GATE, "gem")
       place_gate()
