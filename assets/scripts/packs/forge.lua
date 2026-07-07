@@ -490,7 +490,7 @@ function make_forge()
     game.play_music("forge_theme")
     game.track("forge_start")
     hud()
-    game.set_bg_theme(0)   -- 0 = cool aurora (deep indigo/teal): the deep-space forge look
+    game.set_bg_theme(0, 1)   -- cool palette, full deep-space darkening: the void near a black hole
     built = true
     DEBUG = {
       game = "forge", back = back,

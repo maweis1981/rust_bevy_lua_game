@@ -236,6 +236,8 @@ impl Default for CameraRig {
 #[derive(Resource, Default)]
 pub(crate) struct BackgroundTheme {
     pub(crate) target: f32,
+    /// Deep-space darkening (0 = aurora, 1 = void); `game.set_bg_theme`'s 2nd arg.
+    pub(crate) space_target: f32,
 }
 
 /// Audio is managed as three channels so tracks never pile up on top of each
@@ -749,7 +751,7 @@ enum LuaCommand {
         y: f32,
         zoom: f32,
     },
-    SetBgTheme(f32),
+    SetBgTheme(f32, f32),
     PlaySound(String),
     PlayMusic(String),
     PlayVoice(String),
@@ -1379,9 +1381,11 @@ fn register_api(lua: &Lua) -> mlua::Result<()> {
 
     game.set(
         "set_bg_theme",
-        lua.create_function(|lua, theme: f32| {
+        lua.create_function(|lua, (theme, space): (f32, Option<f32>)| {
             if let Some(mut bridge) = lua.app_data_mut::<Bridge>() {
-                bridge.queue.push(LuaCommand::SetBgTheme(theme));
+                bridge
+                    .queue
+                    .push(LuaCommand::SetBgTheme(theme, space.unwrap_or(0.0)));
             }
             Ok(())
         })?,
@@ -1934,8 +1938,8 @@ fn register_api(lua: &mut Lua, bridge: Rc<RefCell<Bridge>>) {
 
         let b = bridge.clone();
         game.set(ctx, "set_bg_theme", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
-            let theme: f32 = stack.consume(ctx)?;
-            b.borrow_mut().queue.push(LuaCommand::SetBgTheme(theme));
+            let (theme, space): (f32, Option<f32>) = stack.consume(ctx)?;
+            b.borrow_mut().queue.push(LuaCommand::SetBgTheme(theme, space.unwrap_or(0.0)));
             Ok(CallbackReturn::Return)
         })).unwrap();
 
@@ -2884,8 +2888,9 @@ fn apply_lua(
                 cam_rig.y = y;
                 cam_rig.zoom = cam_zoom_clamp(zoom);
             }
-            LuaCommand::SetBgTheme(theme) => {
+            LuaCommand::SetBgTheme(theme, space) => {
                 bg_theme.target = theme.clamp(0.0, 1.0);
+                bg_theme.space_target = space.clamp(0.0, 1.0);
             }
             LuaCommand::PlaySound(name) => {
                 // SFX channel: overlap is fine, but collapse duplicates of the
