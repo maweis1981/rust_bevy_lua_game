@@ -41,6 +41,7 @@ function make_fireflies()
   local ring = nil           -- { id, x, y }
   local rings_scored, hold_t = 0, 0
   local hw0, hh0 = 0, 0
+  local tclock = 0           -- drives the web pulse
 
   local function hud()
     game.set_text(string.format("RINGS %d   FLOCK %d", rings_scored, #boids))
@@ -92,7 +93,9 @@ function make_fireflies()
 
   local function game_over()
     playing = false
-    game.set_text(string.format("THE SWARM FADED\nRINGS %d\nTap to glow again", rings_scored))
+    local best = game.load("fireflies_best") or 0
+    if rings_scored > best then best = rings_scored; game.save("fireflies_best", rings_scored) end
+    game.set_text(string.format("THE SWARM FADED\nRINGS %d   BEST %d\nTap to glow again", rings_scored, best))
     game.log("fireflies_over")
     game.play_sound("hit"); game.haptic("heavy"); game.shake(0.5)
     game.track("fireflies_over", rings_scored)
@@ -239,20 +242,34 @@ function make_fireflies()
       end
       if inside >= math.max(1, math.floor(#boids * RING_NEED)) then
         hold_t = hold_t + dt
+        -- charge-up feedback: the ring glows brighter as the hold completes
+        game.set_color(ring.id, 1.0, 0.85, 0.3, 0.22 + 0.45 * math.min(1, hold_t / RING_HOLD))
         if hold_t >= RING_HOLD then
           rings_scored = rings_scored + 1
           game.emit("confetti", ring.x, ring.y)
           game.play_sound("score"); game.haptic("success")
           game.shake(0.2); game.zoom(0.3)
+          -- every 3rd ring hatches reinforcements — hope against attrition
+          if rings_scored % 3 == 0 then
+            for _ = 1, 3 do
+              spawn_boid(ring.x + (math.random() * 2 - 1) * 30,
+                         ring.y + (math.random() * 2 - 1) * 30)
+            end
+          end
           place_ring()
           spawn_web()
           hud()
         end
       else
+        if hold_t > 0 then game.set_color(ring.id, 1.0, 0.85, 0.3, 0.22) end
         hold_t = 0
       end
 
       -- present
+      tclock = tclock + dt
+      for k, w in ipairs(webs) do
+        game.set_color(w.id, 0.45, 0.45, 0.52, 0.65 + 0.25 * math.sin(tclock * 3 + k))
+      end
       for _, b in ipairs(boids) do game.move_to(b.id, b.x, b.y) end
     end,
   }

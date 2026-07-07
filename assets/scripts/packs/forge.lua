@@ -22,14 +22,14 @@ function make_forge()
   -- tuning ------------------------------------------------------------
   local MAX_LEVEL   = 10
   local GM0         = 1.6e6   -- base gravity parameter (px^3/s^2-ish)
-  local MASS_SCALE  = 220     -- total mass that doubles GM
+  local MASS_SCALE  = 700     -- total mass that doubles GM (bot-tuned: 220 gave 20s medians)
   local CORE_R      = 30      -- event-horizon radius
   local VMAX        = 620     -- hard speed cap (invariant-tested)
   local MAX_BODIES  = 48
   local SPAWN_CD    = 0.22    -- seconds between injections
   local COMBO_WIN   = 1.4     -- chain window (s)
   local DT_CAP      = 1 / 30
-  local MIN_SPAWN_R = CORE_R + 46
+  local MIN_SPAWN_R = CORE_R + 90 -- bot-tuned: closer allowed suicide drops
   local LIVES0      = 3
 
   local function radius_of(level) return 9 + level * 6 end
@@ -44,20 +44,21 @@ function make_forge()
 
   -- state ---------------------------------------------------------------
   local back, built, playing = nil, false, true
-  local bodies = {}          -- { id, x, y, vx, vy, level, r, m }
+  local bodies = {}          -- { id, x, y, vx, vy, level, r, m, hot }
   local score, lives, best_level = 0, LIVES0, 1
   local total_mass = 0
   local combo_n, combo_t = 0, 0
   local next_level = 1
   local spawn_cd = 0
-  local core_id = nil
+  local core_id, preview_id = nil, nil
   local hw0, hh0 = 0, 0
   local rmax = 900
 
   local function gm() return GM0 * (1 + total_mass / MASS_SCALE) end
 
   local function hud()
-    game.set_text(string.format("SCORE %d   NEXT L%d   CORES %d", score, next_level, lives))
+    local combo = combo_n >= 2 and string.format("   x%d", combo_n) or ""
+    game.set_text(string.format("SCORE %d   NEXT L%d   CORES %d%s", score, next_level, lives, combo))
   end
 
   local function tint(id, level)
@@ -97,7 +98,9 @@ function make_forge()
 
   local function game_over()
     playing = false
-    game.set_text(string.format("SUPERNOVA COLLAPSE\nSCORE %d   BEST STAR L%d\nTap to forge again", score, best_level))
+    local best = game.load("forge_best") or 0
+    if score > best then best = score; game.save("forge_best", score) end
+    game.set_text(string.format("SUPERNOVA COLLAPSE\nSCORE %d   BEST %d   TOP STAR L%d\nTap to forge again", score, best, best_level))
     game.log("forge_over")
     game.play_sound("hit"); game.haptic("heavy"); game.shake(0.6); game.zoom(0.8)
     game.track("forge_over", score)
@@ -137,6 +140,7 @@ function make_forge()
     game.set_size(a.id, a.r * 2, a.r * 2)
     game.move_to(a.id, x, y)
     tint(a.id, lvl)
+    a.hot = false               -- telegraph re-evaluates on the next present pass
     game.despawn(b.id)
     table.remove(bodies, j)
   end
@@ -166,11 +170,13 @@ function make_forge()
     rmax = math.sqrt(hw * hw + hh * hh) + 80
     core_id = T.sprite(0, 0, CORE_R * 2, CORE_R * 2, "orb")
     game.set_color(core_id, 0.08, 0.05, 0.16, 1)
+    preview_id = T.sprite(hw - 36, hh - 36, 26, 26, "orb")
     back = K.make_back(T, hw, hh)
     clear_bodies()
     score, lives, best_level = 0, LIVES0, 1
     total_mass, combo_n, combo_t = 0, 0, 0
     next_level = math.random(1, 3)
+    tint(preview_id, next_level)
     spawn_cd, playing = 0, true
     hud()
     game.set_bg_theme(2)
@@ -209,6 +215,7 @@ function make_forge()
       if inject(x, y, next_level) then
         spawn_cd = SPAWN_CD
         next_level = math.random(1, 3)
+        tint(preview_id, next_level)
         game.play_sound("hit"); game.haptic("light")
         hud()
       end
@@ -246,9 +253,10 @@ function make_forge()
         local b = bodies[i]
         local d = math.sqrt(b.x * b.x + b.y * b.y)
         if d < CORE_R + b.r * 0.35 then
-          -- the well eats it: field gets HEAVIER (failure feeds the beast)
+          -- the well eats it: it digests half the mass (failure still feeds
+          -- the beast, but no runaway death spiral — bot-tuned)
           lives = lives - 1
-          total_mass = total_mass + b.m   -- mass moves into the well, GM keeps it
+          total_mass = total_mass - b.m * 0.5
           game.emit("dust", b.x, b.y)
           game.play_sound("hit"); game.haptic("heavy"); game.shake(0.4); game.zoom(0.5)
           despawn_body(i)
@@ -290,8 +298,16 @@ function make_forge()
         if not fused then i = i + 1 end
       end
 
-      -- present
-      for _, b in ipairs(bodies) do game.move_to(b.id, b.x, b.y) end
+      -- present (+ danger telegraph: a star grazing the horizon burns red)
+      for _, b in ipairs(bodies) do
+        game.move_to(b.id, b.x, b.y)
+        local d = math.sqrt(b.x * b.x + b.y * b.y)
+        local hot = d < CORE_R + b.r * 0.35 + 44
+        if hot ~= b.hot then
+          b.hot = hot
+          if hot then game.set_color(b.id, 1.0, 0.22, 0.18, 1) else tint(b.id, b.level) end
+        end
+      end
     end,
   }
 end
