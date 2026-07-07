@@ -487,6 +487,7 @@ const EXTRA_SCRIPTS: &[&str] = &[
     "scripts/game2048.lua",
     "scripts/shooter.lua",
     "scripts/world.lua",
+    "scripts/craftworld.lua",
     "scripts/match3.lua",
     "scripts/umami.lua",
 ];
