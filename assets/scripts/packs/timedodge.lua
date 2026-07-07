@@ -2,8 +2,8 @@
 --
 -- Narrative skin ("Borrowed Time"): the world is frozen in a single instant;
 -- you are the only thing that still moves, and the sparks of entropy hunt
--- anything that does. Time flows only while YOU move — every second in motion
--- is a second stolen back from the frozen world.
+-- anything that moves. Time flows only while you TOUCH (hold the screen /
+-- mouse / a key); release and the world freezes. Every held second is stolen.
 --
 -- Two modes behind an in-scene select screen:
 --   ENDLESS — survive converging entropy. Score = stolen (world-time) seconds;
@@ -35,10 +35,11 @@ function make_timedodge()
   local PLAYER_MAX = 820                 -- hard speed cap: a pointer jump (mouse
                                          -- warp, finger lift+press) never
                                          -- teleports the orb — or cheeses trials
-  local REF_SPEED, TS_MIN = 300, 0.06    -- player px/s that means "full time flow"
+  local REF_SPEED = 300                  -- px/s that reads as "dashing" (trail fx)
+  local TS_MIN = 0.06                    -- near-frozen world rate while released
   local TS_SMOOTH = 12                   -- timescale attack/release rate
-  local SPEED0, SPEED_PER_S, SPEED_MAX = 240, 6, 500
-  local SPAWN0, SPAWN_MIN, SPAWN_PER_S = 0.55, 0.28, 0.012
+  local SPEED0, SPEED_PER_S, SPEED_MAX = 320, 8, 500
+  local SPAWN0, SPAWN_MIN, SPAWN_PER_S = 0.55, 0.26, 0.016
   local MAX_FOES, OFF = 40, 70           -- live cap / off-screen despawn margin
   local NEAR, HIT_R = 44, 19             -- near-miss ring / kill distance
   local MAX_DT, TRAIL_N = 1 / 30, 10
@@ -59,18 +60,22 @@ function make_timedodge()
     { t = 30, k = "splitter" }, { t = 45, k = "drifter" },
   }
   -- Trials: seed fixes the gate layout + spawn pattern so a level is the same
-  -- moment every attempt. s3/s2 = real-seconds thresholds for 3/2 stars.
+  -- moment every attempt. Gates spawn far apart (cross-screen runs), a volley
+  -- of foes opens every level, and spawns are dense — the pressure is real.
+  -- s3/s2 = real-seconds star thresholds, calibrated against an expert-line
+  -- autopilot (~1.7x / 2.8x its measured clear time), so 3 stars means
+  -- decisive routing (see the verification sweep in PR #71).
   local LEVELS = {
-    { seed = 101,  gates = 2, kinds = { "dart" },                                        speed = 200, every = 0.90, s3 = 8,  s2 = 14 },
-    { seed = 202,  gates = 3, kinds = { "dart" },                                        speed = 215, every = 0.80, s3 = 11, s2 = 18 },
-    { seed = 303,  gates = 3, kinds = { "dart", "surge" },                               speed = 225, every = 0.75, s3 = 12, s2 = 20 },
-    { seed = 404,  gates = 4, kinds = { "dart", "surge" },                               speed = 235, every = 0.70, s3 = 15, s2 = 24 },
-    { seed = 505,  gates = 4, kinds = { "dart", "surge", "seeker" },                     speed = 245, every = 0.65, s3 = 16, s2 = 26 },
-    { seed = 606,  gates = 5, kinds = { "dart", "surge", "seeker" },                     speed = 255, every = 0.60, s3 = 19, s2 = 30 },
-    { seed = 707,  gates = 5, kinds = { "dart", "seeker", "splitter" },                  speed = 265, every = 0.55, s3 = 20, s2 = 32 },
-    { seed = 808,  gates = 6, kinds = { "dart", "surge", "splitter" },                   speed = 275, every = 0.50, s3 = 23, s2 = 36 },
-    { seed = 909,  gates = 6, kinds = { "dart", "seeker", "splitter", "drifter" },       speed = 285, every = 0.45, s3 = 24, s2 = 38 },
-    { seed = 1010, gates = 7, kinds = { "dart", "surge", "seeker", "splitter", "drifter" }, speed = 295, every = 0.40, s3 = 28, s2 = 44 },
+    { seed = 101,  gates = 3, volley = 2, kinds = { "dart" },                                        speed = 240, every = 0.70, s3 = 4, s2 = 7 },
+    { seed = 202,  gates = 3, volley = 2, kinds = { "dart" },                                        speed = 255, every = 0.62, s3 = 5, s2 = 8 },
+    { seed = 303,  gates = 4, volley = 3, kinds = { "dart", "surge" },                               speed = 265, every = 0.58, s3 = 8, s2 = 13 },
+    { seed = 404,  gates = 4, volley = 3, kinds = { "dart", "surge" },                               speed = 275, every = 0.52, s3 = 7, s2 = 11 },
+    { seed = 505,  gates = 5, volley = 4, kinds = { "dart", "surge", "seeker" },                     speed = 285, every = 0.48, s3 = 9, s2 = 14 },
+    { seed = 606,  gates = 5, volley = 4, kinds = { "dart", "surge", "seeker" },                     speed = 295, every = 0.44, s3 = 11, s2 = 18 },
+    { seed = 707,  gates = 6, volley = 5, kinds = { "dart", "seeker", "splitter" },                  speed = 305, every = 0.40, s3 = 23, s2 = 38 },
+    { seed = 808,  gates = 6, volley = 5, kinds = { "dart", "surge", "splitter" },                   speed = 315, every = 0.36, s3 = 13, s2 = 21 },
+    { seed = 909,  gates = 7, volley = 4, kinds = { "dart", "dart", "seeker", "splitter", "drifter" }, speed = 320, every = 0.33, s3 = 32, s2 = 52 },
+    { seed = 1010, gates = 8, volley = 6, kinds = { "dart", "surge", "seeker", "splitter", "drifter" }, speed = 335, every = 0.30, s3 = 23, s2 = 38 },
   }
 
   local mode, built = "select", false
@@ -109,8 +114,8 @@ function make_timedodge()
     mode = "select"
     game.set_text("")
     T.text(0, 210, 44, 1, 1, 1, 1, "TIME DODGE")
-    T.text(0, 150, 17, 0.75, 0.85, 1.0, 1, "The world is frozen. Only you can move.")
-    T.text(0, 122, 17, 0.75, 0.85, 1.0, 1, "Every second in motion is a second stolen back.")
+    T.text(0, 150, 17, 0.75, 0.85, 1.0, 1, "Hold: time flows. Release: the world freezes.")
+    T.text(0, 122, 17, 0.75, 0.85, 1.0, 1, "Every second you hold on is a second stolen back.")
     btn_endless = { x = 0, y = 10, w = 300, h = 86 }
     T.spawn(btn_endless.x, btn_endless.y, btn_endless.w, btn_endless.h, 0.75, 0.22, 0.20, 1)
     T.text(btn_endless.x, btn_endless.y + 12, 30, 1, 1, 1, 1, "ENDLESS")
@@ -126,8 +131,8 @@ function make_timedodge()
   local function build_levels(hw, hh)
     mode = "levels"
     game.set_text("")
-    T.text(0, 300, 34, 1, 1, 1, 1, "SEALED MOMENTS")
-    T.text(0, 254, 15, 0.75, 0.85, 1.0, 1, "freeze to plan - the clock only forgives the dead")
+    T.text(40, 270, 30, 1, 1, 1, 1, "SEALED MOMENTS")
+    T.text(0, 220, 15, 0.75, 0.85, 1.0, 1, "release to freeze - the clock only forgives the dead")
     lv_rects = {}
     local cols, tw, th, gap = 5, 64, 76, 12
     for i = 1, #LEVELS do
@@ -154,17 +159,22 @@ function make_timedodge()
   -- The run (shared by both modes)
   ------------------------------------------------------------------
   local function place_gate()
-    local lv = LEVELS[S.trial]
-    for _ = 1, 60 do
+    -- Farthest-point sampling: of 24 candidates keep the one farthest from
+    -- both the player and the previous gate, so every gate is a cross-screen
+    -- run through the hanging foes — never a lucky hop. (A hard minimum-
+    -- distance rule can be unsatisfiable and its fallback drops gates at the
+    -- player's feet; maximizing is always well-defined.)
+    local best, bestscore = nil, -1
+    for _ = 1, 24 do
       local x = (rnd() * 2 - 1) * (SW - 70)
       local y = -SH + 130 + rnd() * (2 * SH - 300)
       local dp = math.sqrt((x - S.px) ^ 2 + (y - S.py) ^ 2)
-      local dg = S.gate and math.sqrt((x - S.gate.x) ^ 2 + (y - S.gate.y) ^ 2) or 1e9
-      if dp > 200 and dg > 180 then S.gate = { x = x, y = y }; break end
-      S.gate = { x = x, y = y }              -- fallback: last try wins
+      local dg = S.gate and math.sqrt((x - S.gate.x) ^ 2 + (y - S.gate.y) ^ 2) or dp
+      local score = math.min(dp, dg)
+      if score > bestscore then bestscore, best = score, { x = x, y = y } end
     end
+    S.gate = best
     game.move_to(gate_id, S.gate.x, S.gate.y)
-    return lv
   end
 
   local function build_run(hw, hh)
@@ -198,7 +208,8 @@ function make_timedodge()
     wipe()
     S = { trial = lv, px = 0, py = 0, ts = TS_MIN, score = 0, elapsed = 0,
           playing = true, done = false, bullets = {}, gate = nil, gate_i = 0,
-          spawn_t = lv and -1.0 or -0.5, mark = 10, next_unlock = 2, ann = "", ann_t = 0 }
+          spawn_t = lv and -1.0 or -0.5, mark = 10, next_unlock = 2, ann = "", ann_t = 0,
+          volley_due = lv and LEVELS[lv].volley or 0 }
     if lv then S.rng = new_lcg(LEVELS[lv].seed) end
     build_run(SW, SH)
   end
@@ -323,9 +334,12 @@ function make_timedodge()
     S.px = clamp(S.px, -SW + PLAYER * 0.5, SW - PLAYER * 0.5)
     S.py = clamp(S.py, -SH + PLAYER * 0.5, SH - PLAYER * 0.5)
 
-    -- THE mechanic: the timescale follows the player's own speed.
+    -- THE mechanic: time flows while you TOUCH (finger down / mouse held /
+    -- a movement key). Lift off and the world freezes to a crawl — so the
+    -- freeze is a deliberate release, and the finger can rest anywhere.
     local pspeed = math.sqrt((S.px - ox) ^ 2 + (S.py - oy) ^ 2) / dt
-    local target = clamp(pspeed / REF_SPEED, TS_MIN, 1)
+    local touching = down or dx ~= 0 or dy ~= 0
+    local target = touching and 1 or TS_MIN
     S.ts = S.ts + (target - S.ts) * math.min(1, dt * TS_SMOOTH)
     local wdt = dt * S.ts                    -- world time: foes, spawns, stolen score
 
@@ -344,6 +358,10 @@ function make_timedodge()
       if S.ann_t > 0 then S.ann_t = S.ann_t - dt end
     end
 
+    if S.volley_due > 0 then                 -- trials open with foes in the air
+      for _ = 1, S.volley_due do spawn_edge() end
+      S.volley_due = 0
+    end
     S.spawn_t = S.spawn_t + wdt
     if S.spawn_t >= spawn_gap() then S.spawn_t = 0; spawn_edge() end
 
@@ -403,12 +421,14 @@ function make_timedodge()
       elseif math.abs(b.x) > SW + OFF or math.abs(b.y) > SH + OFF then
         game.despawn(b.id)
       else
-        local c, ts0 = kd.c, S.ts
+        -- freeze telegraph: pull the kind colour toward icy blue, but cap the
+        -- blend at 55% so kinds stay readable while you plan mid-freeze
+        local c, k = kd.c, (1 - S.ts) * 0.55
         game.move_to(b.id, b.x, b.y)
         game.set_color(b.id,
-          FROZEN_C[1] + (c[1] - FROZEN_C[1]) * ts0,
-          FROZEN_C[2] + (c[2] - FROZEN_C[2]) * ts0,
-          FROZEN_C[3] + (c[3] - FROZEN_C[3]) * ts0, 1)
+          c[1] + (FROZEN_C[1] - c[1]) * k,
+          c[2] + (FROZEN_C[2] - c[2]) * k,
+          c[3] + (FROZEN_C[3] - c[3]) * k, 1)
         kept[#kept + 1] = b
       end
     end
@@ -467,5 +487,5 @@ end
 
 -- Self-register this game pack (see main.lua: the menu builds from PACKS).
 PACKS = PACKS or {}
-PACKS["timedodge"] = { slot = 10, key = "timedodge", label = "Time Dodge", short = "Dodge",
+PACKS["timedodge"] = { slot = 11, key = "timedodge", label = "Time Dodge", short = "Dodge",
   icon = "icon_clock", color = { 0.30, 0.70, 0.85 }, tier = "curated", make = make_timedodge }

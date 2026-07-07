@@ -241,8 +241,8 @@ def main(src=SRC, outname=None, extras=True):
                                  radius=3 * SS, fill=lerp(FROZEN, FLOW, ts) + (200,))
 
             if alive:
-                ctext(H * SS - 64 * SS, "TIME MOVES", f_big, (255, 255, 255, 235))
-                ctext(H * SS - 32 * SS, "WHEN  YOU  MOVE", f_mid,
+                ctext(H * SS - 64 * SS, "HOLD TO STEAL TIME", f_big, (255, 255, 255, 235))
+                ctext(H * SS - 32 * SS, "RELEASE  TO  FREEZE", f_mid,
                       lerp(FROZEN, FLOW, ts) + (235,))
             else:
                 lines = fr["hud"].split("\n")
@@ -260,7 +260,7 @@ def main(src=SRC, outname=None, extras=True):
                     ctext(H * SS * 0.40, "SO CLOSE", f_big, (255, 255, 255, 250))
                     if len(lines) > 1:
                         ctext(H * SS * 0.48, lines[1].strip(), f_mid, (255, 200, 190, 240))
-                ctext(H * SS - 48 * SS, "TIME MOVES WHEN YOU MOVE", f_sml,
+                ctext(H * SS - 48 * SS, "HOLD TO STEAL TIME - RELEASE TO FREEZE", f_sml,
                       (255, 255, 255, 200))
 
         prev_pos = cur_pos
