@@ -15,8 +15,9 @@ local DT = 1 / 60
 -- `lua5.4 tools/record_timedodge.lua trial` records the TRIALS tour (mode
 -- select -> level grid -> clear moment 1 -> star card).
 local MODE = (arg and arg[1]) or "endless"
-local OUT = MODE == "trial" and "build/timedodge_trial_frames.jsonl"
-                             or "build/timedodge_frames.jsonl"
+local OUT = "build/timedodge_frames.jsonl"
+if MODE == "trial" then OUT = "build/timedodge_trial_frames.jsonl" end
+if MODE == "absorb" then OUT = "build/timedodge_absorb_frames.jsonl" end
 
 -- Deterministic RNG so the clip is reproducible.
 local rng = 424242
@@ -248,6 +249,58 @@ if MODE == "trial" then
   shoot(70)                                          -- hold the star card
   out:close()
   print(string.format("recorded %d trial-tour frames -> %s", frames, OUT))
+  os.exit(0)
+end
+
+----------------------------------------------------------------------
+-- ABSORB clip: hunt smaller rocks (green), flee bigger (red), fade away
+----------------------------------------------------------------------
+if MODE == "absorb" then
+  shoot(30)                                          -- glance at mode select
+  on_tap(DEBUG.btn_absorb.x, DEBUG.btn_absorb.y)
+  shoot(1)
+  local t2 = 0
+  while frames < 2300 do
+    if not DEBUG.alive() then break end
+    t2 = t2 + DT
+    local px, py = player_pos()
+    local pm = DEBUG.size()
+    local tx, ty, td = nil, nil, 1e9                 -- nearest edible
+    local hx, hy, hd = nil, nil, 1e9                 -- nearest hazard
+    local gx, gy, gs = nil, nil, 0                   -- biggest rock (finale)
+    for _, id in ipairs(DEBUG.bullet_ids()) do
+      local e = ents[id]
+      if e then
+        local d = math.sqrt((px - e.x) ^ 2 + (py - e.y) ^ 2)
+        if e.w < pm * 0.85 and d < td then tx, ty, td = e.x, e.y, d end
+        if e.w > pm * 1.05 and d < hd then hx, hy, hd = e.x, e.y, d end
+        if e.w > gs then gx, gy, gs = e.x, e.y, e.w end
+      end
+    end
+    local vx, vy = -px * 0.01, -py * 0.01
+    if t2 > 22 and gx then                           -- finale: dive into the giant
+      vx, vy = gx - px, gy - py
+    elseif hx and hd < pm + 110 then                 -- flee the bigger rock
+      vx, vy = px - hx, py - hy
+    elseif tx then                                   -- hunt the meal
+      vx, vy = tx - px, ty - py
+    end
+    if (t2 % 5) > 4.55 then
+      game._down = false                             -- freeze beat: survey
+    else
+      game._down = true
+      local m = math.sqrt(vx * vx + vy * vy)
+      if m > 0.01 then
+        game._px = (game._px or 0) + vx / m * 560 * DT / 1.5
+        game._py = (game._py or 0) + vy / m * 560 * DT / 1.5
+      end
+    end
+    shoot(1)
+  end
+  game._down = false
+  shoot(50)                                          -- hold the faded-away card
+  out:close()
+  print(string.format("recorded %d absorb frames -> %s", frames, OUT))
   os.exit(0)
 end
 

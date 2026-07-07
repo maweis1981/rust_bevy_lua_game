@@ -93,6 +93,9 @@ def main(src=SRC, outname=None, extras=True):
     def wy(y, oy=0.0):
         return (HH - y) * SCALE + oy * SS
 
+    stride = 3 if len(frames) < 1400 else (4 if len(frames) < 1650 else
+             (5 if len(frames) < 1950 else 6))
+    frame_ms = {3: 50, 4: 66, 5: 83, 6: 100}[stride]
     trauma, energy = 0.0, 0.0
     prev_pos, prev_alive = {}, True
     death_frame = None
@@ -113,7 +116,7 @@ def main(src=SRC, outname=None, extras=True):
 
         ents = {e[0]: e for e in fr["ents"]}
         cur_pos = {eid: (e[1], e[2]) for eid, e in ents.items() if e[9] in ("orb", "meteor")}
-        take = idx % 3 == 0 or (death_frame is not None and idx - death_frame < 3)
+        take = idx % stride == 0 or (death_frame is not None and idx - death_frame < 3)
         if not take:
             prev_pos = cur_pos
             continue
@@ -268,7 +271,8 @@ def main(src=SRC, outname=None, extras=True):
                         im = Image.blend(im, Image.new("RGB", im.size, (255, 245, 240)), 1 - k * 2)
                         dr = ImageDraw.Draw(im, "RGBA")
                     dr.rectangle([0, 0, im.size[0], im.size[1]], fill=(90, 10, 20, int(110 * k)))
-                    ctext(H * SS * 0.40, "SO CLOSE", f_big, (255, 255, 255, 250))
+                    big = "YOU FADED AWAY" if "FADED" in fr["hud"] else "SO CLOSE"
+                    ctext(H * SS * 0.40, big, f_big, (255, 255, 255, 250))
                     if len(lines) > 1:
                         ctext(H * SS * 0.48, lines[1].strip(), f_mid, (255, 200, 190, 240))
                 ctext(H * SS - 48 * SS, "HOLD TO STEAL TIME - RELEASE TO FREEZE", f_sml,
@@ -281,7 +285,7 @@ def main(src=SRC, outname=None, extras=True):
     name = outname or "timedodge-hero"
     imgs = [im.quantize(colors=128, dither=Image.FLOYDSTEINBERG)
             for _, im in rendered]
-    durations = [50] * len(imgs)
+    durations = [frame_ms] * len(imgs)
     durations[-1] = 1800                     # hold the final card
     imgs[0].save(f"{OUT_DIR}/{name}.gif", save_all=True,
                  append_images=imgs[1:], duration=durations, loop=0, optimize=True)
