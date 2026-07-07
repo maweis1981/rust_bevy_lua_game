@@ -20,7 +20,7 @@ OUT="$ROOT/build/web-games"
 GAMES=("$@")
 if [ ${#GAMES[@]} -eq 0 ]; then
   GAMES=(grow breakout snake roguelike game2048 shooter world craft match3 \
-         umami catch ponies gallery showcase timedodge)
+         umami catch ponies gallery showcase timedodge forge fireflies)
 fi
 
 mkdir -p "$OUT"

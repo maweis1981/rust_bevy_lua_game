@@ -6,8 +6,10 @@
 #import bevy_sprite::mesh2d_vertex_output::VertexOutput
 
 // Material uniform (bind group index filled in by Bevy's preprocessor).
-// data = (time_seconds, aspect_ratio, unused, unused)
+// data  = (time_seconds, aspect_ratio, energy, theme)
+// data2 = (space, unused, unused, unused)   space: 0 = aurora, 1 = deep space
 @group(#{MATERIAL_BIND_GROUP}) @binding(0) var<uniform> data: vec4<f32>;
+@group(#{MATERIAL_BIND_GROUP}) @binding(1) var<uniform> data2: vec4<f32>;
 
 // Cheap hash (Dave Hoskins, no `sin` — avoids banding and is fast enough to run
 // fullscreen at high refresh on device).
@@ -105,6 +107,32 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
     // Soft vignette to focus the play area.
     let d = distance(mesh.uv, vec2<f32>(0.5, 0.5));
     col = col * (1.0 - smoothstep(0.5, 1.05, d) * 0.55);
+
+    // Deep-space mode (Starforge): crush the aurora toward near-black with only
+    // a faint indigo nebula left, and scatter a few sharp stars — so the same
+    // shader that paints the garden can also read as the void near a black hole.
+    let space = clamp(data2.x, 0.0, 1.0);
+    if (space > 0.001) {
+        let deep = col * 0.10 + vec3<f32>(0.010, 0.012, 0.028);
+        // sharp starfield: sparse bright points on a static hash grid, twinkling
+        let sv = vec2<f32>((mesh.uv.x - 0.5) * aspect, mesh.uv.y - 0.5);
+        var stars = 0.0;
+        for (var i: i32 = 0; i < 2; i = i + 1) {
+            let scale = 22.0 + f32(i) * 17.0;
+            let q2 = sv * scale;
+            let id = floor(q2);
+            let fq = fract(q2);
+            let h = hash2(id + f32(i) * 11.3);
+            if (h > 0.86) {
+                let ctr = vec2<f32>(0.5, 0.5) + 0.3 * vec2<f32>(hash2(id + 1.7) - 0.5, hash2(id + 4.1) - 0.5);
+                let dd = length(fq - ctr);
+                let tw = 0.6 + 0.4 * sin(t * 2.0 + h * 6.28);
+                stars = stars + smoothstep(0.09, 0.0, dd) * tw * (h - 0.86) * 7.0;
+            }
+        }
+        let deep_star = deep + vec3<f32>(0.9, 0.93, 1.0) * stars;
+        col = mix(col, deep_star, space);
+    }
 
     return vec4<f32>(col, 1.0);
 }

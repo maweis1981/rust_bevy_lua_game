@@ -35,6 +35,10 @@ mlua = { version = "0.11", features = ["lua54", "vendored"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 ottavino = "0.4"
+# Wall-clock date for game.date_utc(): std SystemTime is unimplemented on
+# wasm32-unknown-unknown, so the web build reads js Date.now() (js-sys is
+# already in the tree transitively via bevy's web backend).
+js-sys = "0.3"
 # getrandom needs its wasm backend enabled explicitly (both 0.2 and 0.3 are in
 # the tree via different deps); paired with the rustflag in .cargo/config.toml.
 getrandom = { version = "0.3", features = ["wasm_js"] }

@@ -39,6 +39,9 @@ pub(crate) struct BackgroundQuad;
 struct BackgroundMaterial {
     #[uniform(0)]
     data: Vec4,
+    /// (space, _, _, _): space eases 0 (aurora) → 1 (deep space).
+    #[uniform(1)]
+    data2: Vec4,
 }
 
 impl Material2d for BackgroundMaterial {
@@ -56,6 +59,7 @@ struct BackgroundState {
     handle: Handle<BackgroundMaterial>,
     energy: f32,
     theme: f32,
+    space: f32,
     last_safe: (f32, f32, f32),
 }
 
@@ -83,7 +87,10 @@ fn setup_background(
 ) {
     // A quad large enough to cover any phone/desktop window, centered on the camera.
     let mesh = meshes.add(Rectangle::new(3000.0, 3000.0));
-    let material = materials.add(BackgroundMaterial { data: Vec4::ZERO });
+    let material = materials.add(BackgroundMaterial {
+        data: Vec4::ZERO,
+        data2: Vec4::ZERO,
+    });
 
     commands.spawn((
         Mesh2d(mesh),
@@ -97,6 +104,7 @@ fn setup_background(
         handle: material,
         energy: 0.0,
         theme: 0.0,
+        space: 0.0,
         last_safe: (-1.0, -1.0, -1.0),
     });
 }
@@ -113,15 +121,17 @@ fn drive_background(
     // Ease the palette toward the current scene's theme so switching games
     // cross-fades the backdrop instead of snapping.
     state.theme += (theme.target - state.theme) * (dt * 2.5).min(1.0);
+    state.space += (theme.space_target - state.space) * (dt * 2.5).min(1.0);
 
     // Tint the native iOS safe-area fill to match: dark teal for the cool aurora
     // (menu / most games), grass green for the garden (Gem Match). Only pushed
     // when it moves, to avoid per-frame FFI churn.
     let th = state.theme;
+    let sp = state.space;
     let safe = (
-        0.14 + (0.42 - 0.14) * th,
-        0.28 + (0.62 - 0.28) * th,
-        0.32 + (0.38 - 0.32) * th,
+        (0.14 + (0.42 - 0.14) * th) * (1.0 - sp) + 0.02 * sp,
+        (0.28 + (0.62 - 0.28) * th) * (1.0 - sp) + 0.02 * sp,
+        (0.32 + (0.38 - 0.32) * th) * (1.0 - sp) + 0.04 * sp,
     );
     if (safe.0 - state.last_safe.0).abs() > 0.004
         || (safe.1 - state.last_safe.1).abs() > 0.004
@@ -145,5 +155,6 @@ fn drive_background(
             .map(|w| w.width() / w.height().max(1.0))
             .unwrap_or(1.0);
         material.data = Vec4::new(time.elapsed_secs(), aspect, state.energy, state.theme);
+        material.data2 = Vec4::new(state.space, 0.0, 0.0, 0.0);
     }
 }

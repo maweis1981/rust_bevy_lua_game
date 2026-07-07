@@ -114,6 +114,9 @@
 //!                                               web keeps it for the session)
 //!   game.load(key) -> value | nil              (read back a saved value with
 //!                                               its original type)
+//!   game.date_utc() -> year, month, day        (today's UTC civil date, same
+//!                                               worldwide — daily-challenge
+//!                                               seeds; snapshotted per frame)
 //!
 //! Reads (pointer/keys) flow the other way: each frame `tick_lua` snapshots
 //! input into the `Bridge` app-data before calling `on_update`, so the Lua
@@ -233,6 +236,8 @@ impl Default for CameraRig {
 #[derive(Resource, Default)]
 pub(crate) struct BackgroundTheme {
     pub(crate) target: f32,
+    /// Deep-space darkening (0 = aurora, 1 = void); `game.set_bg_theme`'s 2nd arg.
+    pub(crate) space_target: f32,
 }
 
 /// Audio is managed as three channels so tracks never pile up on top of each
@@ -565,6 +570,8 @@ fn discover_packs() -> Vec<String> {
         format!("{PACKS_DIR}/gallery.lua"),
         format!("{PACKS_DIR}/showcase.lua"),
         format!("{PACKS_DIR}/timedodge.lua"),
+        format!("{PACKS_DIR}/forge.lua"),
+        format!("{PACKS_DIR}/fireflies.lua"),
     ]
 }
 
@@ -744,7 +751,7 @@ enum LuaCommand {
         y: f32,
         zoom: f32,
     },
-    SetBgTheme(f32),
+    SetBgTheme(f32, f32),
     PlaySound(String),
     PlayMusic(String),
     PlayVoice(String),
@@ -786,6 +793,9 @@ struct Bridge {
     /// `store_dirty` asks the flush system to write it back out.
     store: HashMap<String, String>,
     store_dirty: bool,
+    /// Today's UTC civil date `(year, month, day)`, snapshotted once per frame
+    /// before `on_update` — serves `game.date_utc()` (daily-challenge seeds).
+    date_utc: (i32, u32, u32),
 }
 
 // ---------------------------------------------------------------------------
@@ -847,6 +857,12 @@ impl LuaVm {
     fn set_screen(&mut self, half_w: f32, half_h: f32) {
         if let Some(mut bridge) = self.lua.app_data_mut::<Bridge>() {
             bridge.screen = (half_w, half_h);
+        }
+    }
+
+    fn set_date(&mut self, date: (i32, u32, u32)) {
+        if let Some(mut bridge) = self.lua.app_data_mut::<Bridge>() {
+            bridge.date_utc = date;
         }
     }
 
@@ -963,6 +979,18 @@ fn register_api(lua: &Lua) -> mlua::Result<()> {
                 .map(|b| b.keys.contains(name.as_str()))
                 .unwrap_or(false);
             Ok(held)
+        })?,
+    )?;
+
+    game.set(
+        "date_utc",
+        lua.create_function(|lua, ()| {
+            let (y, m, d) = lua
+                .app_data_ref::<Bridge>()
+                .map(|b| b.date_utc)
+                .filter(|&(y, _, _)| y > 0)
+                .unwrap_or((1970, 1, 1));
+            Ok((y, m, d))
         })?,
     )?;
 
@@ -1353,9 +1381,11 @@ fn register_api(lua: &Lua) -> mlua::Result<()> {
 
     game.set(
         "set_bg_theme",
-        lua.create_function(|lua, theme: f32| {
+        lua.create_function(|lua, (theme, space): (f32, Option<f32>)| {
             if let Some(mut bridge) = lua.app_data_mut::<Bridge>() {
-                bridge.queue.push(LuaCommand::SetBgTheme(theme));
+                bridge
+                    .queue
+                    .push(LuaCommand::SetBgTheme(theme, space.unwrap_or(0.0)));
             }
             Ok(())
         })?,
@@ -1558,6 +1588,10 @@ impl LuaVm {
         self.bridge.borrow_mut().screen = (half_w, half_h);
     }
 
+    fn set_date(&mut self, date: (i32, u32, u32)) {
+        self.bridge.borrow_mut().date_utc = date;
+    }
+
     fn set_input(
         &mut self,
         pointer: Option<(f32, f32)>,
@@ -1676,6 +1710,13 @@ fn register_api(lua: &mut Lua, bridge: Rc<RefCell<Bridge>>) {
             let name: ottavino::String = stack.consume(ctx)?;
             let held = b.borrow().keys.contains(name.to_str().unwrap_or(""));
             stack.replace(ctx, held);
+            Ok(CallbackReturn::Return)
+        })).unwrap();
+
+        let b = bridge.clone();
+        game.set(ctx, "date_utc", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let (y, m, d) = { let dt = b.borrow().date_utc; if dt.0 > 0 { dt } else { (1970, 1, 1) } };
+            stack.replace(ctx, (y as i64, m as i64, d as i64));
             Ok(CallbackReturn::Return)
         })).unwrap();
 
@@ -1897,8 +1938,8 @@ fn register_api(lua: &mut Lua, bridge: Rc<RefCell<Bridge>>) {
 
         let b = bridge.clone();
         game.set(ctx, "set_bg_theme", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
-            let theme: f32 = stack.consume(ctx)?;
-            b.borrow_mut().queue.push(LuaCommand::SetBgTheme(theme));
+            let (theme, space): (f32, Option<f32>) = stack.consume(ctx)?;
+            b.borrow_mut().queue.push(LuaCommand::SetBgTheme(theme, space.unwrap_or(0.0)));
             Ok(CallbackReturn::Return)
         })).unwrap();
 
@@ -2246,6 +2287,7 @@ fn tick_lua(
         return;
     };
     vm.set_screen(window.width() * 0.5, window.height() * 0.5);
+    vm.set_date(utc_date_now());
 
     let Ok((camera, cam_transform)) = cameras.single() else {
         vm.update(time.delta_secs());
@@ -2846,8 +2888,9 @@ fn apply_lua(
                 cam_rig.y = y;
                 cam_rig.zoom = cam_zoom_clamp(zoom);
             }
-            LuaCommand::SetBgTheme(theme) => {
+            LuaCommand::SetBgTheme(theme, space) => {
                 bg_theme.target = theme.clamp(0.0, 1.0);
+                bg_theme.space_target = space.clamp(0.0, 1.0);
             }
             LuaCommand::PlaySound(name) => {
                 // SFX channel: overlap is fine, but collapse duplicates of the
@@ -2968,6 +3011,40 @@ fn frame_rect(fw: f32, fh: f32, cols: u32, frames: u32, i: i64) -> (f32, f32, f3
     let i = i.clamp(0, frames - 1);
     let (col, row) = ((i % cols) as f32, (i / cols) as f32);
     (col * fw, row * fh, (col + 1.0) * fw, (row + 1.0) * fh)
+}
+
+/// Civil UTC date `(year, month, day)` from a unix timestamp — Howard
+/// Hinnant's days-from-civil inverse. Pure, so the daily-challenge seed is
+/// unit-testable without touching the wall clock.
+fn civil_from_unix(secs: i64) -> (i32, u32, u32) {
+    let days = secs.div_euclid(86400);
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097; // [0, 146096]
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365; // [0, 399]
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100); // [0, 365]
+    let mp = (5 * doy + 2) / 153; // [0, 11]
+    let d = (doy - (153 * mp + 2) / 5 + 1) as u32; // [1, 31]
+    let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32; // [1, 12]
+    let y = yoe + era * 400 + i64::from(m <= 2);
+    (y as i32, m, d)
+}
+
+/// Today's UTC date. On wasm32-unknown-unknown `SystemTime::now()` is
+/// unimplemented, so the web build asks the JS clock instead.
+fn utc_date_now() -> (i32, u32, u32) {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let secs = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        civil_from_unix(secs)
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        civil_from_unix((js_sys::Date::now() / 1000.0) as i64)
+    }
 }
 
 /// Sanitize an analytics event name: strip framing characters (tab/newline →
@@ -3095,11 +3172,24 @@ fn zoom_scale(zoom: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::{
-        cam_zoom_clamp, decode_store, emit_count_allowed, encode_store, frame_rect, haptic_style,
-        lcg, particle_alpha, preset_params, shake_offset, store_escape, store_unescape, tile_slot,
-        track_sanitize, url_allowed, volume_clamp, zoom_scale, PARTICLE_CAP,
+        cam_zoom_clamp, civil_from_unix, decode_store, emit_count_allowed, encode_store,
+        frame_rect, haptic_style, lcg, particle_alpha, preset_params, shake_offset, store_escape,
+        store_unescape, tile_slot, track_sanitize, url_allowed, volume_clamp, zoom_scale,
+        PARTICLE_CAP,
     };
     use std::collections::HashMap;
+
+    #[test]
+    fn civil_from_unix_known_dates() {
+        assert_eq!(civil_from_unix(0), (1970, 1, 1)); // the epoch itself
+        assert_eq!(civil_from_unix(946_598_400), (1999, 12, 31)); // century boundary eve
+        assert_eq!(civil_from_unix(1_709_164_800), (2024, 2, 29)); // leap day
+        assert_eq!(civil_from_unix(1_783_382_400), (2026, 7, 7)); // today (test authoring day)
+        // any second within a day maps to that same day (23:59:59)
+        assert_eq!(civil_from_unix(1_783_382_400 + 86_399), (2026, 7, 7));
+        // and the next second rolls over
+        assert_eq!(civil_from_unix(1_783_382_400 + 86_400), (2026, 7, 8));
+    }
 
     #[test]
     fn store_roundtrips_awkward_strings() {
