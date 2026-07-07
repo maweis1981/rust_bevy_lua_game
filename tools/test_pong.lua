@@ -1045,6 +1045,19 @@ end
 ----------------------------------------------------------------------
 -- Time Dodge — "time moves when you move" invariants (both modes)
 ----------------------------------------------------------------------
+-- Tap a result-card action button by its act ("retry"/"modes"/"levels").
+local function tap_card(act)
+  for _, b in ipairs(DEBUG.card() or {}) do
+    if b.act == act then on_tap(b.rect.x, b.rect.y); step(); return true end
+  end
+  return false
+end
+-- Hold still with time flowing so the aimed fire converges and kills the run.
+local function kill_run()
+  game._down = true; game._px, game._py = 0, 0
+  for _ = 1, 30000 do step(); if not DEBUG.alive() then break end end
+end
+
 local function timedodge_tests()
   boot(); rand_mode = "mixed"
   local d = enter("timedodge")
@@ -1134,16 +1147,19 @@ local function timedodge_tests()
   check(died, "timedodge: converging bullets reach a lose while moving")
   check(events_have("log", "lose"), "timedodge: the lose is logged with fx")
 
-  -- Tap after game over restarts a fresh endless round.
+  -- Game over shows a result card with RETRY + MODES buttons (no Home button
+  -- on the run screen — navigation lives on the card now).
+  check(d.back == nil, "timedodge: a run has no Home button")
+  check(d.card() ~= nil, "timedodge: game over shows a result card")
   clear_input()
-  on_tap(0, -100); step()
-  d = DEBUG
-  check(d.alive(), "timedodge: tap after game over restarts")
-  check(d.score() < 0.5, "timedodge: restart resets the stolen time")
-
-  -- BACK from an endless run returns to the mode select, not the lobby.
-  on_tap(d.back.x, d.back.y); step()
-  check(DEBUG.mode() == "select", "timedodge: BACK from a run returns to mode select")
+  tap_card("retry"); d = DEBUG
+  check(d.alive() and d.score() < 0.5, "timedodge: RETRY restarts a fresh endless round")
+  -- Die again, then the card's MODES button returns to mode select.
+  kill_run()
+  check(not DEBUG.alive(), "timedodge: standing still with time flowing eventually dies")
+  clear_input()
+  tap_card("modes")
+  check(DEBUG.mode() == "select", "timedodge: the card MODES button returns to mode select")
 
   -- TRIALS -----------------------------------------------------------
   clear_input()
@@ -1175,7 +1191,7 @@ local function timedodge_tests()
     if not d.alive() then
       attempts = attempts + 1
       if attempts > 5 then break end
-      clear_input(); on_tap(0, -100); step(); d = DEBUG
+      clear_input(); tap_card("retry"); d = DEBUG
     else
       local g = d.gate()
       if g then                                -- relative drag: feed deltas
@@ -1193,9 +1209,9 @@ local function timedodge_tests()
   end
   check(cleared, "timedodge: moment 1 is clearable by heading for the gates")
 
-  -- Tap the result card -> level grid; the clear awarded stars + unlocked 2.
+  -- The seal card's LEVELS button -> level grid; the clear awarded stars.
   clear_input()
-  on_tap(0, -100); step()
+  tap_card("levels")
   L = DEBUG
   check(L.mode() == "levels", "timedodge: the result card returns to the level grid")
   check(L.stars_of(1) >= 1, "timedodge: clearing a moment awards at least one star")
@@ -1258,11 +1274,11 @@ local function timedodge_tests()
   check(d.size() == mass_at_dialog, "timedodge: the pending chip is not applied while the dialog is up")
   check(d.hit_dialog() ~= nil, "timedodge: the dialog stays open until answered")
 
-  -- BACK is swallowed while the dialog is up.
+  -- A tap outside the two buttons is swallowed while the dialog is up.
   clear_input()
-  on_tap(d.back.x, d.back.y); step()
+  on_tap(0, 320); step()
   check(d.hit_dialog() ~= nil and d.mode() == "run",
-    "timedodge: the dialog swallows BACK (and any tap outside its buttons)")
+    "timedodge: the dialog swallows any tap outside its buttons")
 
   -- NO: dismiss and take the chip (mass * 0.75), run resumes.
   hd = d.hit_dialog()
@@ -1296,8 +1312,8 @@ local function timedodge_tests()
   check(adied, "timedodge: the chip chain eventually fades you away")
   check(events_have("log", "lose"), "timedodge: absorb death is logged")
   clear_input()
-  on_tap(0, -100); step()
-  check(DEBUG.alive() and DEBUG.absorb(), "timedodge: tap after fading restarts absorb")
+  tap_card("retry")
+  check(DEBUG.alive() and DEBUG.absorb(), "timedodge: RETRY after fading restarts absorb")
   check(DEBUG.size() == 26, "timedodge: absorb restart resets the mass")
 
   -- YES path: the restart re-armed the offer. Ride to the first dialog again,
@@ -1323,9 +1339,12 @@ local function timedodge_tests()
   check(d.alive(), "timedodge: the run resumes alive after YES")
   step()
 
-  -- BACK from absorb run -> mode select -> lobby menu.
-  on_tap(DEBUG.back.x, DEBUG.back.y); step()
-  check(DEBUG.mode() == "select", "timedodge: BACK from absorb returns to mode select")
+  -- Drive the absorb run to its end, then the card MODES -> select -> menu.
+  kill_run()
+  check(not DEBUG.alive(), "timedodge: the absorb run eventually ends")
+  clear_input()
+  tap_card("modes")
+  check(DEBUG.mode() == "select", "timedodge: absorb card MODES returns to mode select")
   on_tap(DEBUG.back.x, DEBUG.back.y); step()
   check(DEBUG.game == "menu", "timedodge: BACK from mode select returns to the lobby")
 end

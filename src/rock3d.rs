@@ -40,11 +40,17 @@ use crate::script::{shake_offset, ScreenShake};
 /// (`-420 * z`) keeps rocks well inside the near/far range.
 const CAM_DIST: f32 = 900.0;
 
-/// Deep space navy the 3D camera clears to (replaces the hidden aurora).
-const CLEAR_3D: Color = Color::srgb(0.03, 0.04, 0.10);
+/// Deep space the 3D camera clears to (behind the starfield backdrop).
+const CLEAR_3D: Color = Color::srgb(0.015, 0.02, 0.05);
 
-/// Radial displacement amplitude as a fraction of the sphere radius.
-const ROCK_NOISE: f32 = 0.22;
+/// Radial displacement amplitude as a fraction of the sphere radius. Higher =
+/// more jagged; combined with FLAT normals this gives a faceted, angular rock.
+const ROCK_NOISE: f32 = 0.34;
+
+/// The starfield backdrop plane sits this far behind the gameplay plane and is
+/// this big — large enough to fill the view at that depth on any window.
+const BACKDROP_Z: f32 = -2600.0;
+const BACKDROP_SIZE: f32 = 9000.0;
 
 pub struct Rock3dPlugin;
 
@@ -73,11 +79,20 @@ pub(crate) struct Rock3dState {
 #[derive(Component)]
 pub(crate) struct Rock3dCamera;
 
+/// Tags the starfield backdrop plane (spawned once with the rig).
+#[derive(Component)]
+pub(crate) struct Rock3dBackdrop;
+
 /// Spawn the 3D rig: perspective camera at (0, 0, CAM_DIST) looking at the
-/// origin (renders under the 2D camera), a key light from upper-left-front,
-/// and a dim cool ambient (attached to the camera; overrides the global).
-/// Called once from the command drain on the first `game.rock3d`.
-pub(crate) fn spawn_3d_rig(commands: &mut Commands) {
+/// origin (renders under the 2D camera), a strong key light + a dim cool fill,
+/// a low ambient (deep shadows make the faceted rocks pop), and a big unlit
+/// starfield plane far behind. Called once on the first `game.rock3d`.
+pub(crate) fn spawn_3d_rig(
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+    assets: &AssetServer,
+) {
     commands.spawn((
         Camera3d::default(),
         Camera {
@@ -85,25 +100,54 @@ pub(crate) fn spawn_3d_rig(commands: &mut Commands) {
             clear_color: ClearColorConfig::Custom(CLEAR_3D),
             ..default()
         },
-        // `far` must exceed CAM_DIST + the deepest rock (420) with margin.
+        // `far` must exceed CAM_DIST + the backdrop depth with margin.
         Projection::Perspective(PerspectiveProjection {
-            far: 4000.0,
+            far: 6000.0,
             ..default()
         }),
         Transform::from_xyz(0.0, 0.0, CAM_DIST).looking_at(Vec3::ZERO, Vec3::Y),
+        // Low ambient: the unlit side of a rock stays dark, so the key light
+        // carves out every facet. Cool tint reads as reflected starlight.
         AmbientLight {
-            color: Color::srgb(0.65, 0.75, 1.0),
-            brightness: 120.0,
+            color: Color::srgb(0.55, 0.65, 0.95),
+            brightness: 45.0,
             affects_lightmapped_meshes: true,
         },
         Rock3dCamera,
     ));
+    // Key light: hard, warm-white, from the upper-left-front — the main sculptor.
     commands.spawn((
         DirectionalLight {
-            illuminance: 10_000.0,
+            illuminance: 17_000.0,
+            color: Color::srgb(1.0, 0.97, 0.9),
             ..default()
         },
-        Transform::from_xyz(-600.0, 800.0, 900.0).looking_at(Vec3::ZERO, Vec3::Y),
+        Transform::from_xyz(-700.0, 850.0, 700.0).looking_at(Vec3::ZERO, Vec3::Y),
+    ));
+    // Fill/rim: dim cool light from the lower-right-back so the shadow side
+    // keeps a readable edge without washing out the contrast.
+    commands.spawn((
+        DirectionalLight {
+            illuminance: 3_200.0,
+            color: Color::srgb(0.5, 0.62, 1.0),
+            ..default()
+        },
+        Transform::from_xyz(650.0, -500.0, -400.0).looking_at(Vec3::ZERO, Vec3::Y),
+    ));
+    // Starfield backdrop: a big unlit textured plane facing the camera, far
+    // behind the rocks. Unlit + emissive-free means it shows the texture as-is.
+    let tex = assets.load("textures/starfield.png");
+    let backdrop_mat = materials.add(StandardMaterial {
+        base_color_texture: Some(tex),
+        unlit: true,
+        ..default()
+    });
+    let backdrop_mesh = meshes.add(Rectangle::new(BACKDROP_SIZE, BACKDROP_SIZE));
+    commands.spawn((
+        Mesh3d(backdrop_mesh),
+        MeshMaterial3d(backdrop_mat),
+        Transform::from_xyz(0.0, 0.0, BACKDROP_Z),
+        Rock3dBackdrop,
     ));
 }
 
@@ -186,9 +230,10 @@ fn vertex_noise(p: [f32; 3]) -> f32 {
 }
 
 /// Build the shared rock mesh: a unit-DIAMETER icosphere (radius 0.5, two
-/// subdivisions) with per-vertex radial displacement from `vertex_noise`,
-/// then angle-weighted smooth normals so lighting reads the lumps. Unit
-/// diameter means a rock's `Transform::scale` IS its world size.
+/// subdivisions) with per-vertex radial displacement from `vertex_noise`, then
+/// duplicated vertices + FLAT normals so every triangle shades as a hard facet
+/// — a faceted, angular asteroid rather than a smooth lumpy ball. Unit diameter
+/// means a rock's `Transform::scale` IS its world size.
 pub(crate) fn rock_mesh() -> Mesh {
     let mut mesh = Sphere::new(0.5)
         .mesh()
@@ -204,10 +249,12 @@ pub(crate) fn rock_mesh() -> Mesh {
             p[2] *= s;
         }
     }
-    // Recompute normals for the displaced surface (the sphere's own normals
-    // would light it as a smooth ball). The ico mesh is an indexed TriangleList,
-    // which is exactly what this requires.
-    mesh.compute_smooth_normals();
+    // Split shared vertices so each face owns its own — then flat normals give
+    // each triangle a single normal, i.e. crisp facet edges (the "棱角" look).
+    // duplicate_vertices() drops the index buffer (mesh becomes non-indexed),
+    // which is exactly what compute_flat_normals() requires.
+    mesh.duplicate_vertices();
+    mesh.compute_flat_normals();
     mesh
 }
 
@@ -268,7 +315,12 @@ mod tests {
             mesh.attribute(Mesh::ATTRIBUTE_NORMAL).is_some(),
             "displaced mesh must carry recomputed normals"
         );
-        assert!(mesh.indices().is_some());
+        // Flat shading duplicates vertices and drops the index buffer, so the
+        // faceted rock is intentionally NON-indexed.
+        assert!(
+            mesh.indices().is_none(),
+            "flat-normal rock must be non-indexed"
+        );
     }
 
     #[test]
