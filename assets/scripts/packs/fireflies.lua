@@ -42,6 +42,12 @@ function make_fireflies()
   local rings_scored, hold_t = 0, 0
   local hw0, hh0 = 0, 0
   local tclock = 0           -- drives the web pulse
+  local over_ids, again_rect = {}, nil
+
+  local function clear_over_card()
+    for _, id in ipairs(over_ids) do game.despawn(id) end
+    over_ids, again_rect = {}, nil
+  end
 
   local function hud()
     game.set_text(string.format("RINGS %d   FLOCK %d", rings_scored, #boids))
@@ -94,8 +100,19 @@ function make_fireflies()
   local function game_over()
     playing = false
     local best = game.load("fireflies_best") or 0
-    if rings_scored > best then best = rings_scored; game.save("fireflies_best", rings_scored) end
-    game.set_text(string.format("THE SWARM FADED\nRINGS %d   BEST %d\nTap to glow again", rings_scored, best))
+    local is_best = rings_scored > best
+    if is_best then best = rings_scored; game.save("fireflies_best", rings_scored) end
+    -- settlement card (parity with forge: dignified failure, one tap to retry)
+    local P = over_ids
+    P[#P + 1] = game.spawn(0, 30, 330, 230, 0.05, 0.08, 0.06, 0.92)
+    P[#P + 1] = game.spawn_text(0, 108, 30, 0.75, 1.0, 0.45, 1, "THE SWARM FADED")
+    P[#P + 1] = game.spawn_text(0, 54, 26, 1, 1, 1, 1, string.format("RINGS  %d", rings_scored))
+    P[#P + 1] = game.spawn_text(0, 14, 20, 0.8, 0.95, 0.8, 1,
+      is_best and "NEW BEST!" or string.format("BEST  %d", best))
+    P[#P + 1] = game.spawn(0, -56, 190, 54, 0.72, 0.95, 0.4, 1)
+    P[#P + 1] = game.spawn_text(0, -56, 24, 0.05, 0.1, 0.05, 1, "GLOW AGAIN")
+    again_rect = { x = 0, y = -56, w = 190, h = 54 }
+    game.set_text(string.format("RINGS %d   BEST %d", rings_scored, best))
     game.log("fireflies_over")
     game.play_sound("hit"); game.haptic("heavy"); game.shake(0.5)
     game.track("fireflies_over", rings_scored)
@@ -120,6 +137,7 @@ function make_fireflies()
       rings = function() return rings_scored end,
       flock = function() return #boids end,
       alive = function() return playing end,
+      again = function() return again_rect end,
       web_count = function() return #webs end,
       webs = function()
         local out = {}
@@ -136,13 +154,13 @@ function make_fireflies()
   end
 
   local function restart()
-    clear_dynamic(); T.clear(); built = false
+    clear_dynamic(); clear_over_card(); T.clear(); built = false
     build(game.bounds())
   end
 
   return {
     enter = function() built = false end,
-    leave = function() clear_dynamic(); T.clear(); built = false end,
+    leave = function() clear_dynamic(); clear_over_card(); T.clear(); built = false end,
 
     tap = function(x, y)
       if back and inr(back, x, y) then K.switch("menu"); return end

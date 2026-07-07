@@ -64,6 +64,7 @@ function make_forge()
   local over_ids, again_rect = {}, nil
   local hw0, hh0 = 0, 0
   local rmax = 900
+  local trail_k = 0          -- frame counter for the speed trail
 
   local function gm() return GM0 * (1 + total_mass / MASS_SCALE) end
 
@@ -390,6 +391,14 @@ function make_forge()
           j = j + 1
         end
         if not fused then i = i + 1 end
+      end
+
+      -- speed trail: only slingshotting stars shed dust — speed IS the story
+      trail_k = trail_k + 1
+      if trail_k % 5 == 0 then
+        for _, b in ipairs(bodies) do
+          if b.vx * b.vx + b.vy * b.vy > 220 * 220 then game.emit("dust", b.x, b.y) end
+        end
       end
 
       -- present: flash beats danger telegraph beats normal tint

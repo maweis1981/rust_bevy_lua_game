@@ -335,9 +335,11 @@ local function fireflies_scoring_and_loss()
     step()
   end
   check(over, "attrition should eventually end the run")
+  check(d.again() ~= nil, "fireflies settlement card must expose the GLOW AGAIN button")
   clear_input()
   on_tap(0, 0); step()
   check(d.alive() and d.flock() == 40, "tap after game over must restart with a full swarm")
+  check(d.again() == nil, "restart must clear the fireflies settlement card")
   on_tap(d.back.x, d.back.y); step()
 end
 
