@@ -8,12 +8,50 @@
     html, body { margin: 0; height: 100%; background: #5c8f57; overflow: hidden; }
     /* Center the game canvas; Bevy sizes it from the window resolution. */
     canvas { display: block; margin: 0 auto; max-width: 100%; max-height: 100%; }
-    #loading { position: fixed; inset: 0; display: grid; place-items: center;
-               color: #eef; font: 600 20px/1.4 system-ui, sans-serif; }
+
+    /* Loading screen: deep-space themed, real download progress for the wasm
+       (it is tens of MB — never leave the player staring at a static word). */
+    #loading {
+      position: fixed; inset: 0; display: grid; place-items: center;
+      background: #0b0a1e; color: #eef;
+      font: 600 18px/1.5 system-ui, sans-serif;
+      transition: opacity .4s ease; z-index: 10;
+    }
+    #loading.done { opacity: 0; pointer-events: none; }
+    .load-box { display: grid; gap: 14px; justify-items: center; width: min(72vw, 340px); }
+    .load-title { letter-spacing: .18em; font-size: 14px; color: #9aa3ff; }
+    .load-orb {
+      width: 46px; height: 46px; border-radius: 50%;
+      background: radial-gradient(circle at 35% 35%, #fff, #9aa3ff 45%, #3a2f8f 70%, #0b0a1e 100%);
+      animation: pulse 1.6s ease-in-out infinite;
+    }
+    @keyframes pulse { 0%,100% { transform: scale(1); opacity: .85; } 50% { transform: scale(1.12); opacity: 1; } }
+    .bar-track {
+      width: 100%; height: 8px; border-radius: 4px;
+      background: rgba(255,255,255,.12); overflow: hidden;
+    }
+    #bar {
+      height: 100%; width: 0%; border-radius: 4px;
+      background: linear-gradient(90deg, #6ea8ff, #b18cff, #ffd27a);
+      transition: width .15s linear;
+    }
+    #bar.indeterminate {
+      width: 30%;
+      animation: slide 1.2s ease-in-out infinite alternate;
+    }
+    @keyframes slide { from { margin-left: 0; } to { margin-left: 70%; } }
+    #status { font-size: 13px; color: #c9cffb; font-variant-numeric: tabular-nums; }
   </style>
 </head>
 <body>
-  <div id="loading">Loading…</div>
+  <div id="loading">
+    <div class="load-box">
+      <div class="load-orb"></div>
+      <div class="load-title">HOLLOW LULLABY</div>
+      <div class="bar-track"><div id="bar"></div></div>
+      <div id="status">Contacting the forge…</div>
+    </div>
+  </div>
   <script>
     // Web audio starts SUSPENDED until a user gesture, and cpal (Bevy's wasm
     // audio backend) creates its AudioContext inside the wasm module before any
@@ -44,16 +82,66 @@
   <script type="module">
     // Relative import so it works under a GitHub Pages sub-path (…/<repo>/).
     import init from './hollowlullaby.js';
-    init()
-      .then(() => document.getElementById('loading')?.remove())
-      .catch((e) => {
-        // winit unwinds its event loop via a JS exception on the web; that's normal.
-        if (!`${e}`.includes('Using exceptions for control flow')) {
-          console.error(e);
+
+    const bar = document.getElementById('bar');
+    const status = document.getElementById('status');
+    const loading = document.getElementById('loading');
+    const mb = (n) => (n / 1048576).toFixed(1);
+
+    // Stream the wasm ourselves so the bar shows REAL download progress.
+    // Caveats handled: with gzip transfer, Content-Length is the compressed
+    // size while the reader yields decompressed bytes (ratio can pass 1 →
+    // clamp at 99% until done); with no Content-Length at all, fall back to
+    // an indeterminate bar plus a live MB counter.
+    async function fetchWasmWithProgress(url) {
+      const resp = await fetch(url);
+      if (!resp.ok) throw new Error(`wasm fetch failed: ${resp.status}`);
+      const total = +resp.headers.get('Content-Length') || 0;
+      if (!resp.body || !window.ReadableStream) return await resp.arrayBuffer();
+      const reader = resp.body.getReader();
+      const chunks = [];
+      let received = 0;
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+        received += value.length;
+        if (total > 0) {
+          const pct = Math.min(99, (received / total) * 100);
+          bar.style.width = pct.toFixed(1) + '%';
+          status.textContent = `Downloading the engine  ${Math.floor(pct)}%`;
         } else {
-          document.getElementById('loading')?.remove();
+          bar.classList.add('indeterminate');
+          status.textContent = `Downloading the engine  ${mb(received)} MB`;
         }
-      });
+      }
+      const buf = new Uint8Array(received);
+      let off = 0;
+      for (const c of chunks) { buf.set(c, off); off += c.length; }
+      return buf.buffer;
+    }
+
+    (async () => {
+      try {
+        const wasm = await fetchWasmWithProgress(new URL('./hollowlullaby_bg.wasm', import.meta.url));
+        bar.classList.remove('indeterminate');
+        bar.style.width = '100%';
+        status.textContent = 'Igniting the forge…';
+        await init({ module_or_path: wasm });
+        loading.classList.add('done');
+        setTimeout(() => loading.remove(), 500);
+      } catch (e) {
+        // winit unwinds its event loop via a JS exception on the web; that's normal.
+        if (`${e}`.includes('Using exceptions for control flow')) {
+          loading.classList.add('done');
+          setTimeout(() => loading.remove(), 500);
+        } else {
+          console.error(e);
+          status.textContent = 'Failed to load — please refresh.';
+          bar.style.background = '#ff6a6a';
+        }
+      }
+    })();
   </script>
 </body>
 </html>
