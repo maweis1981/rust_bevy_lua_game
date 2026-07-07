@@ -59,6 +59,8 @@ game = {
     game._store[k] = v; record("save", k); return true
   end,
   load = function(k) return game._store[k] end,
+  _touches = {},
+  touches = function() return game._touches end,
   haptic = function(k) record("haptic", k) end,
   pointer = function() return game._px, game._py, game._down end,
   key = function(n) return game._keys[n] == true end,
@@ -962,6 +964,31 @@ catch_tests()
 ponies_tests()
 gallery_tests()
 settings_tests()
+
+----------------------------------------------------------------------
+-- game.touches() multi-touch contract (roadmap P0.2 acceptance):
+-- two mocked fingers drive two independent paddles simultaneously.
+----------------------------------------------------------------------
+local function touches_tests()
+  local L = { x = -300, y = 0 }
+  local R = { x = 300, y = 0 }
+  local function drive_paddles() -- each finger steers the paddle on its side
+    for _, t in ipairs(game.touches()) do
+      if t.x < 0 then L.y = t.y else R.y = t.y end
+    end
+  end
+  game._touches = { { x = -280, y = 120, id = 7 }, { x = 310, y = -90, id = 9 } }
+  drive_paddles()
+  check(L.y == 120, "touches: left finger drives left paddle")
+  check(R.y == -90, "touches: right finger drives right paddle")
+  game._touches = { { x = -280, y = -40, id = 7 } } -- right finger lifted
+  drive_paddles()
+  check(L.y == -40, "touches: left finger keeps driving after right lifts")
+  check(R.y == -90, "touches: lifted finger stops driving its paddle")
+  game._touches = {}
+  check(#game.touches() == 0, "touches: empty when no fingers down")
+end
+touches_tests()
 
 print(string.format("checks=%d", checks))
 if #failures == 0 then
