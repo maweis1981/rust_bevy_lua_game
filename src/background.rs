@@ -27,6 +27,12 @@ impl Plugin for BackgroundPlugin {
     }
 }
 
+/// Tags the full-screen background quad so the 3D render path
+/// (`src/rock3d.rs`) can hide this opaque backdrop while a 3D scene is live
+/// (and restore it afterwards).
+#[derive(Component)]
+pub(crate) struct BackgroundQuad;
+
 /// The material bound to the background quad. `data` packs animation inputs:
 /// x = time (s), y = aspect ratio, z = gameplay energy (0..1), w reserved.
 #[derive(Asset, TypePath, AsBindGroup, Clone)]
@@ -83,6 +89,9 @@ fn setup_background(
         Mesh2d(mesh),
         MeshMaterial2d(material.clone()),
         Transform::from_xyz(0.0, 0.0, -10.0),
+        // Explicit so the 3D path can query and toggle it (see rock3d.rs).
+        Visibility::default(),
+        BackgroundQuad,
     ));
     commands.insert_resource(BackgroundState {
         handle: material,

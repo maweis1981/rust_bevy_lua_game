@@ -34,6 +34,15 @@ function make_timedodge()
   local clamp = K.clamp
   local T = K.tracker()
 
+  -- REAL-3D render path: when the host exposes game.rock3d (src/rock3d.rs),
+  -- meteors + the player orb are true rotating 3D rock meshes with lighting;
+  -- depth is REAL z movement instead of scale/brighten fakery. Everything
+  -- else (HUD, menus, buttons, gate, trail) stays on the 2D layer. Test mocks
+  -- don't define rock3d, so the 2D sprite path below remains fully exercised
+  -- and is the fallback everywhere the 3D bridge is absent.
+  local HAS3D = game.rock3d ~= nil
+  local Z3D = -420                       -- world z at full depth (b.z = 1)
+
   local PLAYER, FOE, GATE = 26, 18, 34
   -- RELATIVE drag: the orb moves by the finger's DELTA (scaled), never to the
   -- finger's position — so you drag in the empty bottom of the screen and the
@@ -113,6 +122,11 @@ function make_timedodge()
   local function unlocked(i) return i == 1 or stars_of(i - 1) > 0 end
   local function star_str(n) return n >= 1 and string.rep("*", n) or "-" end
 
+  -- ABSORB grows/shrinks the player: sprites resize, 3D rocks rescale.
+  local function player_size(sz)
+    if HAS3D then game.scale3d(player, sz) else game.set_size(player, sz, sz) end
+  end
+
   local function clear_foes()
     if S then for _, b in ipairs(S.bullets) do game.despawn(b.id) end; S.bullets = {} end
   end
@@ -152,7 +166,9 @@ function make_timedodge()
 
   local function wipe()
     close_hit_dialog()
-    clear_foes(); T.clear(); gate_id, player = nil, nil; trail = {}
+    clear_foes()
+    if HAS3D and player then game.despawn(player) end  -- 3D player isn't in T
+    T.clear(); gate_id, player = nil, nil; trail = {}
   end
 
   ------------------------------------------------------------------
@@ -240,7 +256,14 @@ function make_timedodge()
     for i = 1, TRAIL_N do
       trail[i] = { id = T.spawn(0, 0, PLAYER * 0.6, PLAYER * 0.6, 0.7, 0.9, 1.0, 0), a = 0 }
     end
-    player = T.sprite(S.px, S.py, PLAYER, PLAYER, "rockball")
+    if HAS3D then
+      -- The 3D player is NOT in T's list (T only wraps 2D spawners), so wipe()
+      -- despawns it explicitly. Slightly blue-white so it reads as "you".
+      player = game.rock3d(S.px, S.py, 0, PLAYER)
+      game.color3d(player, 0.85, 0.92, 1.0)
+    else
+      player = T.sprite(S.px, S.py, PLAYER, PLAYER, "rockball")
+    end
     if S.trial then
       gate_id = T.sprite(0, 0, GATE, GATE, "gem")
       place_gate()
@@ -269,10 +292,11 @@ function make_timedodge()
 
   local function start_run(lv, absorb)
     wipe()
-    S = { trial = lv, absorb = absorb, px = 0, py = 0, ts = TS_MIN, score = 0,
-          elapsed = 0, playing = true, done = false, bullets = {}, gate = nil,
-          gate_i = 0, spawn_t = lv and -1.0 or -0.5, mark = 10, next_unlock = 2,
-          ann = "", ann_t = 0, volley_due = lv and LEVELS[lv].volley or 0,
+    S = { trial = lv, absorb = absorb, px = 0, py = 0, prot = 0, ts = TS_MIN,
+          score = 0, elapsed = 0, playing = true, done = false, bullets = {},
+          gate = nil, gate_i = 0, spawn_t = lv and -1.0 or -0.5, mark = 10,
+          next_unlock = 2, ann = "", ann_t = 0,
+          volley_due = lv and LEVELS[lv].volley or 0,
           mass = PLAYER, peak = PLAYER, eaten = 0,
           hit_dialog = nil, dialog_used = false }   -- a new run re-arms the offer
     if lv then S.rng = new_lcg(LEVELS[lv].seed) end
@@ -327,10 +351,17 @@ function make_timedodge()
   local function spawn_foe(kind, x, y, vx, vy, z, size)
     if #S.bullets >= MAX_FOES then return end
     size = size or FOE
-    local id = game.spawn_sprite(x, y, size * 0.3, size * 0.3, "meteor")
+    local zz = z or 1
+    local id
+    if HAS3D then
+      -- Real 3D rock at its true world size; depth is real z, so no size fake.
+      id = game.rock3d(x, y, Z3D * zz, size)
+    else
+      id = game.spawn_sprite(x, y, size * 0.3, size * 0.3, "meteor")
+    end
     S.bullets[#S.bullets + 1] = { id = id, kind = kind, x = x, y = y,
                                   vx = vx, vy = vy, age = 0, near = false,
-                                  z = z or 1, rot = rnd() * 6.28,
+                                  z = zz, rot = rnd() * 6.28,
                                   spin = (rnd() * 2 - 1) * 3.5, size = size }
   end
   local function spawn_edge()
@@ -384,7 +415,7 @@ function make_timedodge()
     S.mass = S.mass * CHIP
     game.play_sound("wall"); game.haptic("heavy"); game.shake(0.5); game.zoom(0.5)
     if S.mass < MIN_MASS then die(); return end
-    game.set_size(player, S.mass, S.mass)
+    player_size(S.mass)
     hud()
   end
 
@@ -510,9 +541,15 @@ function make_timedodge()
       local drift = 0.5 + 0.5 * depth        -- far meteors drift (parallax)
       b.x, b.y = b.x + b.vx * bdt * drift, b.y + b.vy * bdt * drift
       b.rot = b.rot + b.spin * bdt
-      game.set_rotation(b.id, b.rot)
       local sc = b.size * (0.30 + 0.70 * depth * depth)
-      game.set_size(b.id, sc, sc)
+      if HAS3D then
+        -- Real tumble on three axes; freezing wdt freezes it for free. No
+        -- set_size: perspective handles apparent size, depth is real z.
+        game.rot3d(b.id, b.rot * 0.7, b.rot, b.rot * 0.3)
+      else
+        game.set_rotation(b.id, b.rot)
+        game.set_size(b.id, sc, sc)
+      end
 
       local d = math.sqrt((b.x - S.px) ^ 2 + (b.y - S.py) ^ 2)
       local consumed = false
@@ -536,7 +573,7 @@ function make_timedodge()
             apply_chip()
             if not S.playing then return end -- chipped below MIN_MASS: dead
           end
-          game.set_size(player, S.mass, S.mass)
+          player_size(S.mass)
           hud()
         end
       elseif b.z <= PLANE_Z then             -- only near-plane rocks can touch
@@ -569,11 +606,16 @@ function make_timedodge()
         local c, k = kd.c, (1 - S.ts) * 0.55
         if S.absorb then c = (b.size <= S.mass) and SAFE_C or DANGER_C end
         local br = 0.45 + 0.55 * depth
-        game.move_to(b.id, b.x, b.y)
-        game.set_color(b.id,
-          (c[1] + (FROZEN_C[1] - c[1]) * k) * br,
-          (c[2] + (FROZEN_C[2] - c[2]) * k) * br,
-          (c[3] + (FROZEN_C[3] - c[3]) * k) * br, 1)
+        local cr = (c[1] + (FROZEN_C[1] - c[1]) * k) * br
+        local cg = (c[2] + (FROZEN_C[2] - c[2]) * k) * br
+        local cb = (c[3] + (FROZEN_C[3] - c[3]) * k) * br
+        if HAS3D then
+          game.move3d(b.id, b.x, b.y, Z3D * b.z)
+          game.color3d(b.id, cr, cg, cb)
+        else
+          game.move_to(b.id, b.x, b.y)
+          game.set_color(b.id, cr, cg, cb, 1)
+        end
         kept[#kept + 1] = b
       end
     end
@@ -590,8 +632,17 @@ function make_timedodge()
       local t = trail[i]
       if t.a > 0.004 then t.a = t.a * 0.85; game.set_color(t.id, 0.7, 0.9, 1.0, t.a) end
     end
-    game.set_color(player, 1 - (1 - S.ts) * 0.3, 1, 1, 1)
-    game.move_to(player, S.px, S.py)
+    if HAS3D then
+      -- The player is the one thing that moves in frozen time, so its tumble
+      -- runs on REAL dt, faster while dashing. White pulled icy as time stops.
+      S.prot = S.prot + (0.6 + pspeed / REF_SPEED) * dt
+      game.rot3d(player, S.prot * 0.5, S.prot, S.prot * 0.25)
+      game.color3d(player, (1 - (1 - S.ts) * 0.3) * 0.88, 0.95, 1.0)
+      game.move3d(player, S.px, S.py, 0)
+    else
+      game.set_color(player, 1 - (1 - S.ts) * 0.3, 1, 1, 1)
+      game.move_to(player, S.px, S.py)
+    end
     hud()
   end
 
