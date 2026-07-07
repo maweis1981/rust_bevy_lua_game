@@ -24,6 +24,13 @@
 //!                    cols, rows) -> id           frames; shows frame 0)
 //!   game.set_frame(id, i)                       (0-based frame index into the
 //!                                               sheet; out of range is clamped)
+//!   game.tilemap(x, y, cols, rows, tile_size,   (tile grid centered at x,y;
+//!                tileset, tile_px,               tiles come from the tileset
+//!                sheet_cols, sheet_rows) -> id   atlas; starts empty)
+//!   game.set_tile(id, tx, ty, index)            (put atlas frame `index` at
+//!                                               grid cell tx,ty (0,0 = top
+//!                                               left); nil/negative clears;
+//!                                               out-of-bounds is ignored)
 //!   game.move_to(id, x, y)
 //!   game.set_color(id, r, g, b, a)             (recolor a sprite; enables
 //!                                               flashes and fading trails)
@@ -114,6 +121,7 @@ impl Plugin for ScriptPlugin {
             .init_resource::<SheetRegistry>()
             .init_resource::<CameraRig>()
             .init_resource::<AudioVolumes>()
+            .init_resource::<Tilemaps>()
             .init_resource::<crate::particles::ParticleRng>()
             .insert_non_send(LuaVm::new())
             .add_systems(Startup, (setup_scene, load_scripts))
@@ -239,6 +247,27 @@ struct SheetRegistry {
     frame_counts: HashMap<u32, usize>,
     layouts: HashMap<(String, u32, u32, u32, u32), Handle<TextureAtlasLayout>>,
 }
+
+/// One live tile grid (roadmap 1.3, the sprite-grid fallback for
+/// bevy_ecs_tilemap). The root entity carries the map transform; tiles are
+/// lazily-spawned children, so `despawn(map_id)` cleans the whole grid up via
+/// Bevy's recursive despawn.
+struct TilemapInfo {
+    root: Entity,
+    cols: u32,
+    rows: u32,
+    tile_size: f32,
+    image: String,
+    layout: Handle<TextureAtlasLayout>,
+    frames: usize,
+    tiles: HashMap<(u32, u32), Entity>,
+}
+
+/// All live tilemaps by Lua id. A resource (not a component) so a same-frame
+/// `tilemap` + `set_tile` works — the root entity isn't queryable until
+/// Commands apply, but this map is.
+#[derive(Resource, Default)]
+struct Tilemaps(HashMap<u32, TilemapInfo>);
 
 /// Retains a strong handle to every texture ever loaded, keyed by name, so a
 /// sprite that swaps its image (frame animation via `set_sprite_image`) never
@@ -463,6 +492,23 @@ enum LuaCommand {
     SetFrame {
         id: u32,
         index: i64,
+    },
+    SpawnTilemap {
+        id: u32,
+        x: f32,
+        y: f32,
+        cols: u32,
+        rows: u32,
+        tile_size: f32,
+        image: String,
+        tile_px: u32,
+        grid: (u32, u32),
+    },
+    SetTile {
+        id: u32,
+        tx: u32,
+        ty: u32,
+        index: Option<i64>,
     },
     Despawn {
         id: u32,
@@ -854,6 +900,55 @@ fn register_api(lua: &Lua) -> mlua::Result<()> {
             }
             Ok(())
         })?,
+    )?;
+
+    game.set(
+        "tilemap",
+        lua.create_function(
+            #[allow(clippy::type_complexity)]
+            |lua,
+             (x, y, cols, rows, tile_size, image, tile_px, sheet_cols, sheet_rows): (
+                f32,
+                f32,
+                u32,
+                u32,
+                f32,
+                String,
+                u32,
+                u32,
+                u32,
+            )| {
+                let mut bridge = lua
+                    .app_data_mut::<Bridge>()
+                    .ok_or_else(|| mlua::Error::runtime("bridge missing"))?;
+                bridge.next_id += 1;
+                let id = bridge.next_id;
+                bridge.queue.push(LuaCommand::SpawnTilemap {
+                    id,
+                    x,
+                    y,
+                    cols,
+                    rows,
+                    tile_size,
+                    image,
+                    tile_px,
+                    grid: (sheet_cols, sheet_rows),
+                });
+                Ok(id)
+            },
+        )?,
+    )?;
+
+    game.set(
+        "set_tile",
+        lua.create_function(
+            |lua, (id, tx, ty, index): (u32, u32, u32, Option<i64>)| {
+                if let Some(mut bridge) = lua.app_data_mut::<Bridge>() {
+                    bridge.queue.push(LuaCommand::SetTile { id, tx, ty, index });
+                }
+                Ok(())
+            },
+        )?,
     )?;
 
     game.set(
@@ -1317,6 +1412,25 @@ fn register_api(lua: &mut Lua, bridge: Rc<RefCell<Bridge>>) {
         })).unwrap();
 
         let b = bridge.clone();
+        game.set(ctx, "tilemap", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let (x, y, cols, rows, tile_size, image, tile_px, sheet_cols, sheet_rows):
+                (f32, f32, u32, u32, f32, ottavino::String, u32, u32, u32) = stack.consume(ctx)?;
+            let id = { let mut br = b.borrow_mut(); br.next_id += 1; let id = br.next_id;
+                br.queue.push(LuaCommand::SpawnTilemap { id, x, y, cols, rows, tile_size,
+                    image: image.to_str().unwrap_or("").to_string(),
+                    tile_px, grid: (sheet_cols, sheet_rows) }); id };
+            stack.replace(ctx, id as i64);
+            Ok(CallbackReturn::Return)
+        })).unwrap();
+
+        let b = bridge.clone();
+        game.set(ctx, "set_tile", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let (id, tx, ty, index): (u32, u32, u32, Option<i64>) = stack.consume(ctx)?;
+            b.borrow_mut().queue.push(LuaCommand::SetTile { id, tx, ty, index });
+            Ok(CallbackReturn::Return)
+        })).unwrap();
+
+        let b = bridge.clone();
         game.set(ctx, "despawn", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
             let id: u32 = stack.consume(ctx)?;
             b.borrow_mut().queue.push(LuaCommand::Despawn { id });
@@ -1668,6 +1782,17 @@ struct ParticleParams<'w, 's> {
     live: Query<'w, 's, (), With<crate::particles::Particle>>,
 }
 
+/// Everything `apply_lua` needs to materialize textures, sheets and tilemaps
+/// (also grouped for the 16-parameter cap).
+#[derive(bevy::ecs::system::SystemParam)]
+struct SpawnAssets<'w> {
+    tex_cache: ResMut<'w, TextureCache>,
+    sheets: ResMut<'w, SheetRegistry>,
+    tilemaps: ResMut<'w, Tilemaps>,
+    layouts: ResMut<'w, Assets<TextureAtlasLayout>>,
+    server: Res<'w, AssetServer>,
+}
+
 /// Apply everything Lua queued this frame.
 #[allow(clippy::too_many_arguments)] // Bevy systems legitimately take many params
 fn apply_lua(
@@ -1682,12 +1807,19 @@ fn apply_lua(
     mut bg_theme: ResMut<BackgroundTheme>,
     mut audio: AudioParams,
     mut particles: ParticleParams,
-    mut tex_cache: ResMut<TextureCache>,
-    mut sheets: ResMut<SheetRegistry>,
-    mut layouts: ResMut<Assets<TextureAtlasLayout>>,
-    assets: Res<AssetServer>,
+    mut spawn_assets: SpawnAssets,
     hud: Option<Res<Hud>>,
 ) {
+    // Local aliases keep the match arms below unchanged in shape.
+    let SpawnAssets {
+        tex_cache,
+        sheets,
+        tilemaps,
+        layouts,
+        server,
+    } = &mut spawn_assets;
+    let (tex_cache, sheets, tilemaps, layouts) = (tex_cache, sheets, tilemaps, layouts);
+    let assets = server;
     // Sprites spawn at increasing z so later-spawned things (ball) draw in front
     // of earlier ones (net, trail) without depending on transparent-sort order.
     // De-dup identical SFX within this frame so a burst of the same impact plays
@@ -1912,8 +2044,113 @@ fn apply_lua(
                     }
                 }
             }
+            LuaCommand::SpawnTilemap {
+                id,
+                x,
+                y,
+                cols,
+                rows,
+                tile_size,
+                image,
+                tile_px,
+                grid: (sheet_cols, sheet_rows),
+            } => {
+                let z = 0.001 * id as f32;
+                let layout_key = (image.clone(), tile_px, tile_px, sheet_cols, sheet_rows);
+                let layout = sheets
+                    .layouts
+                    .entry(layout_key)
+                    .or_insert_with(|| {
+                        layouts.add(TextureAtlasLayout::from_grid(
+                            UVec2::splat(tile_px.max(1)),
+                            sheet_cols.max(1),
+                            sheet_rows.max(1),
+                            None,
+                            None,
+                        ))
+                    })
+                    .clone();
+                // The root is an empty transform node; tiles attach as children.
+                let root = commands.spawn(Transform::from_xyz(x, y, z)).id();
+                registry.0.insert(id, root);
+                tilemaps.0.insert(
+                    id,
+                    TilemapInfo {
+                        root,
+                        cols: cols.max(1),
+                        rows: rows.max(1),
+                        tile_size,
+                        image,
+                        layout,
+                        frames: (sheet_cols.max(1) * sheet_rows.max(1)) as usize,
+                        tiles: HashMap::new(),
+                    },
+                );
+            }
+            LuaCommand::SetTile { id, tx, ty, index } => {
+                let Some(map) = tilemaps.0.get_mut(&id) else {
+                    continue; // not a tilemap id; ignore
+                };
+                if !tile_in_bounds(tx, ty, map.cols, map.rows) {
+                    continue; // off-grid writes are safely ignored
+                }
+                match index {
+                    Some(i) if i >= 0 => {
+                        let frame = clamp_frame(i, map.frames);
+                        if let Some(&tile) = map.tiles.get(&(tx, ty)) {
+                            if let Ok(mut sprite) = sprites.get_mut(tile) {
+                                if let Some(atlas) = sprite.texture_atlas.as_mut() {
+                                    atlas.index = frame;
+                                }
+                            } else {
+                                commands.entity(tile).entry::<Sprite>().and_modify(
+                                    move |mut s| {
+                                        if let Some(atlas) = s.texture_atlas.as_mut() {
+                                            atlas.index = frame;
+                                        }
+                                    },
+                                );
+                            }
+                        } else {
+                            let (lx, ly) =
+                                tile_local_pos(tx, ty, map.cols, map.rows, map.tile_size);
+                            let texture = tex_cache
+                                .0
+                                .entry(map.image.clone())
+                                .or_insert_with(|| {
+                                    assets.load(format!("textures/{}.png", map.image))
+                                })
+                                .clone();
+                            let tile = commands
+                                .spawn((
+                                    Sprite {
+                                        image: texture,
+                                        texture_atlas: Some(TextureAtlas {
+                                            layout: map.layout.clone(),
+                                            index: frame,
+                                        }),
+                                        custom_size: Some(Vec2::splat(map.tile_size)),
+                                        ..default()
+                                    },
+                                    Transform::from_xyz(lx, ly, 0.0),
+                                    ChildOf(map.root),
+                                ))
+                                .id();
+                            map.tiles.insert((tx, ty), tile);
+                        }
+                    }
+                    _ => {
+                        // nil / negative index clears the cell.
+                        if let Some(tile) = map.tiles.remove(&(tx, ty)) {
+                            commands.entity(tile).despawn();
+                        }
+                    }
+                }
+            }
             LuaCommand::Despawn { id } => {
                 sheets.frame_counts.remove(&id);
+                // A tilemap root despawns its tile children recursively.
+                tilemaps.0.remove(&id);
                 if let Some(entity) = registry.0.remove(&id) {
                     commands.entity(entity).despawn();
                 }
@@ -2119,13 +2356,85 @@ fn clamp_frame(index: i64, total: usize) -> usize {
     index.clamp(0, total.saturating_sub(1) as i64) as usize
 }
 
+/// Whether a tile coordinate is inside a cols×rows grid.
+fn tile_in_bounds(tx: u32, ty: u32, cols: u32, rows: u32) -> bool {
+    tx < cols && ty < rows
+}
+
+/// A tile's position local to the map root, which sits at the map's CENTER.
+/// (0,0) is the top-left cell; +ty walks down the screen like the row order of
+/// a level file, so agent-generated JSON grids paste in without a flip.
+fn tile_local_pos(tx: u32, ty: u32, cols: u32, rows: u32, tile_size: f32) -> (f32, f32) {
+    let half_w = cols as f32 * tile_size * 0.5;
+    let half_h = rows as f32 * tile_size * 0.5;
+    (
+        -half_w + (tx as f32 + 0.5) * tile_size,
+        half_h - (ty as f32 + 0.5) * tile_size,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        cam_zoom_clamp, clamp_frame, haptic_style, rig_approach, shake_offset, volume_clamp,
-        zoom_scale, LuaCommand, LuaVm,
+        cam_zoom_clamp, clamp_frame, haptic_style, rig_approach, shake_offset, tile_in_bounds,
+        tile_local_pos, volume_clamp, zoom_scale, LuaCommand, LuaVm,
     };
     use bevy::prelude::Vec3;
+
+    #[test]
+    fn tile_grid_is_centered_and_row_major_downward() {
+        // A 2x2 grid of 10px tiles centered on the root: quadrant centers.
+        assert_eq!(tile_local_pos(0, 0, 2, 2, 10.0), (-5.0, 5.0), "top-left");
+        assert_eq!(tile_local_pos(1, 0, 2, 2, 10.0), (5.0, 5.0), "top-right");
+        assert_eq!(tile_local_pos(0, 1, 2, 2, 10.0), (-5.0, -5.0), "bottom-left");
+        assert_eq!(tile_local_pos(1, 1, 2, 2, 10.0), (5.0, -5.0), "bottom-right");
+        // Odd grid: the middle cell lands exactly on the root.
+        assert_eq!(tile_local_pos(1, 1, 3, 3, 16.0), (0.0, 0.0), "center cell");
+    }
+
+    #[test]
+    fn tile_bounds_reject_off_grid_writes() {
+        assert!(tile_in_bounds(0, 0, 4, 3));
+        assert!(tile_in_bounds(3, 2, 4, 3));
+        assert!(!tile_in_bounds(4, 0, 4, 3), "x == cols is out");
+        assert!(!tile_in_bounds(0, 3, 4, 3), "y == rows is out");
+    }
+
+    #[test]
+    fn tilemap_and_set_tile_queue_commands() {
+        let mut vm = LuaVm::new();
+        vm.exec_chunk(
+            r#"
+            local id = game.tilemap(0.0, 0.0, 8, 6, 32.0, "tileset", 16, 4, 4)
+            assert(id > 0, "tilemap must return an id")
+            game.set_tile(id, 2, 3, 7)
+            game.set_tile(id, 2, 3, nil)
+            "#,
+            "tilemap_test",
+        )
+        .expect("tilemap Lua chunk failed");
+        let commands = vm.drain();
+        assert_eq!(commands.len(), 3);
+        match &commands[0] {
+            LuaCommand::SpawnTilemap {
+                cols, rows, image, tile_px, grid, ..
+            } => {
+                assert_eq!((*cols, *rows), (8, 6));
+                assert_eq!(image, "tileset");
+                assert_eq!(*tile_px, 16);
+                assert_eq!(*grid, (4, 4));
+            }
+            _ => panic!("first command should be SpawnTilemap"),
+        }
+        assert!(matches!(
+            &commands[1],
+            LuaCommand::SetTile { tx: 2, ty: 3, index: Some(7), .. }
+        ));
+        assert!(
+            matches!(&commands[2], LuaCommand::SetTile { index: None, .. }),
+            "nil index clears the cell"
+        );
+    }
 
     #[test]
     fn volume_is_clamped_and_nan_mutes() {
