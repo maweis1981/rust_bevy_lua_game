@@ -240,6 +240,54 @@ console.log('TIME DODGE — shared engine invariants\n');
     launch({ canvas: canvas, raf: raf }, function () { booted2++; });
     ok(booted2 === 1, 'without loadSubpackage, launcher boots directly (fallback)');
 
+    // ---- 9. TikTok bundle: the browser CommonJS bundle boots the engine ------
+    (function () {
+      console.log('[9] tiktok: engine.bundle.js require()s and starts the shared engine');
+      var fs = require('fs');
+      var bundlePath = path.join(__dirname, '..', 'tiktok', 'engine.bundle.js');
+      if (!fs.existsSync(bundlePath)) {
+        console.log('  skip (run prepare.sh first to generate tiktok/engine.bundle.js)');
+      } else {
+        // Fake just enough browser: a `window` for the bundle's registry, and a
+        // no-op 2D canvas so shared/main.js can draw one frame.
+        var win = {};
+        var code = fs.readFileSync(bundlePath, 'utf8').replace(/\bwindow\b/g, '__win');
+        // eslint-disable-next-line no-new-func
+        (new Function('__win', code))(win);
+        ok(typeof win.require === 'function', 'bundle exposes require()');
+        var startGame = win.require('main.js').startGame;
+        ok(typeof startGame === 'function', 'require("main.js").startGame is a function');
+
+        var noop = function () {};
+        var ctx = {
+          createLinearGradient: function () { return { addColorStop: noop }; },
+          createRadialGradient: function () { return { addColorStop: noop }; },
+          fillRect: noop, strokeRect: noop, clearRect: noop, beginPath: noop,
+          arc: noop, arcTo: noop, ellipse: noop, rect: noop, roundRect: noop,
+          moveTo: noop, lineTo: noop, quadraticCurveTo: noop, bezierCurveTo: noop,
+          closePath: noop, fill: noop, clip: noop,
+          stroke: noop, fillText: noop, strokeText: noop, save: noop, restore: noop,
+          translate: noop, rotate: noop, scale: noop, setTransform: noop, setLineDash: noop,
+          measureText: function () { return { width: 10 }; },
+          set fillStyle(v) {}, set strokeStyle(v) {}, set lineWidth(v) {},
+          set globalAlpha(v) {}, set font(v) {}, set textAlign(v) {},
+          set textBaseline(v) {}, set lineCap(v) {}, set lineJoin(v) {}, set shadowBlur(v) {}, set shadowColor(v) {},
+        };
+        var canvas = { width: 390, height: 690, getContext: function () { return ctx; } };
+        var frames = 0;
+        var platform = {
+          canvas: canvas,
+          onTouchStart: noop, onTouchMove: noop, onTouchEnd: noop,
+          storage: { get: function () { return null; }, set: noop },
+          rewardAd: function (cb) { cb(true); },
+          raf: function (cb) { if (frames++ < 3) cb(); },
+          now: function () { return frames * 16; },
+        };
+        var g = startGame(platform);
+        ok(g && typeof g.update === 'function', 'startGame returned a live game (ran frames without throwing)');
+      }
+    })();
+
     console.log('\n' + pass + ' passed, ' + fail + ' failed');
     process.exit(fail === 0 ? 0 : 1);
   }, 5);

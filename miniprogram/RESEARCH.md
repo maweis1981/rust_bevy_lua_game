@@ -173,7 +173,39 @@ and parsed back with `Number(...)` where numeric (mirroring Lua's `tonumber`).
 Keys carried over verbatim: `timedodge_best`, `td_absorb_best`,
 `td_lv<i>_stars`, `td_lv<i>_best`.
 
-## 7. Verification notes / what is unverified here
+## 8. TikTok Mini Games (TTMinis) — a DIFFERENT runtime from Douyin
+
+TikTok (the international app) is **not** the same target as Douyin, despite the
+shared ByteDance lineage. Its mini-game program is **TikTok Mini Games** with the
+**`TTMinis.game.*`** JS SDK, and — crucially — it offers an **HTML runtime**:
+
+> "**HTML**: Web-based build that runs in a **webview** using HTML/CSS/JavaScript."
+> ("Native" is the other, compiled-runtime option.)
+
+That means the HTML runtime has a **real DOM/BOM** — normal `<canvas>`,
+`document`/`window`, DOM touch events, `localStorage`, `requestAnimationFrame` —
+the exact opposite of WeChat/Douyin's no-DOM model (§1). So the same `shared/`
+engine runs there directly in a plain HTML page; the port needs no canvas
+shim, only a DOM adapter (`tiktok/adapter.js`).
+
+SDK surface used (confirmed present in the docs):
+- **Init**: `<script src="https://developers.tiktok.com/js/minis.js">` then
+  `TTMinis.game.init({ clientKey })` — all other SDK calls must follow init.
+- **Loading**: `TTMinis.game.setLoadingProgress({ progress })` (0..1).
+- **Rewarded ad**: `TTMinis.game.createRewardedVideoAd({ adUnitId })` — the
+  ABSORB sponsor mapping (§5) uses this on TikTok.
+- No subpackage concept for the HTML runtime — the page loads up front (so the
+  4 MB / 分包 story in §3 is a WeChat/Douyin concern, not a TikTok one).
+
+Sources (fetched):
+- https://developers.tiktok.com/doc/mini-games-overview
+- https://developers.tiktok.com/doc/mini-games-sdk-get-started — `minis.js`,
+  `TTMinis.game.init`, `setLoadingProgress`; "Initializing … is only required if
+  your mini game uses HTML runtime."
+- https://developers.tiktok.com/doc/develop-your-mini-game — HTML vs Native
+  runtime; `TTMinis.game.createRewardedVideoAd` / `login` / `pay` / `canIUse`.
+
+## 9. Verification notes / what is unverified here
 
 - WeChat facts (§1–§6) are from **direct reads** of `developers.weixin.qq.com`.
 - Douyin's `developer.open-douyin.com` pages are JS-rendered SPAs; some were
@@ -181,7 +213,15 @@ Keys carried over verbatim: `timedodge_best`, `td_absorb_best`,
   clean full-text fetch. The `tt.*` mirroring of `wx.*` and the `isEnded`
   rewarded-ad contract are consistent across all sources, but treat the exact
   Douyin size numbers as **well-corroborated, not first-party-full-text-fetched**.
-- **We could not run either proprietary DevTools** in this environment. The
-  runtime behaviour of `wx.createCanvas`, touch coordinate scaling, and the ad
-  lifecycle is implemented to spec but **not verified on-device**. The shared
-  engine *is* verified headless (`test/run.js`) and via a stub-canvas boot.
+- **TikTok**: the HTML runtime, `TTMinis.game.init`/`setLoadingProgress`, and
+  `createRewardedVideoAd` are from **direct reads** of `developers.tiktok.com`.
+  The exact **rewarded-ad close/reward event field** was not in the fetched
+  excerpt — `tiktok/adapter.js` models it on the `isEnded` shape (marked
+  `NOTE(ship)`); confirm against the portal's rewarded-ad page. Storage uses
+  standard `localStorage` (webview); TikTok may also offer a cloud KV API.
+- **We could not run any proprietary DevTools** in this environment. WeChat/
+  Douyin runtime behaviour (`wx/tt.createCanvas`, touch scaling, ad lifecycle) is
+  implemented to spec but **not verified on-device**. The shared engine *is*
+  verified headless (`test/run.js`), and — because TikTok's runtime is plain
+  HTML5 — the **TikTok build was additionally rendered in a real browser**
+  (headless Chromium: menu + live play) and boots via bundle test `[9]`.
