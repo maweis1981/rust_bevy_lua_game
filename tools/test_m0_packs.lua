@@ -112,6 +112,14 @@ end
 local function step(dt) frame_events = {}; on_update(dt or DT) end
 local function finite(v) return v == v and v > -1e9 and v < 1e9 end
 
+-- forge input model (M1): hold to aim, release to launch
+local function inject_at(x, y)
+  game._px, game._py, game._down = x, y, true
+  step()                       -- aiming frame (ghost + tangent dots)
+  game._down = false
+  step()                       -- release frame -> injection
+end
+
 ----------------------------------------------------------------------
 -- Starforge — math-core contracts
 ----------------------------------------------------------------------
@@ -141,8 +149,8 @@ local function forge_orbit_stability()
   local d = enter("forge")
   check(d and d.game == "forge", "menu tile should enter forge")
   check(d.back ~= nil, "forge should expose a back button")
-  on_tap(150, 0); step()
-  check(d.body_count() == 1, "one injection should orbit exactly one star")
+  inject_at(150, 0)
+  check(d.body_count() == 1, "one hold-release injection should orbit exactly one star")
   for _ = 1, 1200 do
     step()
     forge_body_invariants(d, "orbit")
@@ -157,10 +165,14 @@ end
 local function forge_fusion()
   boot(); rand_mode = "good"
   local d = enter("forge")
-  on_tap(150, 0)
+  inject_at(150, 0)
   for _ = 1, 20 do step() end                   -- clear the injection cooldown
-  on_tap(165, 12)                               -- same orbit band, trailing slightly
-  local s0 = d.score()
+  local s0 = d.score()                          -- before the pair can touch
+  -- drop the second star 12px radially outside the first one's CURRENT spot:
+  -- overlap is structural, not a phase coincidence
+  local b1 = d.bodies()[1]
+  local dd = math.sqrt(b1.x * b1.x + b1.y * b1.y)
+  inject_at(b1.x * (1 + 12 / dd), b1.y * (1 + 12 / dd))
   local fused = false
   for _ = 1, 1800 do
     step()
@@ -182,16 +194,18 @@ local function forge_long_run()
     if d.alive() then
       if f % 30 == 0 and taps < 60 then
         local ang, rad = lcg() * 6.28, 90 + lcg() * 250
-        on_tap(math.cos(ang) * rad, math.sin(ang) * rad)
+        inject_at(math.cos(ang) * rad, math.sin(ang) * rad)
         taps = taps + 1
       end
       step()
       forge_body_invariants(d, "long")
     else
       saw_over = true
+      check(d.again() ~= nil, "settlement card must expose the FORGE AGAIN button")
       on_tap(0, 0); step()                      -- tap anywhere restarts
       check(d.alive(), "tap after game over must restart the run")
       check(d.score() == 0, "restart must reset the score")
+      check(d.again() == nil, "restart must clear the settlement card")
       restarted = true
     end
   end
@@ -208,6 +222,31 @@ local function forge_long_run()
         string.format("forge: big-dt hitch teleported a star %.0fpx", jump))
     end
   end
+  on_tap(d.back.x, d.back.y); step()
+end
+
+local function forge_teaching()
+  boot(); rand_mode = "mixed"
+  game._store.forge_runs = nil                  -- brand-new player
+  local d = enter("forge")
+  -- the first run must deal the fixed teaching hand so a fusion is guaranteed
+  local want = { 1, 1, 1, 2, 2, 3 }
+  for k, lvl in ipairs(want) do
+    check(d.next_level() == lvl, string.format("teach deal %d should be L%d (got L%d)", k, lvl, d.next_level()))
+    inject_at(150 + k * 9, k * 7)
+    for _ = 1, 14 do step() end                 -- clear the injection cooldown
+  end
+  -- holding must never inject; only the release does. (The released star may
+  -- fuse on arrival, so assert via the mass ledger, not the body count.)
+  local n0, tm0 = d.body_count(), d.total_mass()
+  local lvl = d.next_level()
+  game._px, game._py, game._down = 60, 160, true
+  for _ = 1, 30 do step() end
+  check(d.body_count() == n0 and d.total_mass() == tm0, "holding (aiming) must not inject a star")
+  game._down = false; step()
+  check(d.total_mass() >= tm0 + 2 ^ (lvl - 1) - 1e-6,
+    "release after aiming must inject exactly one star (mass ledger)")
+  clear_input()
   on_tap(d.back.x, d.back.y); step()
 end
 
@@ -306,6 +345,7 @@ end
 forge_orbit_stability()
 forge_fusion()
 forge_long_run()
+forge_teaching()
 fireflies_cohesion()
 fireflies_scoring_and_loss()
 

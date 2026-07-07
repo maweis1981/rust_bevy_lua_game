@@ -22,7 +22,7 @@ function make_forge()
   -- tuning ------------------------------------------------------------
   local MAX_LEVEL   = 10
   local GM0         = 1.6e6   -- base gravity parameter (px^3/s^2-ish)
-  local MASS_SCALE  = 700     -- total mass that doubles GM (bot-tuned: 220 gave 20s medians)
+  local MASS_SCALE  = 1400    -- total mass that doubles GM (bot-tuned twice: 220→20s, 700→30s medians)
   local CORE_R      = 30      -- event-horizon radius
   local VMAX        = 620     -- hard speed cap (invariant-tested)
   local MAX_BODIES  = 48
@@ -30,7 +30,9 @@ function make_forge()
   local COMBO_WIN   = 1.4     -- chain window (s)
   local DT_CAP      = 1 / 30
   local MIN_SPAWN_R = CORE_R + 90 -- bot-tuned: closer allowed suicide drops
-  local LIVES0      = 3
+  local LIVES0      = 4
+  local RESTITUTION = 0.7     -- unequal-level bounce (bot-tuned: 0.86 scattered orbits)
+  local SOFT_WALL_K = 3.2     -- nebula wall: spring back toward play space
 
   local function radius_of(level) return 9 + level * 6 end
   local function mass_of(level) return 2 ^ (level - 1) end
@@ -42,15 +44,24 @@ function make_forge()
     { 1.00, 1.00, 1.00 },
   }
 
+  -- Implicit teaching (M1): the first three runs deal a fixed opening hand so
+  -- a brand-new player is guaranteed to see a fusion inside 30 seconds.
+  local TEACH_SEQ = { 1, 1, 1, 2, 2, 3 }
+  local TEACH_RUNS = 3
+
   -- state ---------------------------------------------------------------
   local back, built, playing = nil, false, true
-  local bodies = {}          -- { id, x, y, vx, vy, level, r, m, hot }
+  local bodies = {}          -- { id, x, y, vx, vy, level, r, m, vis, flash_t }
   local score, lives, best_level = 0, LIVES0, 1
   local total_mass = 0
   local combo_n, combo_t = 0, 0
   local next_level = 1
+  local teach_i = 0          -- >0 while dealing from TEACH_SEQ
   local spawn_cd = 0
   local core_id, preview_id = nil, nil
+  local ghost_id, aim_dots = nil, {}
+  local aiming, aim_x, aim_y, was_down = false, 0, 0, false
+  local over_ids, again_rect = {}, nil
   local hw0, hh0 = 0, 0
   local rmax = 900
 
@@ -69,6 +80,43 @@ function make_forge()
   local function despawn_body(i)
     game.despawn(bodies[i].id)
     table.remove(bodies, i)
+  end
+
+  local function draw_next()
+    -- deal from the teaching sequence on early runs, then true random
+    if teach_i > 0 and teach_i <= #TEACH_SEQ then
+      next_level = TEACH_SEQ[teach_i]
+      teach_i = teach_i + 1
+    else
+      next_level = math.random(1, 3)
+    end
+    tint(preview_id, next_level)
+  end
+
+  local function hide_aim()
+    aiming = false
+    if ghost_id then game.set_color(ghost_id, 1, 1, 1, 0) end
+    for _, id in ipairs(aim_dots) do game.set_color(id, 1, 1, 1, 0) end
+  end
+
+  local function show_aim(x, y)
+    local d = math.sqrt(x * x + y * y)
+    local ok = d >= MIN_SPAWN_R and spawn_cd <= 0
+    local c = RAMP[clamp(next_level, 1, MAX_LEVEL)]
+    game.move_to(ghost_id, x, y)
+    game.set_color(ghost_id, c[1], c[2], c[3], ok and 0.55 or 0.15)
+    if d > 1 then
+      local tx, ty = -y / d, x / d   -- the tangential launch direction
+      for k, id in ipairs(aim_dots) do
+        game.move_to(id, x + tx * (18 + 16 * k), y + ty * (18 + 16 * k))
+        game.set_color(id, c[1], c[2], c[3], ok and (0.5 - 0.1 * k) or 0)
+      end
+    end
+  end
+
+  local function clear_over_card()
+    for _, id in ipairs(over_ids) do game.despawn(id) end
+    over_ids, again_rect = {}, nil
   end
 
   local function clear_bodies()
@@ -98,9 +146,22 @@ function make_forge()
 
   local function game_over()
     playing = false
+    hide_aim()
     local best = game.load("forge_best") or 0
-    if score > best then best = score; game.save("forge_best", score) end
-    game.set_text(string.format("SUPERNOVA COLLAPSE\nSCORE %d   BEST %d   TOP STAR L%d\nTap to forge again", score, best, best_level))
+    local is_best = score > best
+    if is_best then best = score; game.save("forge_best", score) end
+    -- settlement card (E2: a dignified failure screen, one tap to retry)
+    local P = over_ids
+    P[#P + 1] = game.spawn(0, 30, 330, 250, 0.06, 0.05, 0.13, 0.92)
+    P[#P + 1] = game.spawn_text(0, 120, 30, 1.0, 0.75, 0.35, 1, "THE FORGE COOLED")
+    P[#P + 1] = game.spawn_text(0, 66, 26, 1, 1, 1, 1, string.format("SCORE  %d", score))
+    P[#P + 1] = game.spawn_text(0, 26, 20, 0.8, 0.85, 1.0, 1,
+      is_best and "NEW BEST!" or string.format("BEST  %d", best))
+    P[#P + 1] = game.spawn_text(0, -12, 20, 0.9, 0.8, 1.0, 1, string.format("TOP STAR  L%d", best_level))
+    P[#P + 1] = game.spawn(0, -70, 190, 54, 1.0, 0.62, 0.2, 1)
+    P[#P + 1] = game.spawn_text(0, -70, 24, 0.1, 0.06, 0.12, 1, "FORGE AGAIN")
+    again_rect = { x = 0, y = -70, w = 190, h = 54 }
+    game.set_text(string.format("SCORE %d   BEST %d", score, best))
     game.log("forge_over")
     game.play_sound("hit"); game.haptic("heavy"); game.shake(0.6); game.zoom(0.8)
     game.track("forge_over", score)
@@ -126,6 +187,7 @@ function make_forge()
     game.play_sound("score")
     game.haptic(combo_n >= 3 and "heavy" or "success")
     game.shake(math.min(0.12 + 0.05 * lvl, 0.5))
+    if lvl >= 5 then game.zoom(math.min(0.15 + 0.06 * (lvl - 5), 0.5)) end
     if lvl > MAX_LEVEL then
       -- L10 + L10: supernova — both stars burn out, big payout, field relaxes
       total_mass = total_mass - m
@@ -141,8 +203,9 @@ function make_forge()
     a.level, a.m, a.r = lvl, m, radius_of(lvl)
     game.set_size(a.id, a.r * 2, a.r * 2)
     game.move_to(a.id, x, y)
-    tint(a.id, lvl)
-    a.hot = false               -- telegraph re-evaluates on the next present pass
+    -- fusion white-flash: pop to white for a beat, then settle into the tint
+    game.set_color(a.id, 1, 1, 1, 1)
+    a.flash_t, a.vis = 0.09, "flash"
     game.despawn(b.id)
     table.remove(bodies, j)
   end
@@ -157,7 +220,7 @@ function make_forge()
     local rvx, rvy = b.vx - a.vx, b.vy - a.vy
     local rel = rvx * nx + rvy * ny
     if rel < 0 then
-      local e = 0.86
+      local e = RESTITUTION
       local imp = -(1 + e) * rel / (1 / a.m + 1 / b.m)
       a.vx = a.vx - imp * nx / a.m
       a.vy = a.vy - imp * ny / a.m
@@ -173,13 +236,24 @@ function make_forge()
     core_id = T.sprite(0, 0, CORE_R * 2, CORE_R * 2, "orb")
     game.set_color(core_id, 0.08, 0.05, 0.16, 1)
     preview_id = T.sprite(hw - 36, hh - 36, 26, 26, "orb")
+    ghost_id = T.sprite(9999, 9999, 26, 26, "orb")
+    game.set_color(ghost_id, 1, 1, 1, 0)
+    aim_dots = {}
+    for k = 1, 4 do
+      aim_dots[k] = T.sprite(9999, 9999, 8, 8, "orb")
+      game.set_color(aim_dots[k], 1, 1, 1, 0)
+    end
     back = K.make_back(T, hw, hh)
     clear_bodies()
+    clear_over_card()
     score, lives, best_level = 0, LIVES0, 1
     total_mass, combo_n, combo_t = 0, 0, 0
-    next_level = math.random(1, 3)
-    tint(preview_id, next_level)
+    local runs = (game.load("forge_runs") or 0) + 1
+    game.save("forge_runs", runs)
+    teach_i = (runs <= TEACH_RUNS) and 1 or 0
+    draw_next()
     spawn_cd, playing = 0, true
+    aiming, was_down = false, false
     game.track("forge_start")
     hud()
     game.set_bg_theme(2)
@@ -189,6 +263,8 @@ function make_forge()
       score = function() return score end,
       lives = function() return lives end,
       alive = function() return playing end,
+      next_level = function() return next_level end,
+      again = function() return again_rect end,
       body_count = function() return #bodies end,
       total_mass = function() return total_mass end,
       gm = function() return gm() end,
@@ -203,25 +279,18 @@ function make_forge()
   end
 
   local function restart()
-    clear_bodies(); T.clear(); built = false
+    clear_bodies(); clear_over_card(); T.clear(); built = false
     build(game.bounds())
   end
 
   return {
     enter = function() built = false end,
-    leave = function() clear_bodies(); T.clear(); built = false end,
+    leave = function() clear_bodies(); clear_over_card(); T.clear(); built = false end,
 
+    -- Taps only drive UI now; injection is hold-to-aim + release (see update).
     tap = function(x, y)
       if back and inr(back, x, y) then K.switch("menu"); return end
       if not playing then restart(); return end
-      if spawn_cd > 0 then return end
-      if inject(x, y, next_level) then
-        spawn_cd = SPAWN_CD
-        next_level = math.random(1, 3)
-        tint(preview_id, next_level)
-        game.play_sound("hit"); game.haptic("light")
-        hud()
-      end
     end,
 
     update = function(dt, hw, hh)
@@ -232,13 +301,33 @@ function make_forge()
       spawn_cd = math.max(0, spawn_cd - dt)
       if combo_t > 0 then combo_t = combo_t - dt; if combo_t <= 0 then combo_n = 0 end end
 
+      -- hold to aim, release to launch (the ghost + tangent dots preview)
+      local px, py, down = game.pointer()
+      if down and px and not (back and inr(back, px, py)) then
+        aiming, aim_x, aim_y = true, px, py
+        show_aim(px, py)
+      elseif aiming and not down then
+        hide_aim()
+        if spawn_cd <= 0 and inject(aim_x, aim_y, next_level) then
+          spawn_cd = SPAWN_CD
+          draw_next()
+          game.play_sound("hit"); game.haptic("light")
+          hud()
+        end
+      end
+      was_down = down
+
       -- gravity + integration (semi-implicit Euler) + speed cap
       local GM = gm()
+      local rsoft = rmax * 0.72          -- the nebula wall starts here
       for _, b in ipairs(bodies) do
         local d2 = b.x * b.x + b.y * b.y
         local d = math.sqrt(d2)
         if d > 1 then
           local acc = GM / d2
+          -- nebula wall: past rsoft a spring shoves the star back into play,
+          -- so most "escapes" become long elliptical returns instead of losses
+          if d > rsoft then acc = acc + (d - rsoft) * SOFT_WALL_K end
           b.vx = b.vx - (b.x / d) * acc * dt
           b.vy = b.vy - (b.y / d) * acc * dt
         end
@@ -303,14 +392,25 @@ function make_forge()
         if not fused then i = i + 1 end
       end
 
-      -- present (+ danger telegraph: a star grazing the horizon burns red)
+      -- present: flash beats danger telegraph beats normal tint
       for _, b in ipairs(bodies) do
         game.move_to(b.id, b.x, b.y)
-        local d = math.sqrt(b.x * b.x + b.y * b.y)
-        local hot = d < CORE_R + b.r * 0.35 + 44
-        if hot ~= b.hot then
-          b.hot = hot
-          if hot then game.set_color(b.id, 1.0, 0.22, 0.18, 1) else tint(b.id, b.level) end
+        local vis
+        if b.flash_t then
+          b.flash_t = b.flash_t - dt
+          if b.flash_t <= 0 then b.flash_t = nil end
+        end
+        if b.flash_t then
+          vis = "flash"
+        else
+          local d = math.sqrt(b.x * b.x + b.y * b.y)
+          vis = (d < CORE_R + b.r * 0.35 + 44) and "hot" or "cool"
+        end
+        if vis ~= b.vis then
+          b.vis = vis
+          if vis == "hot" then game.set_color(b.id, 1.0, 0.22, 0.18, 1)
+          elseif vis == "cool" then tint(b.id, b.level) end
+          -- "flash" was painted white at fuse time
         end
       end
     end,

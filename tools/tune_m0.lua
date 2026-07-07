@@ -45,6 +45,7 @@ game = {
   _px = nil, _py = nil, _down = false,
 }
 
+game._store.forge_runs = 99 -- isolate: teaching off for bots
 dofile("assets/scripts/packs/forge.lua")
 dofile("assets/scripts/packs/fireflies.lua")
 dofile("assets/scripts/main.lua")
@@ -84,6 +85,7 @@ local function forge_run(seed, hand)
     on_update(DT)
   end
   local s = d.score()
+  game._down = false
   on_tap(d.back.x, d.back.y); on_update(DT)   -- leave cleanly
   return f / 60, s
 end
@@ -106,17 +108,22 @@ local function fireflies_run(seed)
   return f / 60, s
 end
 
--- forge hand 1: random tapper (taps a random annulus point every 0.5 s)
+-- forge input model (M1): press to aim on one frame, release two frames later
+local function press_at(x, y) game._px, game._py, game._down = x, y, true end
+
+-- forge hand 1: random hand (aims a random annulus point every 0.5 s)
 local function random_hand(f, d)
-  if f % 30 == 0 then
+  if f % 72 == 0 then
     local ang, rad = lcg() * 6.28, 90 + lcg() * 260
-    on_tap(math.cos(ang) * rad, math.sin(ang) * rad)
+    press_at(math.cos(ang) * rad, math.sin(ang) * rad)
+  elseif f % 72 == 2 then
+    game._down = false
   end
 end
 
 -- forge hand 2: aimer (drops next to an existing star to court fusions)
 local function aimer_hand(f, d)
-  if f % 24 == 0 then
+  if f % 66 == 0 then
     local bs = d.bodies()
     if #bs > 0 then
       local b = bs[math.floor(lcg() * #bs) + 1]
@@ -124,12 +131,14 @@ local function aimer_hand(f, d)
       if dd > 90 then
         -- drop slightly behind it on the same orbit band
         local ang = math.atan(b.y, b.x) - 0.25
-        on_tap(math.cos(ang) * dd, math.sin(ang) * dd)
+        press_at(math.cos(ang) * dd, math.sin(ang) * dd)
         return
       end
     end
     local ang, rad = lcg() * 6.28, 120 + lcg() * 180
-    on_tap(math.cos(ang) * rad, math.sin(ang) * rad)
+    press_at(math.cos(ang) * rad, math.sin(ang) * rad)
+  elseif f % 66 == 2 then
+    game._down = false
   end
 end
 
