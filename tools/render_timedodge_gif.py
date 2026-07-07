@@ -93,6 +93,9 @@ def main(src=SRC, outname=None, extras=True):
     def wy(y, oy=0.0):
         return (HH - y) * SCALE + oy * SS
 
+    stride = 3 if len(frames) < 1400 else (4 if len(frames) < 1650 else
+             (5 if len(frames) < 1950 else 6))
+    frame_ms = {3: 50, 4: 66, 5: 83, 6: 100}[stride]
     trauma, energy = 0.0, 0.0
     prev_pos, prev_alive = {}, True
     death_frame = None
@@ -112,8 +115,8 @@ def main(src=SRC, outname=None, extras=True):
         prev_alive = alive
 
         ents = {e[0]: e for e in fr["ents"]}
-        cur_pos = {eid: (e[1], e[2]) for eid, e in ents.items() if e[9] in ("orb", "meteor")}
-        take = idx % 3 == 0 or (death_frame is not None and idx - death_frame < 3)
+        cur_pos = {eid: (e[1], e[2]) for eid, e in ents.items() if e[9] in ("orb", "meteor", "rockball")}
+        take = idx % stride == 0 or (death_frame is not None and idx - death_frame < 3)
         if not take:
             prev_pos = cur_pos
             continue
@@ -138,7 +141,7 @@ def main(src=SRC, outname=None, extras=True):
         player, foes, texts, buttons, gates = None, [], [], [], []
         for eid, e in ents.items():
             tex = e[9]
-            if tex == "orb":
+            if tex in ("orb", "rockball"):
                 player = e
             elif tex == "meteor":
                 foes.append(e)
@@ -206,11 +209,26 @@ def main(src=SRC, outname=None, extras=True):
         if player is not None and alive:
             x, y = wx(player[1], ox), wy(player[2], oy)
             r = player[3] * SCALE * 0.55
-            pc = lerp((255, 255, 255), FROZEN, 1 - ts)
+            prot = player[11] if len(player) > 11 else 0.0
+            pc = lerp((235, 240, 245), FROZEN, 1 - ts)
             g = glow(int(r * 3.2), (170, 220, 255), 130)
             im.paste(g, (int(x) - g.size[0] // 2, int(y) - g.size[1] // 2), g)
             dr = ImageDraw.Draw(im, "RGBA")
-            dr.ellipse([x - r, y - r, x + r, y + r], fill=pc + (255,))
+            ppts = []                          # rounder rock than the foes
+            for k in range(10):
+                a = prot + k * math.tau / 10
+                jig = 0.90 + 0.10 * math.sin(k * 2.3 + 1.1)
+                ppts.append((x + r * jig * math.cos(a), y + r * jig * math.sin(a)))
+            dr.polygon(ppts, fill=pc + (255,))
+            ca = prot * 0.7
+            for (cr, off) in ((0.30, 0.38), (0.18, -0.42)):
+                cxx = x + r * off * math.cos(ca)
+                cyy = y + r * off * math.sin(ca)
+                rr = r * cr
+                dr.ellipse([cxx - rr, cyy - rr, cxx + rr, cyy + rr],
+                           fill=(int(pc[0] * .6), int(pc[1] * .6), int(pc[2] * .6), 200))
+            dr.ellipse([x - r * 0.45, y - r * 0.55, x - r * 0.05, y - r * 0.15],
+                       fill=(255, 255, 255, 90))
             ring = r * (1.7 + 0.5 * (1 - ts))
             dr.ellipse([x - ring, y - ring, x + ring, y + ring],
                        outline=FROZEN + (int(90 + 100 * (1 - ts)),), width=2 * SS)
@@ -268,7 +286,8 @@ def main(src=SRC, outname=None, extras=True):
                         im = Image.blend(im, Image.new("RGB", im.size, (255, 245, 240)), 1 - k * 2)
                         dr = ImageDraw.Draw(im, "RGBA")
                     dr.rectangle([0, 0, im.size[0], im.size[1]], fill=(90, 10, 20, int(110 * k)))
-                    ctext(H * SS * 0.40, "SO CLOSE", f_big, (255, 255, 255, 250))
+                    big = "YOU FADED AWAY" if "FADED" in fr["hud"] else "SO CLOSE"
+                    ctext(H * SS * 0.40, big, f_big, (255, 255, 255, 250))
                     if len(lines) > 1:
                         ctext(H * SS * 0.48, lines[1].strip(), f_mid, (255, 200, 190, 240))
                 ctext(H * SS - 48 * SS, "HOLD TO STEAL TIME - RELEASE TO FREEZE", f_sml,
@@ -281,7 +300,7 @@ def main(src=SRC, outname=None, extras=True):
     name = outname or "timedodge-hero"
     imgs = [im.quantize(colors=128, dither=Image.FLOYDSTEINBERG)
             for _, im in rendered]
-    durations = [50] * len(imgs)
+    durations = [frame_ms] * len(imgs)
     durations[-1] = 1800                     # hold the final card
     imgs[0].save(f"{OUT_DIR}/{name}.gif", save_all=True,
                  append_images=imgs[1:], duration=durations, loop=0, optimize=True)
