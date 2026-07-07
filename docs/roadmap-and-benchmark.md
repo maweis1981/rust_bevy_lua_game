@@ -177,6 +177,22 @@
 | P2.1 音频管线接 Floniks(部分) | 07-06 | `ec45266`(#12)、`cd7a88a`(#14) | Lyria 2 BGM + minimax TTS 语音已实战(小马拼图/深夜画廊);`audio_manifest.json` 化待做 |
 | P2.5 预告片管线(部分) | 07-06 | — | 小马拼图 15s 广告:真实素材关键帧 → Floniks 图生视频 + 配乐;自动化沉淀待做 |
 
+### 并行对照组：同日第二条流水线（PR #47）
+
+同一上午还有**第二条独立的 agent 流水线**在无协调的情况下实现了同批 7 项能力（issues [#24](https://github.com/maweis1981/rust_bevy_lua_game/issues/24)/[#29](https://github.com/maweis1981/rust_bevy_lua_game/issues/29)/[#32](https://github.com/maweis1981/rust_bevy_lua_game/issues/32)/[#35](https://github.com/maweis1981/rust_bevy_lua_game/issues/35)/[#37](https://github.com/maweis1981/rust_bevy_lua_game/issues/37)/[#40](https://github.com/maweis1981/rust_bevy_lua_game/issues/40)/[#44](https://github.com/maweis1981/rust_bevy_lua_game/issues/44)，逐项含分解→实现→测试→回归→合并全过程与计时）。上表系列先合入成为正史；对照组的独立实现（7 个逐功能 commit，`a7585bc`→`6df7847`）保留在 PR [#47](https://github.com/maweis1981/rust_bevy_lua_game/pull/47) 的合并历史中。
+
+| 能力 | 开始(UTC) | 测试全绿(UTC) | 耗时 | 过程记录 |
+|---|---|---|---|---|
+| P0.1 存档 | 01:13:55 | 01:27:55 | 14 分钟（含 Bevy 全量编译） | #24 |
+| P0.2 多点触控 | 01:29:00 | 01:30:52 | 2 分钟 | #29 |
+| P0.3 图集 | 01:31:38 | 01:33:31 | 2 分钟 | #32 |
+| P0.4 摄像机 | 01:34:12 | 01:36:43 | 2.5 分钟 | #35 |
+| P0.6 音量 | 01:37:27 | 01:39:50 | 2.5 分钟 | #37 |
+| P1.1 粒子 | 01:40:44 | 01:43:54 | 3 分钟 | #40 |
+| P1.3 Tilemap | 01:44:55 | 01:47:52 | 3 分钟 | #44 |
+
+两条流水线给出的 API 形状几乎一致（save/load、touches 数组、sheet+frame 钳制、cam+shake 叠加、512 粒子上限、tilemap 懒生成子格），互为交叉验证——**"架构决定实现速度与形状"的一次天然对照实验**。
+
 ### 为什么能这么快(复盘)
 
 1. **命令队列架构摊薄了每个功能**:9 项全是"一个 LuaCommand + 双后端注册 + 一个 handler/系统"的同构套路,无一需要动架构。
