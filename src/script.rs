@@ -711,6 +711,10 @@ enum LuaCommand {
         id: u32,
         s: f32,
     },
+    /// Request/release the persistent 3D space backdrop (used by timedodge on
+    /// every screen, so the animated space shader is visible even with no rocks
+    /// alive — menus, cards). Boots the 3D rig on first `true`.
+    SpaceMode(bool),
     SpawnRig {
         id: u32,
         x: f32,
@@ -1230,6 +1234,16 @@ fn register_api(lua: &Lua) -> mlua::Result<()> {
         lua.create_function(|lua, (id, s): (u32, f32)| {
             if let Some(mut bridge) = lua.app_data_mut::<Bridge>() {
                 bridge.queue.push(LuaCommand::Scale3d { id, s });
+            }
+            Ok(())
+        })?,
+    )?;
+
+    game.set(
+        "space_mode",
+        lua.create_function(|lua, on: bool| {
+            if let Some(mut bridge) = lua.app_data_mut::<Bridge>() {
+                bridge.queue.push(LuaCommand::SpaceMode(on));
             }
             Ok(())
         })?,
@@ -1813,6 +1827,13 @@ fn register_api(lua: &mut Lua, bridge: Rc<RefCell<Bridge>>) {
         game.set(ctx, "scale3d", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
             let (id, s): (u32, f32) = stack.consume(ctx)?;
             b.borrow_mut().queue.push(LuaCommand::Scale3d { id, s });
+            Ok(CallbackReturn::Return)
+        })).unwrap();
+
+        let b = bridge.clone();
+        game.set(ctx, "space_mode", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let on: bool = stack.consume(ctx)?;
+            b.borrow_mut().queue.push(LuaCommand::SpaceMode(on));
             Ok(CallbackReturn::Return)
         })).unwrap();
 
@@ -2736,6 +2757,29 @@ fn apply_lua(
                             .entity(entity)
                             .entry::<Transform>()
                             .and_modify(move |mut t| t.scale = scale);
+                    }
+                }
+            }
+            LuaCommand::SpaceMode(on) => {
+                // Explicit request for the deep-space backdrop, independent of any
+                // rock being on screen. Boots the same 3D rig (camera + lights +
+                // space-shader plane) the first rock would, and flips the 2D camera
+                // to composite on top. `toggle_2d_backdrop` reads `rocks.space` and
+                // keeps the aurora hidden / 3D camera live while it's set, so the
+                // starfield shows on menus and result cards, not just active play.
+                rocks.space = on;
+                if on && !rocks.booted {
+                    rocks.booted = true;
+                    spawn_3d_rig(
+                        &mut commands,
+                        &mut *meshes,
+                        &mut *std_materials,
+                        &mut *space_materials,
+                        &assets,
+                    );
+                    for mut cam in cameras_2d.iter_mut() {
+                        cam.order = 1;
+                        cam.clear_color = ClearColorConfig::None;
                     }
                 }
             }

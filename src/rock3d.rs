@@ -101,6 +101,10 @@ pub(crate) struct Rock3dState {
     pub(crate) materials: HashMap<u32, Handle<StandardMaterial>>,
     /// Whether the 3D camera/light rig has been spawned (first `rock3d` call).
     pub(crate) booted: bool,
+    /// A scene has explicitly requested the space backdrop (`game.space_mode(true)`),
+    /// so keep the 3D camera live + aurora hidden even with no rocks on screen
+    /// (menus, result cards). Cleared on `game.space_mode(false)`.
+    pub(crate) space: bool,
 }
 
 /// Tags the (single) 3D camera so it can be resized/shaken/toggled.
@@ -239,7 +243,7 @@ fn toggle_2d_backdrop(
     if !state.booted {
         return;
     }
-    let live = !state.materials.is_empty();
+    let live = state.space || !state.materials.is_empty();
     let desired = if live {
         Visibility::Hidden
     } else {

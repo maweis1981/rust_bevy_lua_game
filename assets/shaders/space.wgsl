@@ -48,10 +48,10 @@ fn star_layer(uv: vec2<f32>, t: f32, scale: f32, drift: f32) -> f32 {
     let f = fract(q);
     let ctr = vec2<f32>(hash2(id), hash2(id + 7.3));
     let d = length(f - ctr);
-    // sparse: only some cells hold a star
-    let present = step(0.82, hash2(id + 1.7));
-    let tw = 0.55 + 0.45 * sin(t * 2.2 + hash2(id) * 6.2831);
-    let core = smoothstep(0.06, 0.0, d);
+    // some cells hold a star; brighter ones get a soft halo
+    let present = step(0.66, hash2(id + 1.7));
+    let tw = 0.6 + 0.4 * sin(t * 2.2 + hash2(id) * 6.2831);
+    let core = smoothstep(0.09, 0.0, d) + 0.35 * smoothstep(0.22, 0.0, d);
     return present * core * tw;
 }
 
@@ -70,22 +70,22 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
     let warp = vec2<f32>(fbm(p * 2.2 + vec2<f32>(0.0, flow)),
                          fbm(p * 2.2 + vec2<f32>(4.1, 1.3) - flow));
     let neb = fbm(p * 2.6 + 2.4 * warp);
-    let c_base = vec3<f32>(0.015, 0.02, 0.05);
-    let c_ind = vec3<f32>(0.06, 0.05, 0.16);
-    let c_vio = vec3<f32>(0.14, 0.06, 0.22);
-    let c_teal = vec3<f32>(0.04, 0.16, 0.24);
+    let c_base = vec3<f32>(0.02, 0.03, 0.07);
+    let c_ind = vec3<f32>(0.10, 0.08, 0.26);
+    let c_vio = vec3<f32>(0.24, 0.10, 0.36);
+    let c_teal = vec3<f32>(0.06, 0.24, 0.36);
     var col = c_base;
-    col = mix(col, c_ind, clamp(neb * neb * 2.4, 0.0, 1.0));
-    col = mix(col, c_vio, clamp((neb - 0.35) * 1.6, 0.0, 1.0));
-    col = mix(col, c_teal, clamp(length(warp) * 0.7, 0.0, 1.0));
+    col = mix(col, c_ind, clamp(neb * neb * 2.6, 0.0, 1.0));
+    col = mix(col, c_vio, clamp((neb - 0.32) * 1.9, 0.0, 1.0));
+    col = mix(col, c_teal, clamp(length(warp) * 0.9, 0.0, 1.0));
     col = col * (0.85 + 0.15 * sin(t * 0.3));
 
     // Three parallax star layers (far dim + small, near bright + sparse).
     var stars = 0.0;
-    stars = stars + star_layer(p, t, 34.0, 0.010) * 0.55;
-    stars = stars + star_layer(p + 11.0, t, 20.0, 0.020) * 0.8;
-    stars = stars + star_layer(p + 27.0, t, 12.0, 0.035) * 1.1;
-    let star_col = vec3<f32>(0.85, 0.9, 1.0);
+    stars = stars + star_layer(p, t, 34.0, 0.010) * 0.8;
+    stars = stars + star_layer(p + 11.0, t, 20.0, 0.020) * 1.1;
+    stars = stars + star_layer(p + 27.0, t, 12.0, 0.035) * 1.4;
+    let star_col = vec3<f32>(0.9, 0.94, 1.0);
     col = col + star_col * stars;
 
     // Energy blooms the nebula a touch on impacts (ties to gameplay shake).

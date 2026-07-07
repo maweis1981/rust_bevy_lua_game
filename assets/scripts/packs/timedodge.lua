@@ -121,6 +121,17 @@ function make_timedodge()
   -- Small "return to space base" icon (replaces the old Home button). Placed
   -- top-left on every screen; tapping it asks for confirmation first so a
   -- mis-tap never dumps you out of a run.
+  -- Keep the animated space backdrop lit on EVERY timedodge screen (menus and
+  -- end cards, not just while rocks fly). `game.space_mode(true)` boots the 3D
+  -- camera + space-shader plane and hides the 2D aurora even with no rocks on
+  -- screen; `game.space_mode(false)` restores the aurora on scene exit.
+  local function keep_space()
+    if game.space_mode then game.space_mode(true) end
+  end
+  local function drop_space()
+    if game.space_mode then game.space_mode(false) end
+  end
+
   local function place_base()
     base_btn = { x = -SW + 34, y = SH - 34, w = 40, h = 40 }
     local ic = T.sprite(base_btn.x, base_btn.y, 30, 30, "icon_base")
@@ -228,7 +239,7 @@ function make_timedodge()
   end
 
   local function build_select(hw, hh)
-    mode = "select"
+    mode = "select"; keep_space()
     game.set_text("")
     T.text(0, 210, 44, 1, 1, 1, 1, "TIME DODGE")
     T.text(0, 150, 17, 0.75, 0.85, 1.0, 1, "Hold: time flows. Release: the world freezes.")
@@ -250,7 +261,7 @@ function make_timedodge()
   end
 
   local function build_levels(hw, hh)
-    mode = "levels"
+    mode = "levels"; keep_space()
     game.set_text("")
     T.text(40, 270, 30, 1, 1, 1, 1, "SEALED MOMENTS")
     T.text(0, 220, 15, 0.75, 0.85, 1.0, 1, "release to freeze - the clock only forgives the dead")
@@ -299,7 +310,7 @@ function make_timedodge()
   end
 
   local function build_run(hw, hh)
-    mode = "run"
+    mode = "run"; keep_space()
     for i = 1, TRAIL_N do
       trail[i] = { id = T.spawn(0, 0, PLAYER * 0.6, PLAYER * 0.6, 0.7, 0.9, 1.0, 0), a = 0 }
     end
@@ -811,7 +822,7 @@ function make_timedodge()
   ------------------------------------------------------------------
   return {
     enter = function() built = false; mode = "select" end,
-    leave = function() wipe(); S = nil; built = false end,
+    leave = function() wipe(); drop_space(); S = nil; built = false end,
     tap = function(x, y)
       -- The return-to-base confirm swallows every tap except its two buttons.
       -- YES = leave the run "up one level" (trial -> levels, else -> mode select).
