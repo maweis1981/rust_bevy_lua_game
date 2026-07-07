@@ -31,19 +31,33 @@ rm -rf "$OUT"; mkdir -p "$PLAY"
 wasm-bindgen --target web --no-typescript \
   --out-dir "$PLAY" --out-name hollowlullaby "$WASM"
 
-# wasm-opt is OPT-IN (WASM_OPT=1), and off by default. wasm-bindgen emits an
-# externref table; older binaryen (e.g. Ubuntu's 108) corrupts it during
-# optimization so the module traps at init with
-#   RangeError: WebAssembly.Table.grow() failed / __wbindgen_init_externref_table
-# even with --enable-reference-types. Ship the un-optimized wasm (it works;
-# Pages gzips it on the wire). Enable only with a binaryen new enough to keep
-# reference types intact: WASM_OPT=1 make web.
-if [ "${WASM_OPT:-0}" = 1 ] && command -v wasm-opt >/dev/null 2>&1; then
-  echo ">> wasm-opt -Os (WASM_OPT=1; needs a recent binaryen)"
-  wasm-opt -Os --enable-reference-types --enable-bulk-memory \
+# wasm-opt shrinks the linked module (typically 15-25% on top of opt-level=z).
+# CAVEAT: wasm-bindgen emits an externref table that OLD binaryen (Ubuntu's 108)
+# corrupts, trapping at init with "WebAssembly.Table.grow() failed /
+# __wbindgen_init_externref_table". So we only run a binaryen >= 116, and we
+# auto-discover one: an explicit $WASM_OPT, then the npm `binaryen` package
+# (npm i -g binaryen ships a current wasm-opt), then PATH. On by default;
+# set WASM_OPT=0 to skip. A too-old PATH wasm-opt is refused, not shipped broken.
+pick_wasm_opt() {
+  for c in "$WASM_OPT" \
+           "$(command -v wasm-opt 2>/dev/null)" \
+           /opt/node22/lib/node_modules/binaryen/bin/wasm-opt \
+           "$(npm root -g 2>/dev/null)/binaryen/bin/wasm-opt"; do
+    [ -n "$c" ] && [ -x "$c" ] || continue
+    v=$("$c" --version 2>/dev/null | grep -oE '[0-9]+' | head -1)
+    [ -n "$v" ] && [ "$v" -ge 116 ] && { echo "$c"; return 0; }
+  done
+  return 1
+}
+if [ "${WASM_OPT:-1}" != 0 ] && WO=$(pick_wasm_opt); then
+  before=$(wc -c < "$PLAY/hollowlullaby_bg.wasm")
+  echo ">> wasm-opt -Oz with $("$WO" --version | head -1)"
+  "$WO" -Oz --enable-reference-types --enable-bulk-memory \
     -o "$PLAY/hollowlullaby_bg.wasm" "$PLAY/hollowlullaby_bg.wasm"
+  after=$(wc -c < "$PLAY/hollowlullaby_bg.wasm")
+  echo ">> wasm-opt: $((before/1048576))MB -> $((after/1048576))MB"
 else
-  echo ">> skipping wasm-opt (set WASM_OPT=1 with a recent binaryen to enable)"
+  echo ">> skipping wasm-opt (no binaryen >= 116 found; set WASM_OPT=/path/wasm-opt)"
 fi
 
 echo ">> assembling game page (/play/)"

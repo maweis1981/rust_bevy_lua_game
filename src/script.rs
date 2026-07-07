@@ -2650,7 +2650,7 @@ fn apply_lua(
                 // rock3d.rs, which also restores it when the last rock dies.
                 if !rocks.booted {
                     rocks.booted = true;
-                    spawn_3d_rig(&mut commands);
+                    spawn_3d_rig(&mut commands, &mut *meshes, &mut *std_materials, &assets);
                     for mut cam in cameras_2d.iter_mut() {
                         cam.order = 1;
                         cam.clear_color = ClearColorConfig::None;
@@ -2662,9 +2662,13 @@ fn apply_lua(
                     .get_or_insert_with(|| meshes.add(rock_mesh()))
                     .clone();
                 // …but a per-entity material, so color3d tints independently.
+                // Fully matte (rock, not plastic) so the flat facets read as
+                // stone; a touch of reflectance keeps lit faces from going flat.
                 let material = std_materials.add(StandardMaterial {
-                    base_color: Color::srgb(0.58, 0.58, 0.60),
-                    perceptual_roughness: 0.9,
+                    base_color: Color::srgb(0.55, 0.55, 0.58),
+                    perceptual_roughness: 0.95,
+                    metallic: 0.0,
+                    reflectance: 0.25,
                     ..default()
                 });
                 let entity = commands

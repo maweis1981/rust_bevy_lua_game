@@ -113,6 +113,41 @@ def rockball(x, y):
     return (v, v, v, 255)
 
 
+def starfield(x, y):
+    """A 256x256 deep-space tile: dark blue-black base, a faint two-tone nebula
+    from layered value noise, and sparse stars of varied brightness. Tiles
+    seamlessly enough for a far backdrop. Deterministic (hashed), no deps."""
+    def h2(ix, iy, s):
+        n = (ix * 374761393 + iy * 668265263 + s * 2147483647) & 0xFFFFFFFF
+        n = (n ^ (n >> 13)) * 1274126177 & 0xFFFFFFFF
+        return ((n ^ (n >> 16)) & 0xFFFF) / 65535.0
+    def vnoise(fx, fy, s):
+        ix, iy = int(math.floor(fx)), int(math.floor(fy))
+        tx, ty = fx - ix, fy - iy
+        a = h2(ix, iy, s); b = h2(ix + 1, iy, s)
+        c = h2(ix, iy + 1, s); d = h2(ix + 1, iy + 1, s)
+        ux = tx * tx * (3 - 2 * tx); uy = ty * ty * (3 - 2 * ty)
+        return (a * (1 - ux) + b * ux) * (1 - uy) + (c * (1 - ux) + d * ux) * uy
+    # base + nebula (two coloured octaves, subtle)
+    neb = 0.0
+    for oc, sd in ((6.0, 11), (13.0, 29)):
+        neb += vnoise(x / 256.0 * oc, y / 256.0 * oc, sd) / (oc / 6.0)
+    neb = max(0.0, neb - 0.7)
+    r = 6 + 42 * neb
+    g = 8 + 20 * neb
+    b = 18 + 60 * neb
+    # stars: sparse bright points with soft 1px glow
+    sv = h2(x, y, 101)
+    if sv > 0.9965:
+        t = (sv - 0.9965) / 0.0035
+        c = 190 + 65 * t
+        return (clampb(c), clampb(c), clampb(c), 255)
+    if sv > 0.986:                       # dim dust stars
+        c = 70 + 90 * (sv - 0.986) / 0.010
+        return (clampb(r + c), clampb(g + c), clampb(b + c), 255)
+    return (clampb(r), clampb(g), clampb(b), 255)
+
+
 def paddle(x, y):
     w, h = 24, 24
     if not rounded(x, y, w, h, 6):
@@ -229,6 +264,7 @@ SPRITES = {
     "orb": (32, 32, orb),
     "meteor": (32, 32, meteor),
     "rockball": (48, 48, rockball),
+    "starfield": (256, 256, starfield),
     "paddle": (24, 24, paddle),
     "brick": (32, 16, brick),
     "food": (24, 24, food),
