@@ -77,6 +77,12 @@
 //!                                               ~/.hollowlullaby/analytics.log,
 //!                                               console on web; remote sink
 //!                                               can replace this later)
+//!   game.open_url(url)                         (open an http(s):// URL in the
+//!                                               system browser; web opens a new
+//!                                               tab (same-tab fallback if the
+//!                                               popup is blocked); iOS is a
+//!                                               logged no-op for now; any other
+//!                                               scheme is logged and ignored)
 //!   game.pointer() -> x, y, down               (mouse/touch in world coords;
 //!                                               x,y are nil when unavailable,
 //!                                               down = button/finger held)
@@ -708,6 +714,7 @@ enum LuaCommand {
         event: String,
         value: Option<f64>,
     },
+    OpenUrl(String),
     Haptic(i32),
 }
 
@@ -1327,6 +1334,16 @@ fn register_api(lua: &Lua) -> mlua::Result<()> {
     )?;
 
     game.set(
+        "open_url",
+        lua.create_function(|lua, url: String| {
+            if let Some(mut bridge) = lua.app_data_mut::<Bridge>() {
+                bridge.queue.push(LuaCommand::OpenUrl(url));
+            }
+            Ok(())
+        })?,
+    )?;
+
+    game.set(
         "save",
         lua.create_function(|lua, (key, value): (String, mlua::Value)| {
             let encoded = match &value {
@@ -1801,6 +1818,15 @@ fn register_api(lua: &mut Lua, bridge: Rc<RefCell<Bridge>>) {
                 event: event.to_str().unwrap_or("").to_string(),
                 value,
             });
+            Ok(CallbackReturn::Return)
+        })).unwrap();
+
+        let b = bridge.clone();
+        game.set(ctx, "open_url", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let url: ottavino::String = stack.consume(ctx)?;
+            b.borrow_mut()
+                .queue
+                .push(LuaCommand::OpenUrl(url.to_str().unwrap_or("").to_string()));
             Ok(CallbackReturn::Return)
         })).unwrap();
 
@@ -2660,6 +2686,9 @@ fn apply_lua(
             LuaCommand::Track { event, value } => {
                 track_event(&event, value);
             }
+            LuaCommand::OpenUrl(url) => {
+                open_url(&url);
+            }
         }
     }
 }
@@ -2742,6 +2771,58 @@ fn track_event(event: &str, value: Option<f64>) {
     info!("[track] {name} {:?}", value);
 }
 
+/// `game.open_url` gate: only plain web URLs may leave the sandbox. Anything
+/// else (`javascript:`, `file:`, custom app schemes, empty strings) is refused
+/// — scripts are data, and data must not get shell/scheme superpowers.
+fn url_allowed(url: &str) -> bool {
+    url.starts_with("http://") || url.starts_with("https://")
+}
+
+/// Open `url` in the platform browser.
+/// - wasm: `window.open(url, "_blank")`; a popup blocker returns `Ok(None)`,
+///   in which case we fall back to navigating the current tab.
+/// - desktop: spawn the OS opener (`open` on macOS, `xdg-open` elsewhere) and
+///   ignore errors beyond a log line — a missing opener must not crash a game.
+/// - iOS: logged no-op for now (a UIKit `openURL:` shim is future work).
+fn open_url(url: &str) {
+    if !url_allowed(url) {
+        warn!("game.open_url: refusing non-http(s) url {url:?}");
+        return;
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let Some(window) = web_sys::window() else {
+            warn!("game.open_url: no window object");
+            return;
+        };
+        match window.open_with_url_and_target(url, "_blank") {
+            Ok(Some(_)) => {}
+            Ok(None) => {
+                // Popup blocked: navigate the current tab instead.
+                if let Err(e) = window.location().set_href(url) {
+                    warn!("game.open_url: set_href fallback failed: {e:?}");
+                }
+            }
+            Err(e) => warn!("game.open_url: window.open failed: {e:?}"),
+        }
+    }
+    #[cfg(target_os = "ios")]
+    {
+        info!("game.open_url: {url} (no-op on iOS: UIKit shim not wired yet)");
+    }
+    #[cfg(all(not(target_arch = "wasm32"), not(target_os = "ios")))]
+    {
+        #[cfg(target_os = "macos")]
+        const OPENER: &str = "open";
+        #[cfg(not(target_os = "macos"))]
+        const OPENER: &str = "xdg-open";
+        match std::process::Command::new(OPENER).arg(url).spawn() {
+            Ok(_) => info!("game.open_url: {url}"),
+            Err(e) => warn!("game.open_url: failed to launch {OPENER}: {e}"),
+        }
+    }
+}
+
 /// Clamp a channel volume to 0..1; non-finite input falls back to full volume
 /// (a wrong expression should never mute the game silently).
 fn volume_clamp(v: f32) -> f32 {
@@ -2772,7 +2853,7 @@ mod tests {
     use super::{
         cam_zoom_clamp, decode_store, emit_count_allowed, encode_store, frame_rect, haptic_style,
         lcg, particle_alpha, preset_params, shake_offset, store_escape, store_unescape, tile_slot,
-        track_sanitize, volume_clamp, zoom_scale, PARTICLE_CAP,
+        track_sanitize, url_allowed, volume_clamp, zoom_scale, PARTICLE_CAP,
     };
     use std::collections::HashMap;
 
@@ -2824,6 +2905,17 @@ mod tests {
         let reread = decode_store(&std::fs::read_to_string(&path).unwrap());
         let _ = std::fs::remove_file(&path);
         assert_eq!(reread, store);
+    }
+
+    #[test]
+    fn open_url_only_allows_web_schemes() {
+        assert!(url_allowed("https://google.com"));
+        assert!(url_allowed("http://example.com/path?q=1"));
+        assert!(!url_allowed("javascript:alert(1)"));
+        assert!(!url_allowed("file:///etc/passwd"));
+        assert!(!url_allowed("ftp://host/file"));
+        assert!(!url_allowed("HTTPS://UPPERCASE.SCHEME")); // strict: lowercase only
+        assert!(!url_allowed(""));
     }
 
     #[test]
