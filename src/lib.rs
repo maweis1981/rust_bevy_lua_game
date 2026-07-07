@@ -10,6 +10,7 @@ use bevy::prelude::*;
 
 mod background;
 mod rig;
+mod rock3d;
 mod script;
 
 pub use script::ScriptPlugin;
@@ -45,6 +46,7 @@ pub fn run() {
     .insert_resource(ClearColor(Color::srgb(0.36, 0.56, 0.34)))
     .add_plugins(FrameTimeDiagnosticsPlugin::default())
     .add_plugins(background::BackgroundPlugin)
+    .add_plugins(rock3d::Rock3dPlugin)
     .add_plugins(ScriptPlugin)
     .add_systems(Startup, spawn_fps_overlay)
     .add_systems(Update, update_fps_overlay);

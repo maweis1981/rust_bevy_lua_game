@@ -64,6 +64,7 @@ game = {
   stop_music = function() record("stopmusic") end,
   set_volume = function(c, v) record("volume", c) end,
   track = function(e) record("track", e) end,
+  open_url = function(u) record("open_url", u) end,
   _store = {},
   save = function(k, v)
     local t = type(v)
@@ -1211,20 +1212,85 @@ local function timedodge_tests()
   d = DEBUG
   check(d.mode() == "run" and d.absorb(), "timedodge: ABSORB starts an absorb run")
   check(d.size() == 26, "timedodge: absorb starts at base mass")
-  -- Hold still at centre: rocks converge; eating smaller ones grows you,
-  -- bigger ones chip you, and the chain eventually fades you away.
+  check(not d.dialog_used() and d.hit_dialog() == nil,
+    "timedodge: a fresh absorb run starts with the cancel-hit offer armed")
+
+  -- Hold still at centre: rocks converge; eating smaller ones grows you. The
+  -- FIRST bigger rock must NOT chip — it opens the cancel-hit dialog instead,
+  -- so until the dialog appears the mass may only ever grow.
   game._down = true
-  local prev_m, saw_grow, saw_shrink, adied = d.size(), false, false, false
+  local prev_m, saw_grow, saw_shrink = d.size(), false, false
+  local mass_at_dialog = nil
+  for _ = 1, 20000 do
+    step()
+    check_once("ab_alive1", d.alive(), "timedodge: died before the first big hit could offer the dialog")
+    if not d.alive() then break end
+    local m = d.size()
+    if m > prev_m + 0.01 then saw_grow = true end
+    check_once("ab_nochip1", m >= prev_m - 0.01,
+      "timedodge: mass chipped before the first-hit dialog opened")
+    check_once("ab_cap", m <= 120.5, "timedodge: absorb mass exceeded the cap")
+    prev_m = m
+    if d.hit_dialog() then mass_at_dialog = m; break end
+  end
+  check(mass_at_dialog ~= nil, "timedodge: the first big hit opens the cancel-hit dialog")
+  check(d.dialog_used(), "timedodge: opening the dialog burns the once-per-run offer")
+  local hd = d.hit_dialog()
+  check(hd and hd.yes and hd.no, "timedodge: the dialog exposes YES and NO button rects")
+
+  -- The world is frozen SOLID while the dialog is up: with the pointer held
+  -- and wiggling, no rock moves, the player stays put, and the mass holds.
+  local rock_ids = d.bullet_ids()
+  check(#rock_ids > 0, "timedodge: live rocks exist while the dialog is up")
+  local rock_pos = {}
+  for _, id in ipairs(rock_ids) do rock_pos[id] = { x = pos[id].x, y = pos[id].y } end
+  local pp = { x = pos[d.player].x, y = pos[d.player].y }
+  for i = 1, 30 do
+    game._down, game._px, game._py = true, 100 * math.sin(i), 100 * math.cos(i)
+    step()
+  end
+  for id, f in pairs(rock_pos) do
+    check_once("ab_dlg_frozen", pos[id] ~= nil and pos[id].x == f.x and pos[id].y == f.y,
+      "timedodge: a rock moved while the cancel-hit dialog was up")
+  end
+  check(pos[d.player].x == pp.x and pos[d.player].y == pp.y,
+    "timedodge: the player moved while the cancel-hit dialog was up")
+  check(d.size() == mass_at_dialog, "timedodge: the pending chip is not applied while the dialog is up")
+  check(d.hit_dialog() ~= nil, "timedodge: the dialog stays open until answered")
+
+  -- BACK is swallowed while the dialog is up.
+  clear_input()
+  on_tap(d.back.x, d.back.y); step()
+  check(d.hit_dialog() ~= nil and d.mode() == "run",
+    "timedodge: the dialog swallows BACK (and any tap outside its buttons)")
+
+  -- NO: dismiss and take the chip (mass * 0.75), run resumes.
+  hd = d.hit_dialog()
+  on_tap(hd.no.x, hd.no.y)
+  check(d.hit_dialog() == nil, "timedodge: NO dismisses the dialog")
+  check(math.abs(d.size() - mass_at_dialog * 0.75) < 0.01,
+    "timedodge: NO applies the normal 25% chip")
+  check(d.alive(), "timedodge: the declined chip above min mass does not kill")
+  step()
+
+  -- Resume: later big hits chip DIRECTLY (no second dialog), and the chip
+  -- chain eventually fades you away exactly like before.
+  game._down = true
+  prev_m = d.size()
+  local adied = false
   for _ = 1, 20000 do
     step()
     if not d.alive() then adied = true; break end
+    check_once("ab_one_dialog", d.hit_dialog() == nil,
+      "timedodge: a second dialog opened in the same run")
     local m = d.size()
     if m > prev_m + 0.01 then saw_grow = true end
     if m < prev_m - 0.01 then saw_shrink = true end
-    check_once("ab_cap", m <= 120.5, "timedodge: absorb mass exceeded the cap")
+    check_once("ab_cap2", m <= 120.5, "timedodge: absorb mass exceeded the cap")
     check_once("ab_min", m >= 13 - 0.5, "timedodge: absorb mass below the floor while alive")
     prev_m = m
   end
+  check(d.dialog_used(), "timedodge: dialog_used stays true for the rest of the run")
   check(saw_grow, "timedodge: eating a smaller rock grows you")
   check(saw_shrink, "timedodge: a bigger rock chips you down")
   check(adied, "timedodge: the chip chain eventually fades you away")
@@ -1233,6 +1299,29 @@ local function timedodge_tests()
   on_tap(0, -100); step()
   check(DEBUG.alive() and DEBUG.absorb(), "timedodge: tap after fading restarts absorb")
   check(DEBUG.size() == 26, "timedodge: absorb restart resets the mass")
+
+  -- YES path: the restart re-armed the offer. Ride to the first dialog again,
+  -- answer YES -> game.open_url("https://google.com") fires, the dialog closes,
+  -- and NO chip is applied (the rock shattered harmlessly).
+  d = DEBUG
+  check(not d.dialog_used(), "timedodge: a new run re-arms the cancel-hit offer")
+  game._down = true
+  mass_at_dialog = nil
+  for _ = 1, 20000 do
+    step()
+    if not d.alive() then break end
+    if d.hit_dialog() then mass_at_dialog = d.size(); break end
+  end
+  check(mass_at_dialog ~= nil, "timedodge: the re-armed dialog opens on the next run's first big hit")
+  clear_input()
+  hd = d.hit_dialog()
+  on_tap(hd.yes.x, hd.yes.y)
+  check(events_have("open_url", "https://google.com"),
+    "timedodge: YES opens the sponsor url via game.open_url")
+  check(d.hit_dialog() == nil, "timedodge: YES dismisses the dialog")
+  check(d.size() == mass_at_dialog, "timedodge: YES cancels the chip (mass unchanged)")
+  check(d.alive(), "timedodge: the run resumes alive after YES")
+  step()
 
   -- BACK from absorb run -> mode select -> lobby menu.
   on_tap(DEBUG.back.x, DEBUG.back.y); step()

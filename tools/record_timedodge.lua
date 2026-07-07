@@ -262,6 +262,10 @@ if MODE == "absorb" then
   local t2 = 0
   while frames < 2300 do
     if not DEBUG.alive() then break end
+    if DEBUG.hit_dialog and DEBUG.hit_dialog() then  -- sponsor offer on the
+      local hd = DEBUG.hit_dialog()                  -- first big hit: decline,
+      on_tap(hd.no.x, hd.no.y)                       -- the clip wants the chip
+    end
     t2 = t2 + DT
     local px, py = player_pos()
     local pm = DEBUG.size()

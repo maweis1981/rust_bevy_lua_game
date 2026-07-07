@@ -34,6 +34,22 @@
 //!   game.set_tile(id, tx, ty, index)           (show tileset frame at cell
 //!                                               tx,ty; -1 hides the cell;
 //!                                               out-of-range coords ignored)
+//!   game.rock3d(x, y, z, size) -> id           (REAL-3D rock: shared procedural
+//!                                               mesh, own StandardMaterial; the
+//!                                               first call bootstraps a 3D
+//!                                               camera + lights under the 2D
+//!                                               layer — see src/rock3d.rs)
+//!   game.move3d(id, x, y, z)                   (set a 3D entity's translation;
+//!                                               x,y are the same world units as
+//!                                               2D, z<0 is deeper into space)
+//!   game.rot3d(id, rx, ry, rz)                 (absolute rotation in radians —
+//!                                               Lua drives spin per frame, so
+//!                                               a gameplay time-freeze freezes
+//!                                               the tumble for free)
+//!   game.color3d(id, r, g, b)                  (tint that rock's own material)
+//!   game.scale3d(id, s)                        (uniform world size; the rock
+//!                                               mesh is unit-diameter, so
+//!                                               s == diameter in world units)
 //!   game.spawn_rig(x, y, name [, scale]) -> id (cutout skeletal character
 //!                                               from assets/rigs/<name>.rig;
 //!                                               see src/rig.rs for the format)
@@ -77,6 +93,12 @@
 //!                                               ~/.hollowlullaby/analytics.log,
 //!                                               console on web; remote sink
 //!                                               can replace this later)
+//!   game.open_url(url)                         (open an http(s):// URL in the
+//!                                               system browser; web opens a new
+//!                                               tab (same-tab fallback if the
+//!                                               popup is blocked); iOS is a
+//!                                               logged no-op for now; any other
+//!                                               scheme is logged and ignored)
 //!   game.pointer() -> x, y, down               (mouse/touch in world coords;
 //!                                               x,y are nil when unavailable,
 //!                                               down = button/finger held)
@@ -114,6 +136,7 @@ use std::{cell::RefCell, rc::Rc};
 use crate::rig::{
     animate_rigs, build_rigs, BonePose, RigAsset, RigAssetLoader, RigRoot, RigState,
 };
+use crate::rock3d::{rock_mesh, spawn_3d_rig, Rock3dState};
 use bevy::asset::{io::Reader, AssetLoader, LoadContext, LoadState};
 use bevy::audio::{AudioSinkPlayback, Volume};
 use bevy::prelude::*;
@@ -666,6 +689,33 @@ enum LuaCommand {
         ty: i64,
         index: i64,
     },
+    Rock3d {
+        id: u32,
+        x: f32,
+        y: f32,
+        z: f32,
+        size: f32,
+    },
+    Move3d {
+        id: u32,
+        x: f32,
+        y: f32,
+        z: f32,
+    },
+    Rot3d {
+        id: u32,
+        rx: f32,
+        ry: f32,
+        rz: f32,
+    },
+    Color3d {
+        id: u32,
+        color: (f32, f32, f32),
+    },
+    Scale3d {
+        id: u32,
+        s: f32,
+    },
     SpawnRig {
         id: u32,
         x: f32,
@@ -713,6 +763,7 @@ enum LuaCommand {
         event: String,
         value: Option<f64>,
     },
+    OpenUrl(String),
     Haptic(i32),
 }
 
@@ -1156,6 +1207,61 @@ fn register_api(lua: &Lua) -> mlua::Result<()> {
     )?;
 
     game.set(
+        "rock3d",
+        lua.create_function(|lua, (x, y, z, size): (f32, f32, f32, f32)| {
+            let mut bridge = lua
+                .app_data_mut::<Bridge>()
+                .ok_or_else(|| mlua::Error::runtime("bridge missing"))?;
+            bridge.next_id += 1;
+            let id = bridge.next_id;
+            bridge.queue.push(LuaCommand::Rock3d { id, x, y, z, size });
+            Ok(id)
+        })?,
+    )?;
+
+    game.set(
+        "move3d",
+        lua.create_function(|lua, (id, x, y, z): (u32, f32, f32, f32)| {
+            if let Some(mut bridge) = lua.app_data_mut::<Bridge>() {
+                bridge.queue.push(LuaCommand::Move3d { id, x, y, z });
+            }
+            Ok(())
+        })?,
+    )?;
+
+    game.set(
+        "rot3d",
+        lua.create_function(|lua, (id, rx, ry, rz): (u32, f32, f32, f32)| {
+            if let Some(mut bridge) = lua.app_data_mut::<Bridge>() {
+                bridge.queue.push(LuaCommand::Rot3d { id, rx, ry, rz });
+            }
+            Ok(())
+        })?,
+    )?;
+
+    game.set(
+        "color3d",
+        lua.create_function(|lua, (id, r, g, b): (u32, f32, f32, f32)| {
+            if let Some(mut bridge) = lua.app_data_mut::<Bridge>() {
+                bridge
+                    .queue
+                    .push(LuaCommand::Color3d { id, color: (r, g, b) });
+            }
+            Ok(())
+        })?,
+    )?;
+
+    game.set(
+        "scale3d",
+        lua.create_function(|lua, (id, s): (u32, f32)| {
+            if let Some(mut bridge) = lua.app_data_mut::<Bridge>() {
+                bridge.queue.push(LuaCommand::Scale3d { id, s });
+            }
+            Ok(())
+        })?,
+    )?;
+
+    game.set(
         "spawn_rig",
         lua.create_function(
             |lua, (x, y, name, scale): (f32, f32, String, Option<f32>)| {
@@ -1347,6 +1453,16 @@ fn register_api(lua: &Lua) -> mlua::Result<()> {
         lua.create_function(|lua, (event, value): (String, Option<f64>)| {
             if let Some(mut bridge) = lua.app_data_mut::<Bridge>() {
                 bridge.queue.push(LuaCommand::Track { event, value });
+            }
+            Ok(())
+        })?,
+    )?;
+
+    game.set(
+        "open_url",
+        lua.create_function(|lua, url: String| {
+            if let Some(mut bridge) = lua.app_data_mut::<Bridge>() {
+                bridge.queue.push(LuaCommand::OpenUrl(url));
             }
             Ok(())
         })?,
@@ -1701,6 +1817,43 @@ fn register_api(lua: &mut Lua, bridge: Rc<RefCell<Bridge>>) {
         })).unwrap();
 
         let b = bridge.clone();
+        game.set(ctx, "rock3d", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let (x, y, z, size): (f32, f32, f32, f32) = stack.consume(ctx)?;
+            let id = { let mut br = b.borrow_mut(); br.next_id += 1; let id = br.next_id;
+                br.queue.push(LuaCommand::Rock3d { id, x, y, z, size }); id };
+            stack.replace(ctx, id as i64);
+            Ok(CallbackReturn::Return)
+        })).unwrap();
+
+        let b = bridge.clone();
+        game.set(ctx, "move3d", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let (id, x, y, z): (u32, f32, f32, f32) = stack.consume(ctx)?;
+            b.borrow_mut().queue.push(LuaCommand::Move3d { id, x, y, z });
+            Ok(CallbackReturn::Return)
+        })).unwrap();
+
+        let b = bridge.clone();
+        game.set(ctx, "rot3d", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let (id, rx, ry, rz): (u32, f32, f32, f32) = stack.consume(ctx)?;
+            b.borrow_mut().queue.push(LuaCommand::Rot3d { id, rx, ry, rz });
+            Ok(CallbackReturn::Return)
+        })).unwrap();
+
+        let b = bridge.clone();
+        game.set(ctx, "color3d", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let (id, r, g, bl): (u32, f32, f32, f32) = stack.consume(ctx)?;
+            b.borrow_mut().queue.push(LuaCommand::Color3d { id, color: (r, g, bl) });
+            Ok(CallbackReturn::Return)
+        })).unwrap();
+
+        let b = bridge.clone();
+        game.set(ctx, "scale3d", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let (id, s): (u32, f32) = stack.consume(ctx)?;
+            b.borrow_mut().queue.push(LuaCommand::Scale3d { id, s });
+            Ok(CallbackReturn::Return)
+        })).unwrap();
+
+        let b = bridge.clone();
         game.set(ctx, "spawn_rig", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
             let (x, y, name, scale): (f32, f32, ottavino::String, Option<f32>) =
                 stack.consume(ctx)?;
@@ -1838,6 +1991,15 @@ fn register_api(lua: &mut Lua, bridge: Rc<RefCell<Bridge>>) {
                 event: event.to_str().unwrap_or("").to_string(),
                 value,
             });
+            Ok(CallbackReturn::Return)
+        })).unwrap();
+
+        let b = bridge.clone();
+        game.set(ctx, "open_url", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let url: ottavino::String = stack.consume(ctx)?;
+            b.borrow_mut()
+                .queue
+                .push(LuaCommand::OpenUrl(url.to_str().unwrap_or("").to_string()));
             Ok(CallbackReturn::Return)
         })).unwrap();
 
@@ -2001,7 +2163,8 @@ fn haptic_style(kind: &str) -> i32 {
 
 /// The camera offset for a given shake `trauma` (0..1) at time `t` seconds.
 /// `trauma²` makes light taps fall off fast; the sines supply the jitter.
-fn shake_offset(trauma: f32, t: f32) -> (f32, f32) {
+/// Shared with the 3D camera (rock3d.rs) so both layers jitter as one.
+pub(crate) fn shake_offset(trauma: f32, t: f32) -> (f32, f32) {
     const MAX_OFFSET: f32 = 24.0;
     let amount = trauma * trauma;
     (
@@ -2111,7 +2274,9 @@ fn tick_lua(
     touches: Res<Touches>,
     mouse: Res<ButtonInput<MouseButton>>,
     keyboard: Res<ButtonInput<KeyCode>>,
-    cameras: Query<(&Camera, &GlobalTransform)>,
+    // Scoped to the 2D GameCamera: once the 3D camera (rock3d.rs) exists,
+    // an unfiltered `.single()` would fail and silently kill all input.
+    cameras: Query<(&Camera, &GlobalTransform), With<GameCamera>>,
 ) {
     let Ok(window) = windows.single() else {
         vm.update(time.delta_secs());
@@ -2175,6 +2340,7 @@ fn tick_lua(
 
 /// Apply everything Lua queued this frame.
 #[allow(clippy::too_many_arguments)] // Bevy systems legitimately take many params
+#[allow(clippy::type_complexity)] // params are bundled into tuples to stay under 16
 fn apply_lua(
     mut commands: Commands,
     mut vm: NonSendMut<LuaVm>,
@@ -2195,11 +2361,15 @@ fn apply_lua(
         Query<&'static mut AudioSink, (With<MusicSound>, Without<VoiceSound>)>,
         Query<&'static mut AudioSink, (With<VoiceSound>, Without<MusicSound>)>,
     ),
-    // Visual registries, bundled for the same 16-parameter reason.
+    // Visual registries + the 3D path, bundled for the same 16-parameter reason.
     mut vis: (
         ResMut<TextureCache>,
         ResMut<SheetRegistry>,
         ResMut<TilemapRegistry>,
+        ResMut<Rock3dState>,
+        ResMut<Assets<Mesh>>,
+        ResMut<Assets<StandardMaterial>>,
+        Query<&'static mut Camera, With<GameCamera>>,
     ),
     particles_alive: Query<(), With<Particle>>,
     mut emit_seed: Local<u64>,
@@ -2207,7 +2377,15 @@ fn apply_lua(
     assets: Res<AssetServer>,
     hud: Option<Res<Hud>>,
 ) {
-    let (ref mut tex_cache, ref mut sheet_registry, ref mut tilemaps) = vis;
+    let (
+        ref mut tex_cache,
+        ref mut sheet_registry,
+        ref mut tilemaps,
+        ref mut rocks,
+        ref mut meshes,
+        ref mut std_materials,
+        ref mut cameras_2d,
+    ) = vis;
     // Sprites spawn at increasing z so later-spawned things (ball) draw in front
     // of earlier ones (net, trail) without depending on transparent-sort order.
     // De-dup identical SFX within this frame so a burst of the same impact plays
@@ -2502,6 +2680,91 @@ fn apply_lua(
                     }
                 }
             }
+            LuaCommand::Rock3d { id, x, y, z, size } => {
+                // Lazy bootstrap on the very first rock: spawn the 3D camera +
+                // lights and flip the 2D camera to composite ON TOP of them
+                // (render order 1, no clear — sprites/text overlay the scene).
+                // The opaque aurora quad is hidden by `toggle_2d_backdrop` in
+                // rock3d.rs, which also restores it when the last rock dies.
+                if !rocks.booted {
+                    rocks.booted = true;
+                    spawn_3d_rig(&mut commands);
+                    for mut cam in cameras_2d.iter_mut() {
+                        cam.order = 1;
+                        cam.clear_color = ClearColorConfig::None;
+                    }
+                }
+                // One shared unit-diameter mesh (built once)…
+                let mesh = rocks
+                    .mesh
+                    .get_or_insert_with(|| meshes.add(rock_mesh()))
+                    .clone();
+                // …but a per-entity material, so color3d tints independently.
+                let material = std_materials.add(StandardMaterial {
+                    base_color: Color::srgb(0.58, 0.58, 0.60),
+                    perceptual_roughness: 0.9,
+                    ..default()
+                });
+                let entity = commands
+                    .spawn((
+                        Mesh3d(mesh),
+                        MeshMaterial3d(material.clone()),
+                        Transform::from_xyz(x, y, z).with_scale(Vec3::splat(size.max(0.001))),
+                        Visibility::default(),
+                    ))
+                    .id();
+                registry.0.insert(id, entity);
+                rocks.materials.insert(id, material);
+            }
+            LuaCommand::Move3d { id, x, y, z } => {
+                if let Some(&entity) = registry.0.get(&id) {
+                    if let Ok(mut transform) = transforms.get_mut(entity) {
+                        transform.translation = Vec3::new(x, y, z);
+                    } else {
+                        commands
+                            .entity(entity)
+                            .entry::<Transform>()
+                            .and_modify(move |mut t| t.translation = Vec3::new(x, y, z));
+                    }
+                }
+            }
+            LuaCommand::Rot3d { id, rx, ry, rz } => {
+                let rotation = Quat::from_euler(EulerRot::XYZ, rx, ry, rz);
+                if let Some(&entity) = registry.0.get(&id) {
+                    if let Ok(mut transform) = transforms.get_mut(entity) {
+                        transform.rotation = rotation;
+                    } else {
+                        commands
+                            .entity(entity)
+                            .entry::<Transform>()
+                            .and_modify(move |mut t| t.rotation = rotation);
+                    }
+                }
+            }
+            LuaCommand::Color3d { id, color: (r, g, b) } => {
+                // Mutates the rock's OWN material (created in Rock3d), so this
+                // never affects other rocks. Assets::add is synchronous, so a
+                // same-frame "rock3d then color3d" works.
+                if let Some(handle) = rocks.materials.get(&id) {
+                    // `get_mut` returns a change-detection guard — bind it mut.
+                    if let Some(mut material) = std_materials.get_mut(handle) {
+                        material.base_color = Color::srgb(r, g, b);
+                    }
+                }
+            }
+            LuaCommand::Scale3d { id, s } => {
+                let scale = Vec3::splat(s.max(0.001));
+                if let Some(&entity) = registry.0.get(&id) {
+                    if let Ok(mut transform) = transforms.get_mut(entity) {
+                        transform.scale = scale;
+                    } else {
+                        commands
+                            .entity(entity)
+                            .entry::<Transform>()
+                            .and_modify(move |mut t| t.scale = scale);
+                    }
+                }
+            }
             LuaCommand::SpawnRig { id, x, y, name, scale } => {
                 let handle = assets.load::<RigAsset>(format!("rigs/{name}.rig"));
                 let z = 0.001 * id as f32;
@@ -2559,6 +2822,9 @@ fn apply_lua(
                 }
                 sheet_registry.0.remove(&id);
                 tilemaps.0.remove(&id);
+                // Dropping the handle releases the rock's material; when the
+                // map empties, rock3d.rs restores the 2D backdrop.
+                rocks.materials.remove(&id);
             }
             LuaCommand::Emit { preset, x, y, count } => {
                 let params = preset_params(&preset);
@@ -2698,6 +2964,9 @@ fn apply_lua(
             LuaCommand::Track { event, value } => {
                 track_event(&event, value);
             }
+            LuaCommand::OpenUrl(url) => {
+                open_url(&url);
+            }
         }
     }
 }
@@ -2814,6 +3083,58 @@ fn track_event(event: &str, value: Option<f64>) {
     info!("[track] {name} {:?}", value);
 }
 
+/// `game.open_url` gate: only plain web URLs may leave the sandbox. Anything
+/// else (`javascript:`, `file:`, custom app schemes, empty strings) is refused
+/// — scripts are data, and data must not get shell/scheme superpowers.
+fn url_allowed(url: &str) -> bool {
+    url.starts_with("http://") || url.starts_with("https://")
+}
+
+/// Open `url` in the platform browser.
+/// - wasm: `window.open(url, "_blank")`; a popup blocker returns `Ok(None)`,
+///   in which case we fall back to navigating the current tab.
+/// - desktop: spawn the OS opener (`open` on macOS, `xdg-open` elsewhere) and
+///   ignore errors beyond a log line — a missing opener must not crash a game.
+/// - iOS: logged no-op for now (a UIKit `openURL:` shim is future work).
+fn open_url(url: &str) {
+    if !url_allowed(url) {
+        warn!("game.open_url: refusing non-http(s) url {url:?}");
+        return;
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let Some(window) = web_sys::window() else {
+            warn!("game.open_url: no window object");
+            return;
+        };
+        match window.open_with_url_and_target(url, "_blank") {
+            Ok(Some(_)) => {}
+            Ok(None) => {
+                // Popup blocked: navigate the current tab instead.
+                if let Err(e) = window.location().set_href(url) {
+                    warn!("game.open_url: set_href fallback failed: {e:?}");
+                }
+            }
+            Err(e) => warn!("game.open_url: window.open failed: {e:?}"),
+        }
+    }
+    #[cfg(target_os = "ios")]
+    {
+        info!("game.open_url: {url} (no-op on iOS: UIKit shim not wired yet)");
+    }
+    #[cfg(all(not(target_arch = "wasm32"), not(target_os = "ios")))]
+    {
+        #[cfg(target_os = "macos")]
+        const OPENER: &str = "open";
+        #[cfg(not(target_os = "macos"))]
+        const OPENER: &str = "xdg-open";
+        match std::process::Command::new(OPENER).arg(url).spawn() {
+            Ok(_) => info!("game.open_url: {url}"),
+            Err(e) => warn!("game.open_url: failed to launch {OPENER}: {e}"),
+        }
+    }
+}
+
 /// Clamp a channel volume to 0..1; non-finite input falls back to full volume
 /// (a wrong expression should never mute the game silently).
 fn volume_clamp(v: f32) -> f32 {
@@ -2844,7 +3165,8 @@ mod tests {
     use super::{
         cam_zoom_clamp, civil_from_unix, decode_store, emit_count_allowed, encode_store,
         frame_rect, haptic_style, lcg, particle_alpha, preset_params, shake_offset, store_escape,
-        store_unescape, tile_slot, track_sanitize, volume_clamp, zoom_scale, PARTICLE_CAP,
+        store_unescape, tile_slot, track_sanitize, url_allowed, volume_clamp, zoom_scale,
+        PARTICLE_CAP,
     };
     use std::collections::HashMap;
 
@@ -2908,6 +3230,17 @@ mod tests {
         let reread = decode_store(&std::fs::read_to_string(&path).unwrap());
         let _ = std::fs::remove_file(&path);
         assert_eq!(reread, store);
+    }
+
+    #[test]
+    fn open_url_only_allows_web_schemes() {
+        assert!(url_allowed("https://google.com"));
+        assert!(url_allowed("http://example.com/path?q=1"));
+        assert!(!url_allowed("javascript:alert(1)"));
+        assert!(!url_allowed("file:///etc/passwd"));
+        assert!(!url_allowed("ftp://host/file"));
+        assert!(!url_allowed("HTTPS://UPPERCASE.SCHEME")); // strict: lowercase only
+        assert!(!url_allowed(""));
     }
 
     #[test]
