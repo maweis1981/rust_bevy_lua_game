@@ -104,6 +104,7 @@ dofile("assets/scripts/umami.lua")
 dofile("assets/scripts/packs/catch.lua")
 dofile("assets/scripts/packs/ponies.lua")
 dofile("assets/scripts/packs/gallery.lua")
+dofile("assets/scripts/packs/showcase.lua")
 dofile("assets/scripts/packs/timedodge.lua")
 dofile("assets/scripts/main.lua")
 
@@ -1087,6 +1088,49 @@ local function touches_tests()
   check(#game.touches() == 0, "touches: empty when no fingers down")
 end
 touches_tests()
+
+----------------------------------------------------------------------
+-- Showcase pack: 9 capability stations, each with a BENCH mode
+----------------------------------------------------------------------
+local function showcase_tests()
+  boot()
+  local d = enter("showcase")
+  check(d and d.game == "showcase", "menu should enter the showcase pack")
+  check(d.back ~= nil, "showcase should expose a back button")
+  check(d.station() == nil, "showcase starts on the hub")
+  check(#d.cards() == 9, "hub should list 9 station cards")
+
+  for _, key in ipairs({ "vault", "touch", "atlas", "camera", "mixer",
+                         "sparks", "tiles", "robot", "juice" }) do
+    d.enter_station(key)
+    step()
+    check(DEBUG.station() == key, "should enter station '" .. key .. "'")
+    -- demo mode: 2 seconds of frames, with a two-finger snapshot present
+    game._touches = { { x = 10, y = 20, id = 1 }, { x = -40, y = 60, id = 2 } }
+    for _ = 1, 120 do step() end
+    game._touches = {}
+    -- bench mode: fixed headless dt never blows the budget, so the level must
+    -- ramp to the cap and then freeze a score (proves cap + scoring both work)
+    DEBUG.bench_start()
+    local guard = 0
+    while DEBUG.bench_score() == nil and guard < 3000 do step(); guard = guard + 1 end
+    check(DEBUG.bench_score() ~= nil, "bench must produce a score at '" .. key .. "'")
+    check(DEBUG.bench_score() == 12, "headless bench should hit the level cap at '" .. key .. "'")
+    check(game._store["sc_bench_" .. key] == 12,
+      "bench best score should persist via game.save at '" .. key .. "'")
+  end
+
+  -- hub round-trip + leave cleans up
+  d.enter_station(nil)
+  step()
+  check(DEBUG.station() == nil, "HUB action should return to the hub")
+  on_tap(d.back.x, d.back.y); step()
+  local d2 = enter("showcase")
+  check(d2 and d2.game == "showcase", "showcase should be re-enterable after back")
+  check(d2.station() == nil, "re-entry lands on a fresh hub")
+  on_tap(d2.back.x, d2.back.y); step()
+end
+showcase_tests()
 
 print(string.format("checks=%d", checks))
 if #failures == 0 then

@@ -539,6 +539,7 @@ fn discover_packs() -> Vec<String> {
         format!("{PACKS_DIR}/catch.lua"),
         format!("{PACKS_DIR}/ponies.lua"),
         format!("{PACKS_DIR}/gallery.lua"),
+        format!("{PACKS_DIR}/showcase.lua"),
         format!("{PACKS_DIR}/timedodge.lua"),
     ]
 }
