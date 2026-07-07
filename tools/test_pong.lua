@@ -105,6 +105,7 @@ dofile("assets/scripts/packs/catch.lua")
 dofile("assets/scripts/packs/ponies.lua")
 dofile("assets/scripts/packs/gallery.lua")
 dofile("assets/scripts/packs/showcase.lua")
+dofile("assets/scripts/packs/timedodge.lua")
 dofile("assets/scripts/main.lua")
 
 -- Reseed the LCG each boot so every test scenario is deterministic and
@@ -125,7 +126,7 @@ local function step(dt) frame_events = {}; on_update(dt or DT) end
 ----------------------------------------------------------------------
 local function router_tests()
   boot()
-  for _, key in ipairs({ "grow", "breakout", "snake", "roguelike", "game2048", "shooter", "world", "match3", "umami", "catch", "ponies", "gallery" }) do
+  for _, key in ipairs({ "grow", "breakout", "snake", "roguelike", "game2048", "shooter", "world", "match3", "umami", "catch", "ponies", "gallery", "timedodge" }) do
     local d = enter(key)
     check(d and d.game == key, "menu tile should enter game '" .. key .. "'")
     check(d.back ~= nil, "game '" .. key .. "' should expose a back button")
@@ -944,6 +945,90 @@ local function gallery_tests()
   check(d.scene() == "end", "gallery: a wrong accusation also resolves to an ending")
 end
 
+----------------------------------------------------------------------
+-- Time Dodge — "time moves when you move" invariants
+----------------------------------------------------------------------
+local function timedodge_tests()
+  boot(); rand_mode = "mixed"
+  local d = enter("timedodge")
+  check(d.game == "timedodge", "timedodge: scene enters")
+
+  -- Frozen: hold the pointer ON the player -> no player motion -> the
+  -- timescale floors and world time (score) crawls over 3 simulated seconds.
+  local p0 = pos[d.player]
+  game._down, game._px, game._py = true, p0.x, p0.y
+  for _ = 1, 180 do step(); game._px, game._py = pos[d.player].x, pos[d.player].y end
+  check(d.timescale() <= 0.1, "timedodge: standing still floors the timescale")
+  check(d.score() < 0.5, string.format("timedodge: frozen world time crawls (%.2fs)", d.score()))
+
+  -- Dash: circle the pointer fast -> timescale rises, world time accrues.
+  -- 90 frames is inside the safe window: the first bullet spawns ~0.55 world-
+  -- seconds in and still needs ~1s+ of world time to cross to the player.
+  local t = 0
+  for _ = 1, 90 do
+    t = t + DT
+    game._px, game._py = 120 * math.cos(t * 6), 260 * math.sin(t * 6)
+    step()
+  end
+  check(d.alive(), "timedodge: survives the opening dash")
+  check(d.timescale() > 0.6, "timedodge: dashing raises the timescale")
+  check(d.score() > 0.8, "timedodge: moving accrues world time")
+  for _ = 1, 400 do                          -- keep dashing until a bullet is live
+    if d.bullet_count() > 0 or not d.alive() then break end
+    t = t + DT
+    game._px, game._py = 120 * math.cos(t * 6), 260 * math.sin(t * 6)
+    step()
+  end
+  check(d.alive() and d.bullet_count() > 0, "timedodge: bullets spawn while time flows")
+
+  -- Freeze again: live bullets must be near-stationary between frames.
+  game._px, game._py = pos[d.player].x, pos[d.player].y
+  for _ = 1, 60 do step(); game._px, game._py = pos[d.player].x, pos[d.player].y end
+  local frozen = {}
+  for _, id in ipairs(d.bullet_ids()) do frozen[id] = { x = pos[id].x, y = pos[id].y } end
+  step()
+  for id, f in pairs(frozen) do
+    if pos[id] then
+      local sp = math.sqrt((pos[id].x - f.x) ^ 2 + (pos[id].y - f.y) ^ 2) / DT
+      check_once("td_frozen", sp <= 500 * 0.1 + 1,
+        string.format("timedodge: frozen bullet still moved at %.0f px/s", sp))
+    end
+  end
+
+  -- Flow: while weaving, no bullet ever exceeds the speed cap between frames
+  -- (no teleport), the player stays on screen, the live-bullet cap holds, and
+  -- the converging fire eventually reaches a lose.
+  local prev, died = {}, false
+  t = 0
+  for _ = 1, 8000 do
+    t = t + DT
+    game._px, game._py = 170 * math.cos(t * 5), 170 * math.sin(t * 3)
+    step()
+    if not d.alive() then died = true; break end
+    local b = pos[d.player]
+    check_once("td_px", math.abs(b.x) <= HW and math.abs(b.y) <= HH, "timedodge: player left the screen")
+    check_once("td_cap", d.bullet_count() <= 40, "timedodge: live bullet cap exceeded")
+    for _, id in ipairs(d.bullet_ids()) do
+      local pr = prev[id]
+      if pr and pos[id] then
+        local sp = math.sqrt((pos[id].x - pr.x) ^ 2 + (pos[id].y - pr.y) ^ 2) / DT
+        check_once("td_bspeed", sp <= 500 + 1,
+          string.format("timedodge: bullet speed %.0f exceeded cap", sp))
+      end
+    end
+    prev = {}
+    for _, id in ipairs(d.bullet_ids()) do prev[id] = { x = pos[id].x, y = pos[id].y } end
+  end
+  check(died, "timedodge: converging bullets reach a lose while moving")
+  check(events_have("log", "lose"), "timedodge: the lose is logged with fx")
+
+  -- Tap after game over restarts a fresh round (closures read live state).
+  clear_input()
+  on_tap(0, -100); step()
+  check(DEBUG.alive(), "timedodge: tap after game over restarts")
+  check(DEBUG.score() < 0.5, "timedodge: restart resets the survived time")
+end
+
 local function settings_tests()
   boot()
   local opened = false
@@ -976,6 +1061,7 @@ umami_tests()
 catch_tests()
 ponies_tests()
 gallery_tests()
+timedodge_tests()
 settings_tests()
 
 ----------------------------------------------------------------------
