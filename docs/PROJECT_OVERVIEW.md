@@ -190,6 +190,8 @@ PlaySound / PlayMusic / Haptic`。
 | Garden Match | match3.lua | — | 三消，含火箭/绽放特殊块 + 关卡目标 |
 | Umami Cup | umami.lua | — | 单指弹弓对战（角色 + 终极技） |
 | Fruit Catch | packs/catch.lua | ai | 拖篮子接水果（drop-in 包示例） |
+| Starforge | packs/forge.lua | ai | 数学驱动混合休闲主推：引力井 `a=GM/r²` × 聚变 `a+a→2a`，按住瞄准松手入轨；每日挑战/图鉴/升级树/成就全套 meta（方案见 docs/hybrid-casual-math-game-plan.md） |
+| Fireflies | packs/fireflies.lua | ai | boids 三规则 + 指尖追光放牧萤火虫群；光环聚群得分、避蛛网（M0 对决对照组） |
 
 新增游戏请照 [`tools/PACK_SPEC.md`](../tools/PACK_SPEC.md)：定义 `make_<key>()`
 返回四个回调，文件末尾自注册进 `PACKS`，放进 `scripts/packs/` 即可被自动发现。
