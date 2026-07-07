@@ -44,6 +44,8 @@ game = {
   set_sprite_image = function() end,
   spawn_sheet = function(x, y, w, h) max_id = max_id + 1; dims[max_id] = { w = w, h = h }; pos[max_id] = { x = x, y = y }; return max_id end,
   set_frame = function() end,
+  tilemap = function(x, y) max_id = max_id + 1; dims[max_id] = { w = 0, h = 0 }; pos[max_id] = { x = x, y = y }; return max_id end,
+  set_tile = function() end,
   despawn = function(id) pos[id] = nil; dims[id] = nil end,
   set_text = function() end,
   shake = function(v) record("shake", v) end,
