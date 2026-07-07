@@ -11,7 +11,12 @@
 
 local HW, HH = 195, 422        -- world half-extents == half the render canvas
 local DT = 1 / 60
-local OUT = "build/timedodge_frames.jsonl"
+-- `lua5.4 tools/record_timedodge.lua`       records the ENDLESS hero clip;
+-- `lua5.4 tools/record_timedodge.lua trial` records the TRIALS tour (mode
+-- select -> level grid -> clear moment 1 -> star card).
+local MODE = (arg and arg[1]) or "endless"
+local OUT = MODE == "trial" and "build/timedodge_trial_frames.jsonl"
+                             or "build/timedodge_frames.jsonl"
 
 -- Deterministic RNG so the clip is reproducible.
 local rng = 424242
@@ -103,19 +108,22 @@ local function dump_frame(n)
   local parts = {}
   for id, e in pairs(ents) do
     parts[#parts + 1] = string.format(
-      '[%d,%.1f,%.1f,%.1f,%.1f,%.3f,%.3f,%.3f,%.3f,%s]',
-      id, e.x, e.y, e.w, e.h, e.r, e.g, e.b, e.a, jstr(e.tex or "rect"))
+      '[%d,%.1f,%.1f,%.1f,%.1f,%.3f,%.3f,%.3f,%.3f,%s,%s]',
+      id, e.x, e.y, e.w, e.h, e.r, e.g, e.b, e.a, jstr(e.tex or "rect"),
+      jstr(e.str or ""))
   end
   local fx = {}
   for _, f in ipairs(frame_fx) do
     fx[#fx + 1] = string.format('[%s,%s]', jstr(f[1]),
       type(f[2]) == "number" and string.format("%.3f", f[2]) or jstr(tostring(f[2])))
   end
+  local mode = (DEBUG.mode and DEBUG.mode()) or "run"
   out:write(string.format(
-    '{"n":%d,"ts":%.3f,"alive":%s,"hud":%s,"fx":[%s],"ents":[%s]}\n',
-    n, DEBUG.timescale and DEBUG.timescale() or 1,
-    tostring(DEBUG.alive and DEBUG.alive() or false),
-    jstr(hud_text), table.concat(fx, ","), table.concat(parts, ",")))
+    '{"n":%d,"ts":%.3f,"alive":%s,"done":%s,"mode":%s,"hud":%s,"fx":[%s],"ents":[%s]}\n',
+    n, (mode == "run" and DEBUG.timescale) and DEBUG.timescale() or 1,
+    tostring((DEBUG.alive and DEBUG.alive() or false) == true),
+    tostring((DEBUG.done and DEBUG.done() or false) == true),
+    jstr(mode), jstr(hud_text), table.concat(fx, ","), table.concat(parts, ",")))
 end
 
 ----------------------------------------------------------------------
@@ -145,7 +153,7 @@ local function think(px, py)
       local d = math.sqrt(dx * dx + dy * dy)
       if d < nd then nd, nearest = d, { x = e.x, y = e.y, vx = vx, vy = vy, d = d } end
       -- threatening = close and (frozen counts too: it WILL close when we move)
-      if d < 200 then threats[#threats + 1] = { x = e.x, y = e.y, vx = vx, vy = vy, d = d } end
+      if d < 240 then threats[#threats + 1] = { x = e.x, y = e.y, vx = vx, vy = vy, d = d } end
     end
   end
   prev_b = cur
@@ -171,9 +179,85 @@ local function dodge_vector(px, py, threats)
   return ax / m, ay / m
 end
 
+-- Scripted freeze beats: the clip mostly DASHES (so stolen time racks up and
+-- the surge foe wakes on camera), with a few held freezes for the money shot.
+-- A freeze breaks early if a foe gets inside 110px.
+local FREEZES = { { 3.0, 3.8 }, { 7.5, 8.2 }, { 12.0, 12.7 }, { 16.2, 16.8 } }
+local function freeze_beat(now, nd)
+  for _, w in ipairs(FREEZES) do
+    if now >= w[1] and now <= w[2] then return nd > 110 end
+  end
+  return false
+end
+
 local frames = 0
 local died_at = nil
-for step = 1, math.floor(16 / DT) do
+local function shoot(nf)
+  for _ = 1, nf do frame_fx = {}; on_update(DT); frames = frames + 1; dump_frame(frames) end
+end
+
+----------------------------------------------------------------------
+-- TRIALS tour: select screen -> level grid -> clear moment 1 -> star card
+----------------------------------------------------------------------
+if MODE == "trial" then
+  -- Seed earlier clears so the grid showcases the star display and a mid-pack
+  -- moment (4 gates, three foe kinds) is unlocked for a meatier demo.
+  game._store["td_lv1_stars"] = 3
+  game._store["td_lv2_stars"] = 2
+  game._store["td_lv3_stars"] = 3
+  game._store["td_lv4_stars"] = 1
+  shoot(40)                                          -- linger on mode select
+  on_tap(DEBUG.btn_trials.x, DEBUG.btn_trials.y)
+  shoot(45)                                          -- linger on the level grid
+  on_tap(DEBUG.lv_btn(5).x, DEBUG.lv_btn(5).y)
+  shoot(1)
+  -- A virtual finger drags at ~340px/s toward each gate (a real drag pace, so
+  -- the travel is watchable), pausing on freeze beats and sidestepping danger.
+  local t2 = 0
+  local cx, cy = player_pos()
+  while frames < 1400 do
+    if DEBUG.done() then break end
+    if not DEBUG.alive() then on_tap(0, -100); shoot(1); cx, cy = player_pos() end
+    t2 = t2 + DT
+    local px, py = player_pos()
+    local threats, _, nd = think(px, py)
+    local g = DEBUG.gate()
+    if t2 > 1.0 and (t2 % 4.0) < 0.55 and nd > 110 then  -- a freeze beat for drama
+      game._down = true                              -- finger held still
+      cx, cy = px, py
+    elseif nd < 95 then                              -- emergency sidestep
+      local dxn, dyn = dodge_vector(px, py, threats)
+      game._down = true
+      game._px = (game._px or 0) + dxn * 520 * DT / 1.5
+      game._py = (game._py or 0) + dyn * 520 * DT / 1.5
+      cx, cy = px, py
+    elseif g then                                    -- drag toward the gate
+      local dgx, dgy = g.x - cx, g.y - cy
+      local dg = math.sqrt(dgx * dgx + dgy * dgy)
+      local sl = 340 * DT
+      local sx, sy
+      if dg > sl then sx, sy = dgx / dg * sl, dgy / dg * sl else sx, sy = dgx, dgy end
+      cx, cy = cx + sx, cy + sy
+      game._down = true                              -- relative drag: feed deltas
+      game._px = (game._px or 0) + sx / 1.5
+      game._py = (game._py or 0) + sy / 1.5
+    end
+    shoot(1)
+  end
+  game._down = false
+  shoot(70)                                          -- hold the star card
+  out:close()
+  print(string.format("recorded %d trial-tour frames -> %s", frames, OUT))
+  os.exit(0)
+end
+
+----------------------------------------------------------------------
+-- ENDLESS hero clip
+----------------------------------------------------------------------
+on_tap(DEBUG.btn_endless.x, DEBUG.btn_endless.y)     -- mode select -> ENDLESS
+on_update(DT)
+assert(DEBUG.mode() == "run", "failed to start the endless run")
+for step = 1, math.floor(26 / DT) do
   t = t + DT
   local px, py = player_pos()
 
@@ -181,33 +265,34 @@ for step = 1, math.floor(16 / DT) do
     if not died_at then died_at = frames end
     game._down = false
     if frames - died_at > 45 then dump_frame(frames); break end   -- 0.75s of game-over card
-  elseif t < 0.9 then
-    -- opening dash: wake the world up
-    game._down, game._px, game._py = true, 130 * math.cos(t * 7), 240 * math.sin(t * 7)
-  elseif t > 11.5 then
+  elseif t > 20 then
     -- finale: dash straight into the nearest bullet for the freeze-frame ending
     local _, nearest = think(px, py)
+    local vx, vy = -px, -py                          -- stir until one spawns
     if nearest then
-      game._down, game._px, game._py = true, nearest.x + nearest.vx * 0.15, nearest.y + nearest.vy * 0.15
-    else
-      game._down, game._px, game._py = true, -px * 3, -py * 3   -- stir until one spawns
+      vx, vy = nearest.x + nearest.vx * 0.15 - px, nearest.y + nearest.vy * 0.15 - py
     end
+    local m = math.sqrt(vx * vx + vy * vy)
+    if m > 1 then vx, vy = vx / m, vy / m end
+    game._down = true
+    game._px = (game._px or 0) + vx * 600 * DT / 1.5
+    game._py = (game._py or 0) + vy * 600 * DT / 1.5
   else
     local threats, _, nd = think(px, py)
-    if freeze_left > 0 then
-      freeze_left = freeze_left - DT
-      game._down, game._px, game._py = true, px, py              -- hold: world freezes
-      if nd < 120 then freeze_left = 0 end                       -- too close — move!
-    elseif #threats > 0 or dash_left > 0 then
-      dash_left = dash_left - DT
-      local dxn, dyn = dodge_vector(px, py, threats)
-      game._down, game._px, game._py = true, px + dxn * 240, py + dyn * 240
-      if #threats == 0 and dash_left <= 0 then freeze_left = 0.55 + lcg() * 0.5 end
+    if freeze_beat(t, nd) then
+      game._down = true                              -- finger held still: freeze
     else
-      dash_left = 0.35                                           -- reposition burst
-    end
-    if freeze_left <= 0 and #threats == 0 and dash_left <= 0 then
-      freeze_left = 0.6
+      -- steer toward the weave point blended with the avoidance vector; pure
+      -- sideways dodge when a foe is about to connect. Relative drag: deltas.
+      local wxT, wyT = 120 * math.cos(t * 2.1), 250 * math.sin(t * 1.5)
+      local dxn, dyn = dodge_vector(px, py, threats)
+      local vx, vy = (wxT - px) * 2 + dxn * 420, (wyT - py) * 2 + dyn * 420
+      if nd < 95 then vx, vy = dxn, dyn end
+      local m = math.sqrt(vx * vx + vy * vy)
+      if m > 1 then vx, vy = vx / m, vy / m end
+      game._down = true
+      game._px = (game._px or 0) + vx * 560 * DT / 1.5
+      game._py = (game._py or 0) + vy * 560 * DT / 1.5
     end
   end
 

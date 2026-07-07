@@ -1042,15 +1042,21 @@ local function gallery_tests()
 end
 
 ----------------------------------------------------------------------
--- Time Dodge — "time moves when you move" invariants
+-- Time Dodge — "time moves when you move" invariants (both modes)
 ----------------------------------------------------------------------
 local function timedodge_tests()
   boot(); rand_mode = "mixed"
   local d = enter("timedodge")
-  check(d.game == "timedodge", "timedodge: scene enters")
+  check(d.game == "timedodge" and d.mode() == "select", "timedodge: enters on the mode-select screen")
+  check(d.btn_endless ~= nil and d.btn_trials ~= nil, "timedodge: mode select exposes both mode buttons")
+
+  -- ENDLESS ----------------------------------------------------------
+  on_tap(d.btn_endless.x, d.btn_endless.y); step()
+  d = DEBUG
+  check(d.mode() == "run" and d.trial() == nil, "timedodge: ENDLESS starts an endless run")
 
   -- Frozen: hold the pointer ON the player -> no player motion -> the
-  -- timescale floors and world time (score) crawls over 3 simulated seconds.
+  -- timescale floors and world time (stolen score) crawls over 3 sim seconds.
   local p0 = pos[d.player]
   game._down, game._px, game._py = true, p0.x, p0.y
   for _ = 1, 180 do step(); game._px, game._py = pos[d.player].x, pos[d.player].y end
@@ -1058,8 +1064,8 @@ local function timedodge_tests()
   check(d.score() < 0.5, string.format("timedodge: frozen world time crawls (%.2fs)", d.score()))
 
   -- Dash: circle the pointer fast -> timescale rises, world time accrues.
-  -- 90 frames is inside the safe window: the first bullet spawns ~0.55 world-
-  -- seconds in and still needs ~1s+ of world time to cross to the player.
+  -- 90 frames is inside the safe window: the first foe spawns ~1 world-second
+  -- in and still needs ~1s+ of world time to cross to the player.
   local t = 0
   for _ = 1, 90 do
     t = t + DT
@@ -1069,7 +1075,7 @@ local function timedodge_tests()
   check(d.alive(), "timedodge: survives the opening dash")
   check(d.timescale() > 0.6, "timedodge: dashing raises the timescale")
   check(d.score() > 0.8, "timedodge: moving accrues world time")
-  for _ = 1, 400 do                          -- keep dashing until a bullet is live
+  for _ = 1, 400 do                          -- keep dashing until a foe is live
     if d.bullet_count() > 0 or not d.alive() then break end
     t = t + DT
     game._px, game._py = 120 * math.cos(t * 6), 260 * math.sin(t * 6)
@@ -1094,7 +1100,7 @@ local function timedodge_tests()
   -- Flow: while weaving, no bullet ever exceeds the speed cap between frames
   -- (no teleport), the player stays on screen, the live-bullet cap holds, and
   -- the converging fire eventually reaches a lose.
-  local prev, died = {}, false
+  local prev, died, prev_p = {}, false, nil
   t = 0
   for _ = 1, 8000 do
     t = t + DT
@@ -1104,6 +1110,12 @@ local function timedodge_tests()
     local b = pos[d.player]
     check_once("td_px", math.abs(b.x) <= HW and math.abs(b.y) <= HH, "timedodge: player left the screen")
     check_once("td_cap", d.bullet_count() <= 40, "timedodge: live bullet cap exceeded")
+    if prev_p then
+      local psp = math.sqrt((b.x - prev_p.x) ^ 2 + (b.y - prev_p.y) ^ 2) / DT
+      check_once("td_ptele", psp <= 820 + 1,
+        string.format("timedodge: player teleported at %.0f px/s", psp))
+    end
+    prev_p = { x = b.x, y = b.y }
     for _, id in ipairs(d.bullet_ids()) do
       local pr = prev[id]
       if pr and pos[id] then
@@ -1118,11 +1130,78 @@ local function timedodge_tests()
   check(died, "timedodge: converging bullets reach a lose while moving")
   check(events_have("log", "lose"), "timedodge: the lose is logged with fx")
 
-  -- Tap after game over restarts a fresh round (closures read live state).
+  -- Tap after game over restarts a fresh endless round.
   clear_input()
   on_tap(0, -100); step()
-  check(DEBUG.alive(), "timedodge: tap after game over restarts")
-  check(DEBUG.score() < 0.5, "timedodge: restart resets the survived time")
+  d = DEBUG
+  check(d.alive(), "timedodge: tap after game over restarts")
+  check(d.score() < 0.5, "timedodge: restart resets the stolen time")
+
+  -- BACK from an endless run returns to the mode select, not the lobby.
+  on_tap(d.back.x, d.back.y); step()
+  check(DEBUG.mode() == "select", "timedodge: BACK from a run returns to mode select")
+
+  -- TRIALS -----------------------------------------------------------
+  clear_input()
+  on_tap(DEBUG.btn_trials.x, DEBUG.btn_trials.y); step()
+  local L = DEBUG
+  check(L.mode() == "levels", "timedodge: TRIALS opens the level grid")
+  check(L.unlocked(1), "timedodge: moment 1 starts unlocked")
+  check(not L.unlocked(2), "timedodge: moment 2 starts locked")
+  on_tap(L.lv_btn(2).x, L.lv_btn(2).y); step()
+  check(DEBUG.mode() == "levels", "timedodge: a locked moment cannot be entered")
+
+  on_tap(L.lv_btn(1).x, L.lv_btn(1).y); step()
+  d = DEBUG
+  check(d.mode() == "run" and d.trial() == 1, "timedodge: moment 1 starts a trial run")
+  check(d.gate() ~= nil, "timedodge: a trial spawns its first time gate")
+
+  -- The trial clock counts REAL seconds even while frozen (freeze is safe
+  -- but never free) — hold still for 1s and the clock must advance ~1s.
+  local e0 = d.elapsed()
+  game._down, game._px, game._py = true, pos[d.player].x, pos[d.player].y
+  for _ = 1, 60 do step(); game._px, game._py = pos[d.player].x, pos[d.player].y end
+  check(d.elapsed() - e0 > 0.9, "timedodge: the trial clock keeps counting while frozen")
+  check(d.timescale() <= 0.1, "timedodge: freezing still stops the world in a trial")
+
+  -- Autopilot: beeline to each gate; retry on death; must clear in budget.
+  local cleared, attempts = false, 0
+  for _ = 1, 12000 do
+    if d.done() then cleared = true; break end
+    if not d.alive() then
+      attempts = attempts + 1
+      if attempts > 5 then break end
+      clear_input(); on_tap(0, -100); step(); d = DEBUG
+    else
+      local g = d.gate()
+      if g then                                -- relative drag: feed deltas
+        local p = pos[d.player]
+        local dxg, dyg = g.x - p.x, g.y - p.y
+        local m = math.sqrt(dxg * dxg + dyg * dyg)
+        if m > 1 then
+          game._down = true
+          game._px = (game._px or 0) + dxg / m * 6
+          game._py = (game._py or 0) + dyg / m * 6
+        end
+      end
+      step()
+    end
+  end
+  check(cleared, "timedodge: moment 1 is clearable by heading for the gates")
+
+  -- Tap the result card -> level grid; the clear awarded stars + unlocked 2.
+  clear_input()
+  on_tap(0, -100); step()
+  L = DEBUG
+  check(L.mode() == "levels", "timedodge: the result card returns to the level grid")
+  check(L.stars_of(1) >= 1, "timedodge: clearing a moment awards at least one star")
+  check(L.unlocked(2), "timedodge: one star unlocks the next moment")
+
+  -- BACK from the grid -> mode select -> lobby menu.
+  on_tap(L.back.x, L.back.y); step()
+  check(DEBUG.mode() == "select", "timedodge: BACK from the grid returns to mode select")
+  on_tap(DEBUG.back.x, DEBUG.back.y); step()
+  check(DEBUG.game == "menu", "timedodge: BACK from mode select returns to the lobby")
 end
 
 local function settings_tests()
