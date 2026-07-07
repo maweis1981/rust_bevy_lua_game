@@ -2965,6 +2965,8 @@ dependencies = [
  "getrandom 0.3.4",
  "mlua",
  "ottavino",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

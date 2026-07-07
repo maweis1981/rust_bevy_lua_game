@@ -34,6 +34,14 @@
 //!   game.set_tile(id, tx, ty, index)           (show tileset frame at cell
 //!                                               tx,ty; -1 hides the cell;
 //!                                               out-of-range coords ignored)
+//!   game.spawn_rig(x, y, name [, scale]) -> id (cutout skeletal character
+//!                                               from assets/rigs/<name>.rig;
+//!                                               see src/rig.rs for the format)
+//!   game.play_anim(id, clip)                   (play a rig clip; looping is
+//!                                               declared in the rig data)
+//!   game.set_bone(id, bone, angle, dx, dy)     (manual bone override, wins
+//!                                               over the clip; omit angle to
+//!                                               clear the override)
 //!   game.move_to(id, x, y)
 //!   game.set_color(id, r, g, b, a)             (recolor a sprite; enables
 //!                                               flashes and fading trails)
@@ -96,6 +104,9 @@ use std::path::PathBuf;
 #[cfg(target_arch = "wasm32")]
 use std::{cell::RefCell, rc::Rc};
 
+use crate::rig::{
+    animate_rigs, build_rigs, BonePose, RigAsset, RigAssetLoader, RigRoot, RigState,
+};
 use bevy::asset::{io::Reader, AssetLoader, LoadContext, LoadState};
 use bevy::audio::{AudioSinkPlayback, Volume};
 use bevy::prelude::*;
@@ -116,6 +127,8 @@ impl Plugin for ScriptPlugin {
     fn build(&self, app: &mut App) {
         app.init_asset::<LuaScript>()
             .init_asset_loader::<LuaScriptLoader>()
+            .init_asset::<RigAsset>()
+            .init_asset_loader::<RigAssetLoader>()
             .init_resource::<EntityRegistry>()
             .init_resource::<ScreenShake>()
             .init_resource::<CameraRig>()
@@ -135,6 +148,8 @@ impl Plugin for ScriptPlugin {
                     apply_lua,
                     flush_save,
                     particle_update,
+                    build_rigs,
+                    animate_rigs,
                     camera_shake,
                 )
                     .chain(),
@@ -639,6 +654,22 @@ enum LuaCommand {
         ty: i64,
         index: i64,
     },
+    SpawnRig {
+        id: u32,
+        x: f32,
+        y: f32,
+        name: String,
+        scale: f32,
+    },
+    PlayAnim {
+        id: u32,
+        clip: String,
+    },
+    SetBone {
+        id: u32,
+        bone: String,
+        pose: Option<(f32, f32, f32)>,
+    },
     Despawn {
         id: u32,
     },
@@ -1085,6 +1116,51 @@ fn register_api(lua: &Lua) -> mlua::Result<()> {
             }
             Ok(())
         })?,
+    )?;
+
+    game.set(
+        "spawn_rig",
+        lua.create_function(
+            |lua, (x, y, name, scale): (f32, f32, String, Option<f32>)| {
+                let mut bridge = lua
+                    .app_data_mut::<Bridge>()
+                    .ok_or_else(|| mlua::Error::runtime("bridge missing"))?;
+                bridge.next_id += 1;
+                let id = bridge.next_id;
+                bridge.queue.push(LuaCommand::SpawnRig {
+                    id,
+                    x,
+                    y,
+                    name,
+                    scale: scale.unwrap_or(1.0),
+                });
+                Ok(id)
+            },
+        )?,
+    )?;
+
+    game.set(
+        "play_anim",
+        lua.create_function(|lua, (id, clip): (u32, String)| {
+            if let Some(mut bridge) = lua.app_data_mut::<Bridge>() {
+                bridge.queue.push(LuaCommand::PlayAnim { id, clip });
+            }
+            Ok(())
+        })?,
+    )?;
+
+    game.set(
+        "set_bone",
+        lua.create_function(
+            #[allow(clippy::type_complexity)]
+            |lua, (id, bone, angle, dx, dy): (u32, String, Option<f32>, Option<f32>, Option<f32>)| {
+                let pose = angle.map(|a| (a, dx.unwrap_or(0.0), dy.unwrap_or(0.0)));
+                if let Some(mut bridge) = lua.app_data_mut::<Bridge>() {
+                    bridge.queue.push(LuaCommand::SetBone { id, bone, pose });
+                }
+                Ok(())
+            },
+        )?,
     )?;
 
     game.set(
@@ -1567,6 +1643,37 @@ fn register_api(lua: &mut Lua, bridge: Rc<RefCell<Bridge>>) {
         })).unwrap();
 
         let b = bridge.clone();
+        game.set(ctx, "spawn_rig", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let (x, y, name, scale): (f32, f32, ottavino::String, Option<f32>) =
+                stack.consume(ctx)?;
+            let id = { let mut br = b.borrow_mut(); br.next_id += 1; let id = br.next_id;
+                br.queue.push(LuaCommand::SpawnRig { id, x, y,
+                    name: name.to_str().unwrap_or("").to_string(),
+                    scale: scale.unwrap_or(1.0) }); id };
+            stack.replace(ctx, id as i64);
+            Ok(CallbackReturn::Return)
+        })).unwrap();
+
+        let b = bridge.clone();
+        game.set(ctx, "play_anim", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let (id, clip): (u32, ottavino::String) = stack.consume(ctx)?;
+            b.borrow_mut().queue.push(LuaCommand::PlayAnim { id,
+                clip: clip.to_str().unwrap_or("").to_string() });
+            Ok(CallbackReturn::Return)
+        })).unwrap();
+
+        let b = bridge.clone();
+        game.set(ctx, "set_bone", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let (id, bone, angle, dx, dy):
+                (u32, ottavino::String, Option<f32>, Option<f32>, Option<f32>) =
+                stack.consume(ctx)?;
+            let pose = angle.map(|a| (a, dx.unwrap_or(0.0), dy.unwrap_or(0.0)));
+            b.borrow_mut().queue.push(LuaCommand::SetBone { id,
+                bone: bone.to_str().unwrap_or("").to_string(), pose });
+            Ok(CallbackReturn::Return)
+        })).unwrap();
+
+        let b = bridge.clone();
         game.set(ctx, "despawn", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
             let id: u32 = stack.consume(ctx)?;
             b.borrow_mut().queue.push(LuaCommand::Despawn { id });
@@ -2027,6 +2134,7 @@ fn apply_lua(
     ),
     particles_alive: Query<(), With<Particle>>,
     mut emit_seed: Local<u64>,
+    mut rig_states: Query<&mut RigState>,
     assets: Res<AssetServer>,
     hud: Option<Res<Hud>>,
 ) {
@@ -2322,6 +2430,57 @@ fn apply_lua(
                                 },
                             );
                         }
+                    }
+                }
+            }
+            LuaCommand::SpawnRig { id, x, y, name, scale } => {
+                let handle = assets.load::<RigAsset>(format!("rigs/{name}.rig"));
+                let z = 0.001 * id as f32;
+                let root = commands
+                    .spawn((
+                        Transform::from_xyz(x, y, z).with_scale(Vec3::splat(scale.max(0.01))),
+                        Visibility::default(),
+                        RigRoot { handle, built: false },
+                        RigState::default(),
+                    ))
+                    .id();
+                registry.0.insert(id, root);
+            }
+            LuaCommand::PlayAnim { id, clip } => {
+                if let Some(&entity) = registry.0.get(&id) {
+                    // RigState is data the animate system reads, so this works
+                    // even before the rig asset finishes loading; same-frame
+                    // spawn_rig + play_anim goes through the Commands fallback.
+                    if let Ok(mut state) = rig_states.get_mut(entity) {
+                        state.clip = Some(clip);
+                        state.t = 0.0;
+                    } else {
+                        commands.entity(entity).entry::<RigState>().and_modify(
+                            move |mut s| {
+                                s.clip = Some(clip);
+                                s.t = 0.0;
+                            },
+                        );
+                    }
+                }
+            }
+            LuaCommand::SetBone { id, bone, pose } => {
+                if let Some(&entity) = registry.0.get(&id) {
+                    let apply = move |state: &mut RigState| match pose {
+                        Some((rot, x, y)) => {
+                            state.overrides.insert(bone.clone(), BonePose { rot, x, y });
+                        }
+                        None => {
+                            state.overrides.remove(&bone);
+                        }
+                    };
+                    if let Ok(mut state) = rig_states.get_mut(entity) {
+                        apply(&mut state);
+                    } else {
+                        commands
+                            .entity(entity)
+                            .entry::<RigState>()
+                            .and_modify(move |mut s| apply(&mut s));
                     }
                 }
             }
