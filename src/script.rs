@@ -19,6 +19,13 @@
 //!   game.spawn_sprite(x, y, w, h, name) -> id  (textured sprite from
 //!                                               assets/textures/<name>.png;
 //!                                               set_color tints it)
+//!   game.spawn_sheet(x, y, w, h, name,
+//!                    fw, fh, cols, frames) -> id (sprite-sheet sprite: frames
+//!                                               are fw×fh px, `cols` per row,
+//!                                               `frames` total; shows frame 0)
+//!   game.set_frame(id, i)                      (switch a sheet sprite to frame
+//!                                               i, clamped to [0, frames-1] —
+//!                                               no texture rebind per frame)
 //!   game.move_to(id, x, y)
 //!   game.set_color(id, r, g, b, a)             (recolor a sprite; enables
 //!                                               flashes and fading trails)
@@ -105,6 +112,7 @@ impl Plugin for ScriptPlugin {
             .init_resource::<CurrentMusic>()
             .init_resource::<AudioVolumes>()
             .init_resource::<TextureCache>()
+            .init_resource::<SheetRegistry>()
             .insert_non_send(LuaVm::new())
             .add_systems(Startup, (setup_scene, load_scripts))
             .add_systems(
@@ -205,6 +213,21 @@ struct MusicSound;
 /// Marks a one-shot voice/dialogue entity (only one plays at a time).
 #[derive(Component)]
 struct VoiceSound;
+
+/// Frame layout of a sprite-sheet entity spawned by `game.spawn_sheet`, keyed
+/// by Lua id. Kept in a resource (not a component) so `game.set_frame` works
+/// even in the same frame the sheet was spawned (the entity is not in the
+/// World yet, but this map is updated synchronously during the drain).
+#[derive(Resource, Default)]
+struct SheetRegistry(HashMap<u32, SheetInfo>);
+
+#[derive(Clone, Copy)]
+struct SheetInfo {
+    fw: f32,
+    fh: f32,
+    cols: u32,
+    frames: u32,
+}
 
 /// Retains a strong handle to every texture ever loaded, keyed by name, so a
 /// sprite that swaps its image (frame animation via `set_sprite_image`) never
@@ -415,6 +438,22 @@ enum LuaCommand {
         w: f32,
         h: f32,
         image: String,
+    },
+    SpawnSheet {
+        id: u32,
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+        image: String,
+        fw: f32,
+        fh: f32,
+        cols: u32,
+        frames: u32,
+    },
+    SetFrame {
+        id: u32,
+        frame: i64,
     },
     Despawn {
         id: u32,
@@ -759,6 +798,54 @@ fn register_api(lua: &Lua) -> mlua::Result<()> {
                 image,
             });
             Ok(id)
+        })?,
+    )?;
+
+    game.set(
+        "spawn_sheet",
+        lua.create_function(
+            #[allow(clippy::type_complexity)]
+            |lua,
+             (x, y, w, h, image, fw, fh, cols, frames): (
+                f32,
+                f32,
+                f32,
+                f32,
+                String,
+                f32,
+                f32,
+                u32,
+                u32,
+            )| {
+                let mut bridge = lua
+                    .app_data_mut::<Bridge>()
+                    .ok_or_else(|| mlua::Error::runtime("bridge missing"))?;
+                bridge.next_id += 1;
+                let id = bridge.next_id;
+                bridge.queue.push(LuaCommand::SpawnSheet {
+                    id,
+                    x,
+                    y,
+                    w,
+                    h,
+                    image,
+                    fw,
+                    fh,
+                    cols,
+                    frames,
+                });
+                Ok(id)
+            },
+        )?,
+    )?;
+
+    game.set(
+        "set_frame",
+        lua.create_function(|lua, (id, frame): (u32, i64)| {
+            if let Some(mut bridge) = lua.app_data_mut::<Bridge>() {
+                bridge.queue.push(LuaCommand::SetFrame { id, frame });
+            }
+            Ok(())
         })?,
     )?;
 
@@ -1185,6 +1272,24 @@ fn register_api(lua: &mut Lua, bridge: Rc<RefCell<Bridge>>) {
             let id = { let mut br = b.borrow_mut(); br.next_id += 1; let id = br.next_id;
                 br.queue.push(LuaCommand::SpawnSprite { id, x, y, w, h, image: image.to_str().unwrap_or("").to_string() }); id };
             stack.replace(ctx, id as i64);
+            Ok(CallbackReturn::Return)
+        })).unwrap();
+
+        let b = bridge.clone();
+        game.set(ctx, "spawn_sheet", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let (x, y, w, h, image, fw, fh, cols, frames):
+                (f32, f32, f32, f32, ottavino::String, f32, f32, u32, u32) = stack.consume(ctx)?;
+            let id = { let mut br = b.borrow_mut(); br.next_id += 1; let id = br.next_id;
+                br.queue.push(LuaCommand::SpawnSheet { id, x, y, w, h,
+                    image: image.to_str().unwrap_or("").to_string(), fw, fh, cols, frames }); id };
+            stack.replace(ctx, id as i64);
+            Ok(CallbackReturn::Return)
+        })).unwrap();
+
+        let b = bridge.clone();
+        game.set(ctx, "set_frame", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let (id, frame): (u32, i64) = stack.consume(ctx)?;
+            b.borrow_mut().queue.push(LuaCommand::SetFrame { id, frame });
             Ok(CallbackReturn::Return)
         })).unwrap();
 
@@ -1629,6 +1734,7 @@ fn apply_lua(
         Query<&'static mut AudioSink, (With<VoiceSound>, Without<MusicSound>)>,
     ),
     mut tex_cache: ResMut<TextureCache>,
+    mut sheet_registry: ResMut<SheetRegistry>,
     assets: Res<AssetServer>,
     hud: Option<Res<Hud>>,
 ) {
@@ -1793,10 +1899,61 @@ fn apply_lua(
                     .id();
                 registry.0.insert(id, entity);
             }
+            LuaCommand::SpawnSheet {
+                id,
+                x,
+                y,
+                w,
+                h,
+                image,
+                fw,
+                fh,
+                cols,
+                frames,
+            } => {
+                let z = 0.001 * id as f32;
+                let handle = tex_cache
+                    .0
+                    .entry(image.clone())
+                    .or_insert_with(|| assets.load(format!("textures/{image}.png")))
+                    .clone();
+                let info = SheetInfo { fw, fh, cols, frames };
+                let (x0, y0, x1, y1) = frame_rect(fw, fh, cols, frames, 0);
+                let entity = commands
+                    .spawn((
+                        Sprite {
+                            image: handle,
+                            custom_size: Some(Vec2::new(w, h)),
+                            rect: Some(Rect::new(x0, y0, x1, y1)),
+                            ..default()
+                        },
+                        Transform::from_xyz(x, y, z),
+                    ))
+                    .id();
+                registry.0.insert(id, entity);
+                sheet_registry.0.insert(id, info);
+            }
+            LuaCommand::SetFrame { id, frame } => {
+                if let (Some(&entity), Some(info)) =
+                    (registry.0.get(&id), sheet_registry.0.get(&id).copied())
+                {
+                    let (x0, y0, x1, y1) = frame_rect(info.fw, info.fh, info.cols, info.frames, frame);
+                    let rect = Some(Rect::new(x0, y0, x1, y1));
+                    if let Ok(mut sprite) = sprites.get_mut(entity) {
+                        sprite.rect = rect;
+                    } else {
+                        commands
+                            .entity(entity)
+                            .entry::<Sprite>()
+                            .and_modify(move |mut s| s.rect = rect);
+                    }
+                }
+            }
             LuaCommand::Despawn { id } => {
                 if let Some(entity) = registry.0.remove(&id) {
                     commands.entity(entity).despawn();
                 }
+                sheet_registry.0.remove(&id);
             }
             LuaCommand::SetText(text) => {
                 if let Some(hud) = &hud {
@@ -1922,6 +2079,18 @@ fn camera_shake(
     transform.scale = Vec3::splat(zoom_scale(shake.zoom) / rig.zoom);
 }
 
+/// Pixel rect (min x, min y, max x, max y) of frame `i` in a sprite sheet laid
+/// out row-major with `cols` frames per row. The index is CLAMPED into
+/// `[0, frames-1]` — an animation driver overshooting its last frame shows the
+/// last frame, never garbage texels. `cols`/`frames` are floored to at least 1.
+fn frame_rect(fw: f32, fh: f32, cols: u32, frames: u32, i: i64) -> (f32, f32, f32, f32) {
+    let cols = cols.max(1) as i64;
+    let frames = frames.max(1) as i64;
+    let i = i.clamp(0, frames - 1);
+    let (col, row) = ((i % cols) as f32, (i / cols) as f32);
+    (col * fw, row * fh, (col + 1.0) * fw, (row + 1.0) * fh)
+}
+
 /// Clamp a channel volume to 0..1; non-finite input falls back to full volume
 /// (a wrong expression should never mute the game silently).
 fn volume_clamp(v: f32) -> f32 {
@@ -1950,8 +2119,8 @@ fn zoom_scale(zoom: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::{
-        cam_zoom_clamp, decode_store, encode_store, haptic_style, shake_offset, store_escape,
-        store_unescape, volume_clamp, zoom_scale,
+        cam_zoom_clamp, decode_store, encode_store, frame_rect, haptic_style, shake_offset,
+        store_escape, store_unescape, volume_clamp, zoom_scale,
     };
     use std::collections::HashMap;
 
@@ -2031,6 +2200,19 @@ mod tests {
             assert!(x.abs() <= 24.0 + 1e-3, "x={x} out of range");
             assert!(y.abs() <= 24.0 + 1e-3, "y={y} out of range");
         }
+    }
+
+    #[test]
+    fn frame_rect_walks_rows_and_clamps() {
+        // 3 columns of 16×24 frames, 5 frames total (2 rows, last row partial).
+        assert_eq!(frame_rect(16.0, 24.0, 3, 5, 0), (0.0, 0.0, 16.0, 24.0));
+        assert_eq!(frame_rect(16.0, 24.0, 3, 5, 2), (32.0, 0.0, 48.0, 24.0)); // end of row 0
+        assert_eq!(frame_rect(16.0, 24.0, 3, 5, 3), (0.0, 24.0, 16.0, 48.0)); // wraps to row 1
+        // Clamping: negative → frame 0, past-the-end → last frame (index 4).
+        assert_eq!(frame_rect(16.0, 24.0, 3, 5, -7), frame_rect(16.0, 24.0, 3, 5, 0));
+        assert_eq!(frame_rect(16.0, 24.0, 3, 5, 99), frame_rect(16.0, 24.0, 3, 5, 4));
+        // Degenerate layout (0 cols / 0 frames) must not divide by zero.
+        assert_eq!(frame_rect(8.0, 8.0, 0, 0, 5), (0.0, 0.0, 8.0, 8.0));
     }
 
     #[test]
