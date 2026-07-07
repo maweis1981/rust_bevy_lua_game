@@ -47,6 +47,10 @@
 //!   game.play_voice(name)                      (single dialogue-voice channel;
 //!                                               stops any voice still playing)
 //!   game.stop_voice()                          (stop the current dialogue voice)
+//!   game.set_volume(channel, v)                ("music"/"sfx"/"voice", 0..1;
+//!                                               live tracks adjust immediately)
+//!   game.stop_music()                          (stop the looping music track;
+//!                                               play_music can then restart it)
 //!   game.haptic(kind)                          ("light"/"medium"/"heavy"/
 //!                                               "success"; iOS only, else no-op)
 //!   game.pointer() -> x, y, down               (mouse/touch in world coords;
@@ -105,6 +109,7 @@ impl Plugin for ScriptPlugin {
             .init_resource::<TextureCache>()
             .init_resource::<SheetRegistry>()
             .init_resource::<CameraRig>()
+            .init_resource::<AudioVolumes>()
             .insert_non_send(LuaVm::new())
             .add_systems(Startup, (setup_scene, load_scripts))
             .add_systems(
@@ -183,6 +188,26 @@ pub(crate) struct BackgroundTheme {
 /// query, so there is no stale entity to double-despawn).
 #[derive(Resource, Default)]
 struct CurrentMusic(Option<String>);
+
+/// Per-channel volumes set from Lua (roadmap 0.6). `set_volume` retunes live
+/// sinks immediately and every later spawn bakes the channel volume into its
+/// `PlaybackSettings`, so a settings slider is a single Lua call.
+#[derive(Resource)]
+struct AudioVolumes {
+    music: f32,
+    sfx: f32,
+    voice: f32,
+}
+
+impl Default for AudioVolumes {
+    fn default() -> Self {
+        Self {
+            music: 1.0,
+            sfx: 1.0,
+            voice: 1.0,
+        }
+    }
+}
 
 /// Marks the single looping music entity.
 #[derive(Component)]
@@ -443,6 +468,11 @@ enum LuaCommand {
     PlayMusic(String),
     PlayVoice(String),
     StopVoice,
+    SetVolume {
+        channel: String,
+        volume: f32,
+    },
+    StopMusic,
     Haptic(i32),
     /// Persist the (already serialized) save store. Serialization happens in
     /// the `game.save` callback so this stays a plain data command.
@@ -914,6 +944,26 @@ fn register_api(lua: &Lua) -> mlua::Result<()> {
     )?;
 
     game.set(
+        "set_volume",
+        lua.create_function(|lua, (channel, volume): (String, f32)| {
+            if let Some(mut bridge) = lua.app_data_mut::<Bridge>() {
+                bridge.queue.push(LuaCommand::SetVolume { channel, volume });
+            }
+            Ok(())
+        })?,
+    )?;
+
+    game.set(
+        "stop_music",
+        lua.create_function(|lua, ()| {
+            if let Some(mut bridge) = lua.app_data_mut::<Bridge>() {
+                bridge.queue.push(LuaCommand::StopMusic);
+            }
+            Ok(())
+        })?,
+    )?;
+
+    game.set(
         "haptic",
         lua.create_function(|lua, kind: String| {
             let style = haptic_style(&kind);
@@ -1307,6 +1357,21 @@ fn register_api(lua: &mut Lua, bridge: Rc<RefCell<Bridge>>) {
         })).unwrap();
 
         let b = bridge.clone();
+        game.set(ctx, "set_volume", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let (channel, volume): (ottavino::String, f32) = stack.consume(ctx)?;
+            b.borrow_mut().queue.push(LuaCommand::SetVolume {
+                channel: channel.to_str().unwrap_or("").to_string(), volume });
+            Ok(CallbackReturn::Return)
+        })).unwrap();
+
+        let b = bridge.clone();
+        game.set(ctx, "stop_music", Callback::from_fn(&ctx, move |_ctx, _, mut stack| {
+            b.borrow_mut().queue.push(LuaCommand::StopMusic);
+            stack.clear();
+            Ok(CallbackReturn::Return)
+        })).unwrap();
+
+        let b = bridge.clone();
         game.set(ctx, "haptic", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
             let kind: ottavino::String = stack.consume(ctx)?;
             let style = haptic_style(kind.to_str().unwrap_or(""));
@@ -1550,8 +1615,11 @@ fn tick_lua(
 #[derive(bevy::ecs::system::SystemParam)]
 struct AudioParams<'w, 's> {
     current_music: ResMut<'w, CurrentMusic>,
+    volumes: ResMut<'w, AudioVolumes>,
     music_q: Query<'w, 's, Entity, With<MusicSound>>,
     voice_q: Query<'w, 's, Entity, With<VoiceSound>>,
+    music_sinks: Query<'w, 's, &'static mut AudioSink, With<MusicSound>>,
+    voice_sinks: Query<'w, 's, &'static mut AudioSink, (With<VoiceSound>, Without<MusicSound>)>,
 }
 
 /// Apply everything Lua queued this frame.
@@ -1824,7 +1892,10 @@ fn apply_lua(
                 // same sound within one frame (e.g. many bounces in a tick).
                 if sfx_this_frame.insert(name.clone()) {
                     let handle = assets.load::<AudioSource>(format!("audio/{name}.wav"));
-                    commands.spawn((AudioPlayer::new(handle), PlaybackSettings::DESPAWN));
+                    commands.spawn((
+                        AudioPlayer::new(handle),
+                        channel_playback(PlaybackSettings::DESPAWN, audio.volumes.sfx),
+                    ));
                 }
             }
             LuaCommand::PlayMusic(name) => {
@@ -1837,7 +1908,11 @@ fn apply_lua(
                         commands.entity(e).despawn();
                     }
                     let handle = assets.load::<AudioSource>(format!("audio/{name}.wav"));
-                    commands.spawn((AudioPlayer::new(handle), PlaybackSettings::LOOP, MusicSound));
+                    commands.spawn((
+                        AudioPlayer::new(handle),
+                        channel_playback(PlaybackSettings::LOOP, audio.volumes.music),
+                        MusicSound,
+                    ));
                     audio.current_music.0 = Some(name);
                 }
             }
@@ -1848,12 +1923,45 @@ fn apply_lua(
                     commands.entity(e).despawn();
                 }
                 let handle = assets.load::<AudioSource>(format!("audio/{name}.wav"));
-                commands.spawn((AudioPlayer::new(handle), PlaybackSettings::DESPAWN, VoiceSound));
+                commands.spawn((
+                    AudioPlayer::new(handle),
+                    channel_playback(PlaybackSettings::DESPAWN, audio.volumes.voice),
+                    VoiceSound,
+                ));
             }
             LuaCommand::StopVoice => {
                 for e in &audio.voice_q {
                     commands.entity(e).despawn();
                 }
+            }
+            LuaCommand::SetVolume { channel, volume } => {
+                let v = volume_clamp(volume);
+                match channel.as_str() {
+                    "music" => {
+                        audio.volumes.music = v;
+                        // Retune the live track: a settings slider must be heard
+                        // immediately, not on the next song change.
+                        for mut sink in audio.music_sinks.iter_mut() {
+                            sink.set_volume(bevy::audio::Volume::Linear(v));
+                        }
+                    }
+                    "voice" => {
+                        audio.volumes.voice = v;
+                        for mut sink in audio.voice_sinks.iter_mut() {
+                            sink.set_volume(bevy::audio::Volume::Linear(v));
+                        }
+                    }
+                    "sfx" => audio.volumes.sfx = v, // one-shots are too short to retune
+                    other => warn!("game.set_volume: unknown channel {other:?}"),
+                }
+            }
+            LuaCommand::StopMusic => {
+                for e in &audio.music_q {
+                    commands.entity(e).despawn();
+                }
+                // Forget the track name so a later play_music of the same song
+                // starts fresh instead of no-opping.
+                audio.current_music.0 = None;
             }
             LuaCommand::Haptic(style) => {
                 trigger_haptic(style);
@@ -1914,6 +2022,23 @@ fn rig_approach(current: Vec3, target: Vec3, dt: f32) -> Vec3 {
     current + (target - current) * blend
 }
 
+/// Clamp a Lua-supplied channel volume into 0..1 (NaN mutes rather than blasts).
+fn volume_clamp(v: f32) -> f32 {
+    if v.is_finite() {
+        v.clamp(0.0, 1.0)
+    } else {
+        0.0
+    }
+}
+
+/// A channel's `PlaybackSettings` with its current volume baked in.
+fn channel_playback(base: PlaybackSettings, volume: f32) -> PlaybackSettings {
+    PlaybackSettings {
+        volume: bevy::audio::Volume::Linear(volume),
+        ..base
+    }
+}
+
 /// Clamp a Lua-supplied sprite-sheet frame index (0-based, may be negative or
 /// past the end) into the atlas's valid range. A script animating off the end
 /// of a sheet shows the last frame instead of panicking the render pass.
@@ -1924,10 +2049,38 @@ fn clamp_frame(index: i64, total: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::{
-        cam_zoom_clamp, clamp_frame, haptic_style, rig_approach, shake_offset, zoom_scale,
-        LuaCommand, LuaVm,
+        cam_zoom_clamp, clamp_frame, haptic_style, rig_approach, shake_offset, volume_clamp,
+        zoom_scale, LuaCommand, LuaVm,
     };
     use bevy::prelude::Vec3;
+
+    #[test]
+    fn volume_is_clamped_and_nan_mutes() {
+        assert_eq!(volume_clamp(0.5), 0.5);
+        assert_eq!(volume_clamp(-1.0), 0.0);
+        assert_eq!(volume_clamp(9.0), 1.0);
+        assert_eq!(volume_clamp(f32::NAN), 0.0, "NaN mutes rather than blasts");
+    }
+
+    #[test]
+    fn set_volume_and_stop_music_queue_commands() {
+        let mut vm = LuaVm::new();
+        vm.exec_chunk(
+            "game.set_volume('music', 0.25); game.stop_music()",
+            "audio_test",
+        )
+        .expect("audio Lua chunk failed");
+        let commands = vm.drain();
+        assert_eq!(commands.len(), 2);
+        match &commands[0] {
+            LuaCommand::SetVolume { channel, volume } => {
+                assert_eq!(channel, "music");
+                assert_eq!(*volume, 0.25);
+            }
+            _ => panic!("first command should be SetVolume"),
+        }
+        assert!(matches!(&commands[1], LuaCommand::StopMusic));
+    }
 
     #[test]
     fn cam_zoom_has_upper_and_lower_bounds() {
