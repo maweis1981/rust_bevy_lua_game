@@ -112,7 +112,7 @@ def main(src=SRC, outname=None, extras=True):
         prev_alive = alive
 
         ents = {e[0]: e for e in fr["ents"]}
-        cur_pos = {eid: (e[1], e[2]) for eid, e in ents.items() if e[9] == "orb"}
+        cur_pos = {eid: (e[1], e[2]) for eid, e in ents.items() if e[9] in ("orb", "meteor")}
         take = idx % 3 == 0 or (death_frame is not None and idx - death_frame < 3)
         if not take:
             prev_pos = cur_pos
@@ -139,10 +139,9 @@ def main(src=SRC, outname=None, extras=True):
         for eid, e in ents.items():
             tex = e[9]
             if tex == "orb":
-                if abs(e[3] - 26) < 2:
-                    player = e
-                else:
-                    foes.append(e)
+                player = e
+            elif tex == "meteor":
+                foes.append(e)
             elif tex == "text":
                 texts.append(e)
             elif tex == "gem":
@@ -179,18 +178,30 @@ def main(src=SRC, outname=None, extras=True):
             x, y = wx(e[1], ox), wy(e[2], oy)
             r = e[3] * SCALE * 0.55
             col = (int(e[5] * 255), int(e[6] * 255), int(e[7] * 255))
+            rot = e[11] if len(e) > 11 else 0.0
             pp = prev_pos.get(e[0])
             if pp:                                # speed streak ∝ motion
                 px_, py_ = wx(pp[0], ox), wy(pp[1], oy)
                 dx, dy = x - px_, y - py_
                 dr.line([x - dx * 3, y - dy * 3, x, y],
-                        fill=col + (90,), width=int(r * 1.1))
-            g = glow(int(r * 3), col, 100)
+                        fill=col + (90,), width=max(1, int(r * 1.1)))
+            g = glow(max(2, int(r * 3)), col, 90)
             im.paste(g, (int(x) - g.size[0] // 2, int(y) - g.size[1] // 2), g)
             dr = ImageDraw.Draw(im, "RGBA")
-            dr.ellipse([x - r, y - r, x + r, y + r], fill=col + (255,))
-            dr.ellipse([x - r * 0.45, y - r * 0.45, x + r * 0.45, y + r * 0.45],
-                       fill=(255, 230, 220, 230))
+            # lumpy rotating rock: radius jitter seeded by entity id
+            pts, dark = [], []
+            for k in range(9):
+                a = rot + k * math.tau / 9
+                jig = 0.78 + 0.22 * math.sin(e[0] * 2.7 + k * 2.1)
+                pts.append((x + r * jig * math.cos(a), y + r * jig * math.sin(a)))
+            dr.polygon(pts, fill=col + (255,))
+            ca = rot * 0.7 + e[0]
+            for (cr, off) in ((0.32, 0.35), (0.2, -0.4)):   # craters
+                cxx = x + r * off * math.cos(ca)
+                cyy = y + r * off * math.sin(ca)
+                rr = r * cr
+                dr.ellipse([cxx - rr, cyy - rr, cxx + rr, cyy + rr],
+                           fill=(int(col[0] * .55), int(col[1] * .55), int(col[2] * .55), 220))
 
         if player is not None and alive:
             x, y = wx(player[1], ox), wy(player[2], oy)

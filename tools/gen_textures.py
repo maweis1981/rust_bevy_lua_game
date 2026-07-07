@@ -65,6 +65,28 @@ def orb(x, y):
     return (v, v, v, 255)
 
 
+def meteor(x, y):
+    """Lumpy cratered rock, grayscale (tinted per foe kind at runtime)."""
+    cx, cy = 15.5, 15.5
+    dx, dy = x - cx, y - cy
+    r = math.hypot(dx, dy)
+    ang = math.atan2(dy, dx)
+    edge = 13.8 + 1.6 * math.sin(ang * 3 + 1.3) + 1.1 * math.sin(ang * 5 - 0.7)
+    if r > edge:
+        return (0, 0, 0, 0)
+    d = r / edge
+    lum = 200 - 90 * d * d
+    lum += 45 * max(0.0, -(dx * -0.6 + dy * -0.6) / max(edge, 1))  # upper-left light
+    for (px_, py_, pr) in ((10, 12, 3.4), (21, 9, 2.5), (18, 21, 3.9), (8, 22, 2.3)):
+        dd = math.hypot(x - px_, y - py_)
+        if dd < pr:
+            lum -= 60 * (1 - dd / pr)
+        elif dd < pr + 1.3:
+            lum += 20
+    v = clampb(lum)
+    return (v, v, v, 255)
+
+
 def paddle(x, y):
     w, h = 24, 24
     if not rounded(x, y, w, h, 6):
@@ -179,6 +201,7 @@ def tile(x, y):
 
 SPRITES = {
     "orb": (32, 32, orb),
+    "meteor": (32, 32, meteor),
     "paddle": (24, 24, paddle),
     "brick": (32, 16, brick),
     "food": (24, 24, food),
