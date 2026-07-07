@@ -1,0 +1,7 @@
+# The single sources of truth are boot/ (main-package launcher) and shared/
+# (the engine). prepare.sh assembles them into each platform's project root for
+# DevTools packaging; those copies are generated, not source.
+wechat/boot/
+wechat/engine/shared/
+douyin/boot/
+douyin/engine/shared/

@@ -1,0 +1,13 @@
+{
+  "appid": "wxYOURAPPIDHERE0000",
+  "projectname": "time-dodge",
+  "compileType": "game",
+  "setting": {
+    "urlCheck": false,
+    "es6": true,
+    "minified": false,
+    "postcss": false
+  },
+  "libVersion": "latest",
+  "condition": {}
+}

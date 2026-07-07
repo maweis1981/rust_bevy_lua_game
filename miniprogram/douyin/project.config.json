@@ -1,0 +1,9 @@
+{
+  "appid": "ttYOURAPPIDHERE0000",
+  "projectname": "time-dodge",
+  "compileType": "game",
+  "setting": {
+    "es6": true,
+    "minified": false
+  }
+}

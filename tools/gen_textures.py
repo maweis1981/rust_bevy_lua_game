@@ -148,6 +148,65 @@ def starfield(x, y):
     return (clampb(r), clampb(g), clampb(b), 255)
 
 
+def _disc(x, y, cx, cy, r, edge=1.2):
+    d = math.hypot(x - cx, y - cy)
+    if d <= r - edge: return 1.0
+    if d >= r + edge: return 0.0
+    return (r + edge - d) / (2 * edge)
+
+def _ring(x, y, cx, cy, r, w):
+    d = math.hypot(x - cx, y - cy)
+    return max(0.0, 1.0 - abs(d - r) / w)
+
+def icon_base(x, y):
+    """A tiny space-station glyph: a ringed hub with a dome — the "return to
+    base" button. White on transparent, tinted cyan at runtime."""
+    cx, cy = 16, 17
+    a = 0.0
+    a = max(a, _ring(x, y, cx, cy, 9.5, 1.6) * 0.9)     # orbit ring
+    a = max(a, _disc(x, y, cx, cy, 5.2))                # hub
+    # two antenna dots
+    a = max(a, _disc(x, y, cx, 4, 1.6))
+    if abs((x - cx)) < 1.2 and 4 < y < 12: a = max(a, 0.9)  # mast
+    v = clampb(255 * a)
+    return (255, 255, 255, v)
+
+def icon_mass(x, y):
+    """Hexagon outline = MASS."""
+    cx, cy = 16, 16
+    dx, dy = x - cx, y - cy
+    ang = math.atan2(dy, dx)
+    r = math.hypot(dx, dy)
+    # hexagon radius as function of angle
+    import math as _m
+    k = _m.pi / 3
+    hr = 11.0 / max(0.5, math.cos(((ang % k) - k / 2)))
+    a = max(0.0, 1.0 - abs(r - min(hr, 12.0)) / 1.8)
+    v = clampb(255 * a)
+    return (255, 255, 255, v)
+
+def icon_time(x, y):
+    """Clock/orbit = TIME: a ring with a hand."""
+    cx, cy = 16, 16
+    a = _ring(x, y, cx, cy, 10.0, 1.5) * 0.9
+    # hand pointing up-right
+    hx, hy = x - cx, y - cy
+    if hx >= -1 and hy <= 1:
+        proj = abs(hx * 0.7 - hy * 0.7)
+        if proj < 1.3 and math.hypot(hx, hy) < 8: a = max(a, 0.9)
+    a = max(a, _disc(x, y, cx, cy, 1.8))
+    return (255, 255, 255, clampb(255 * a))
+
+def icon_star(x, y):
+    """Four-point star = EATEN/score."""
+    cx, cy = 16, 16
+    dx, dy = abs(x - cx), abs(y - cy)
+    spike = max(0.0, 1.0 - (dx + dy) / 12.0)
+    spike = max(spike, max(0.0, 1.0 - (dx * 3 + dy) / 13.0))
+    spike = max(spike, max(0.0, 1.0 - (dx + dy * 3) / 13.0))
+    return (255, 255, 255, clampb(255 * (spike ** 1.4)))
+
+
 def paddle(x, y):
     w, h = 24, 24
     if not rounded(x, y, w, h, 6):
@@ -265,6 +324,10 @@ SPRITES = {
     "meteor": (32, 32, meteor),
     "rockball": (48, 48, rockball),
     "starfield": (256, 256, starfield),
+    "icon_base": (32, 32, icon_base),
+    "icon_mass": (32, 32, icon_mass),
+    "icon_time": (32, 32, icon_time),
+    "icon_star": (32, 32, icon_star),
     "paddle": (24, 24, paddle),
     "brick": (32, 16, brick),
     "food": (24, 24, food),

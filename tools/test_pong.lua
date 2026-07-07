@@ -129,14 +129,25 @@ local function step(dt) frame_events = {}; on_update(dt or DT) end
 ----------------------------------------------------------------------
 local function router_tests()
   boot()
+  -- timedodge replaced the wooden Home button with a confirm-gated "return to
+  -- base" icon, so it exits via base -> confirm YES (see back_to_menu).
+  local function back_to_menu(d)
+    if d.base then                          -- timedodge: icon + confirm dialog
+      on_tap(d.base().x, d.base().y); step()
+      local c = DEBUG.confirm and DEBUG.confirm()
+      if c then on_tap(c.yes.x, c.yes.y); step() end   -- confirm only during a run
+    else
+      on_tap(d.back.x, d.back.y); step()    -- other games: the wooden Home button
+    end
+  end
   for _, key in ipairs({ "grow", "breakout", "snake", "roguelike", "game2048", "shooter", "world", "craft", "match3", "umami", "catch", "ponies", "gallery", "timedodge" }) do
     local d = enter(key)
     check(d and d.game == key, "menu tile should enter game '" .. key .. "'")
-    check(d.back ~= nil, "game '" .. key .. "' should expose a back button")
-    on_tap(d.back.x, d.back.y); step()      -- press the BACK button -> menu
+    check(d.back ~= nil or d.base ~= nil, "game '" .. key .. "' should expose a way back")
+    back_to_menu(d)
     local d2 = enter(key)                   -- re-entering should work (menu was active)
     check(d2 and d2.game == key, "back button should return to the menu (re-enter '" .. key .. "')")
-    on_tap(d2.back.x, d2.back.y); step()
+    back_to_menu(d2)
   end
 end
 
@@ -1217,9 +1228,9 @@ local function timedodge_tests()
   check(L.stars_of(1) >= 1, "timedodge: clearing a moment awards at least one star")
   check(L.unlocked(2), "timedodge: one star unlocks the next moment")
 
-  -- BACK from the grid -> mode select.
-  on_tap(L.back.x, L.back.y); step()
-  check(DEBUG.mode() == "select", "timedodge: BACK from the grid returns to mode select")
+  -- The base icon on the grid steps up to mode select (menus need no confirm).
+  on_tap(L.base().x, L.base().y); step()
+  check(DEBUG.mode() == "select", "timedodge: base icon on the grid returns to mode select")
 
   -- ABSORB -----------------------------------------------------------
   check(DEBUG.btn_absorb ~= nil, "timedodge: mode select exposes the ABSORB button")
@@ -1345,8 +1356,8 @@ local function timedodge_tests()
   clear_input()
   tap_card("modes")
   check(DEBUG.mode() == "select", "timedodge: absorb card MODES returns to mode select")
-  on_tap(DEBUG.back.x, DEBUG.back.y); step()
-  check(DEBUG.game == "menu", "timedodge: BACK from mode select returns to the lobby")
+  on_tap(DEBUG.base().x, DEBUG.base().y); step()
+  check(DEBUG.game == "menu", "timedodge: base icon on mode select returns to the lobby")
 end
 
 local function settings_tests()
