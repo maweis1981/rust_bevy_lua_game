@@ -19,6 +19,11 @@
 //!   game.spawn_sprite(x, y, w, h, name) -> id  (textured sprite from
 //!                                               assets/textures/<name>.png;
 //!                                               set_color tints it)
+//!   game.spawn_sheet(x, y, w, h, name,          (sprite-sheet sprite: the PNG is
+//!                    tile_w, tile_h,             a tile_w×tile_h grid of cols×rows
+//!                    cols, rows) -> id           frames; shows frame 0)
+//!   game.set_frame(id, i)                       (0-based frame index into the
+//!                                               sheet; out of range is clamped)
 //!   game.move_to(id, x, y)
 //!   game.set_color(id, r, g, b, a)             (recolor a sprite; enables
 //!                                               flashes and fading trails)
@@ -94,6 +99,7 @@ impl Plugin for ScriptPlugin {
             .init_resource::<BackgroundTheme>()
             .init_resource::<CurrentMusic>()
             .init_resource::<TextureCache>()
+            .init_resource::<SheetRegistry>()
             .insert_non_send(LuaVm::new())
             .add_systems(Startup, (setup_scene, load_scripts))
             .add_systems(
@@ -161,6 +167,17 @@ struct MusicSound;
 /// Marks a one-shot voice/dialogue entity (only one plays at a time).
 #[derive(Component)]
 struct VoiceSound;
+
+/// Sprite-sheet bookkeeping (roadmap 0.3): per Lua id, the frame count of its
+/// atlas so `set_frame` can clamp out-of-range indices — including on the
+/// same-frame spawn+set_frame Commands fallback, where the ECS entity (and its
+/// atlas) doesn't exist yet. Layouts are cached per (image, tile, grid) so a
+/// hundred sprites off one sheet share one `TextureAtlasLayout` asset.
+#[derive(Resource, Default)]
+struct SheetRegistry {
+    frame_counts: HashMap<u32, usize>,
+    layouts: HashMap<(String, u32, u32, u32, u32), Handle<TextureAtlasLayout>>,
+}
 
 /// Retains a strong handle to every texture ever loaded, keyed by name, so a
 /// sprite that swaps its image (frame animation via `set_sprite_image`) never
@@ -371,6 +388,20 @@ enum LuaCommand {
         w: f32,
         h: f32,
         image: String,
+    },
+    SpawnSheet {
+        id: u32,
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+        image: String,
+        tile: (u32, u32),
+        grid: (u32, u32),
+    },
+    SetFrame {
+        id: u32,
+        index: i64,
     },
     Despawn {
         id: u32,
@@ -699,6 +730,52 @@ fn register_api(lua: &Lua) -> mlua::Result<()> {
                 image,
             });
             Ok(id)
+        })?,
+    )?;
+
+    game.set(
+        "spawn_sheet",
+        lua.create_function(
+            #[allow(clippy::type_complexity)]
+            |lua,
+             (x, y, w, h, image, tile_w, tile_h, cols, rows): (
+                f32,
+                f32,
+                f32,
+                f32,
+                String,
+                u32,
+                u32,
+                u32,
+                u32,
+            )| {
+                let mut bridge = lua
+                    .app_data_mut::<Bridge>()
+                    .ok_or_else(|| mlua::Error::runtime("bridge missing"))?;
+                bridge.next_id += 1;
+                let id = bridge.next_id;
+                bridge.queue.push(LuaCommand::SpawnSheet {
+                    id,
+                    x,
+                    y,
+                    w,
+                    h,
+                    image,
+                    tile: (tile_w, tile_h),
+                    grid: (cols, rows),
+                });
+                Ok(id)
+            },
+        )?,
+    )?;
+
+    game.set(
+        "set_frame",
+        lua.create_function(|lua, (id, index): (u32, i64)| {
+            if let Some(mut bridge) = lua.app_data_mut::<Bridge>() {
+                bridge.queue.push(LuaCommand::SetFrame { id, index });
+            }
+            Ok(())
         })?,
     )?;
 
@@ -1098,6 +1175,25 @@ fn register_api(lua: &mut Lua, bridge: Rc<RefCell<Bridge>>) {
         })).unwrap();
 
         let b = bridge.clone();
+        game.set(ctx, "spawn_sheet", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let (x, y, w, h, image, tile_w, tile_h, cols, rows):
+                (f32, f32, f32, f32, ottavino::String, u32, u32, u32, u32) = stack.consume(ctx)?;
+            let id = { let mut br = b.borrow_mut(); br.next_id += 1; let id = br.next_id;
+                br.queue.push(LuaCommand::SpawnSheet { id, x, y, w, h,
+                    image: image.to_str().unwrap_or("").to_string(),
+                    tile: (tile_w, tile_h), grid: (cols, rows) }); id };
+            stack.replace(ctx, id as i64);
+            Ok(CallbackReturn::Return)
+        })).unwrap();
+
+        let b = bridge.clone();
+        game.set(ctx, "set_frame", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let (id, index): (u32, i64) = stack.consume(ctx)?;
+            b.borrow_mut().queue.push(LuaCommand::SetFrame { id, index });
+            Ok(CallbackReturn::Return)
+        })).unwrap();
+
+        let b = bridge.clone();
         game.set(ctx, "despawn", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
             let id: u32 = stack.consume(ctx)?;
             b.borrow_mut().queue.push(LuaCommand::Despawn { id });
@@ -1414,6 +1510,8 @@ fn apply_lua(
     music_q: Query<Entity, With<MusicSound>>,
     voice_q: Query<Entity, With<VoiceSound>>,
     mut tex_cache: ResMut<TextureCache>,
+    mut sheets: ResMut<SheetRegistry>,
+    mut layouts: ResMut<Assets<TextureAtlasLayout>>,
     assets: Res<AssetServer>,
     hud: Option<Res<Hud>>,
 ) {
@@ -1570,7 +1668,76 @@ fn apply_lua(
                     .id();
                 registry.0.insert(id, entity);
             }
+            LuaCommand::SpawnSheet {
+                id,
+                x,
+                y,
+                w,
+                h,
+                image,
+                tile: (tile_w, tile_h),
+                grid: (cols, rows),
+            } => {
+                let z = 0.001 * id as f32;
+                let texture = tex_cache
+                    .0
+                    .entry(image.clone())
+                    .or_insert_with(|| assets.load(format!("textures/{image}.png")))
+                    .clone();
+                let layout_key = (image, tile_w, tile_h, cols, rows);
+                let layout = sheets
+                    .layouts
+                    .entry(layout_key)
+                    .or_insert_with(|| {
+                        layouts.add(TextureAtlasLayout::from_grid(
+                            UVec2::new(tile_w.max(1), tile_h.max(1)),
+                            cols.max(1),
+                            rows.max(1),
+                            None,
+                            None,
+                        ))
+                    })
+                    .clone();
+                sheets
+                    .frame_counts
+                    .insert(id, (cols.max(1) * rows.max(1)) as usize);
+                let entity = commands
+                    .spawn((
+                        Sprite {
+                            image: texture,
+                            texture_atlas: Some(TextureAtlas { layout, index: 0 }),
+                            custom_size: Some(Vec2::new(w, h)),
+                            ..default()
+                        },
+                        Transform::from_xyz(x, y, z),
+                    ))
+                    .id();
+                registry.0.insert(id, entity);
+            }
+            LuaCommand::SetFrame { id, index } => {
+                let total = sheets.frame_counts.get(&id).copied().unwrap_or(0);
+                if total == 0 {
+                    continue; // not a sheet sprite; ignore rather than error
+                }
+                let frame = clamp_frame(index, total);
+                if let Some(&entity) = registry.0.get(&id) {
+                    if let Ok(mut sprite) = sprites.get_mut(entity) {
+                        if let Some(atlas) = sprite.texture_atlas.as_mut() {
+                            atlas.index = frame;
+                        }
+                    } else {
+                        commands.entity(entity).entry::<Sprite>().and_modify(
+                            move |mut s| {
+                                if let Some(atlas) = s.texture_atlas.as_mut() {
+                                    atlas.index = frame;
+                                }
+                            },
+                        );
+                    }
+                }
+            }
             LuaCommand::Despawn { id } => {
+                sheets.frame_counts.remove(&id);
                 if let Some(entity) = registry.0.remove(&id) {
                     commands.entity(entity).despawn();
                 }
@@ -1663,9 +1830,56 @@ fn zoom_scale(zoom: f32) -> f32 {
     1.0 - 0.06 * zoom * zoom
 }
 
+/// Clamp a Lua-supplied sprite-sheet frame index (0-based, may be negative or
+/// past the end) into the atlas's valid range. A script animating off the end
+/// of a sheet shows the last frame instead of panicking the render pass.
+fn clamp_frame(index: i64, total: usize) -> usize {
+    index.clamp(0, total.saturating_sub(1) as i64) as usize
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{haptic_style, shake_offset, zoom_scale, LuaVm};
+    use super::{clamp_frame, haptic_style, shake_offset, zoom_scale, LuaCommand, LuaVm};
+
+    #[test]
+    fn frame_index_is_clamped_into_the_sheet() {
+        assert_eq!(clamp_frame(0, 12), 0);
+        assert_eq!(clamp_frame(11, 12), 11);
+        assert_eq!(clamp_frame(12, 12), 11, "past the end shows the last frame");
+        assert_eq!(clamp_frame(9999, 12), 11);
+        assert_eq!(clamp_frame(-1, 12), 0, "negative clamps to the first frame");
+        assert_eq!(clamp_frame(5, 0), 0, "an empty sheet can't underflow");
+    }
+
+    // Real-bridge test: a script spawns a sheet sprite and sets a frame; the
+    // drained command queue must carry the exact grid so slice_sheet.py output
+    // (cols×1 strips) plugs straight in.
+    #[test]
+    fn spawn_sheet_and_set_frame_queue_commands() {
+        let mut vm = LuaVm::new();
+        vm.exec_chunk(
+            r#"
+            local id = game.spawn_sheet(1.0, 2.0, 64.0, 64.0, "walk", 32, 48, 6, 1)
+            assert(id > 0, "spawn_sheet must return an id")
+            game.set_frame(id, 4)
+            "#,
+            "sheet_test",
+        )
+        .expect("sheet Lua chunk failed");
+        let commands = vm.drain();
+        assert_eq!(commands.len(), 2);
+        match &commands[0] {
+            LuaCommand::SpawnSheet {
+                image, tile, grid, ..
+            } => {
+                assert_eq!(image, "walk");
+                assert_eq!(*tile, (32, 48));
+                assert_eq!(*grid, (6, 1));
+            }
+            _ => panic!("first command should be SpawnSheet"),
+        }
+        assert!(matches!(&commands[1], LuaCommand::SetFrame { index: 4, .. }));
+    }
 
     // Drives the REAL bridge (mlua host): inject a two-finger snapshot and let
     // Lua itself assert both touches arrive with world coords and stable ids —
