@@ -117,6 +117,10 @@ Re-run `./prepare.sh` after any edit to `shared/`.
 
 ## What remains before a real store submission
 
+> **See [`SHIPPING.md`](SHIPPING.md) for the full step-by-step 上架 checklist**
+> (account/版号 prerequisites, DevTools import, ad-unit setup, on-device
+> verification, store assets, and submission). The summary:
+
 - **appid** — replace the placeholder `appid` in each `project.config.json` with
   a registered mini-game appid (WeChat: mp.weixin.qq.com; Douyin: open-douyin).
 - **Ad unit id** — replace the `adUnitId` placeholders in `wechat/adapter.js`
