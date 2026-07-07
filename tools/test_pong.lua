@@ -1101,10 +1101,13 @@ local function timedodge_tests()
   -- the converging fire eventually reaches a lose.
   local prev, died, prev_p = {}, false, nil
   t = 0
-  for _ = 1, 8000 do
+  game._down = true                          -- touching: time flows
+  for i = 1, 8000 do
     t = t + DT
-    game._px, game._py = 170 * math.cos(t * 5), 170 * math.sin(t * 3)
-    step()
+    if i <= 3000 then                        -- weave: per-frame invariants
+      game._px, game._py = 170 * math.cos(t * 5), 170 * math.sin(t * 3)
+    end                                      -- then: hold still (time flows,
+    step()                                   -- aimed meteors converge -> lose)
     if not d.alive() then died = true; break end
     local b = pos[d.player]
     check_once("td_px", math.abs(b.x) <= HW and math.abs(b.y) <= HH, "timedodge: player left the screen")
