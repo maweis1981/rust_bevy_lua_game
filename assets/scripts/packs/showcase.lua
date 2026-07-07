@@ -52,11 +52,16 @@ function make_showcase()
   -- blows the budget freezes the score at the last sustained level. LEVEL_CAP
   -- keeps headless runs (fixed dt) finite.
   ----------------------------------------------------------------------------
-  local BUDGET, EPOCH, WINDOW, LEVEL_CAP = 1 / 45, 0.75, 45, 12
-  local bench = { on = false, level = 0, timer = 0, dts = {}, score = nil }
+  -- The budget adapts to the device: the first epoch runs load-free and
+  -- measures the resting frame time; the pass bar is 1.4x that (never
+  -- stricter than 1/45s). A 120Hz phone and a software rasterizer both get a
+  -- meaningful ramp instead of an instant fail or a free ride.
+  local MIN_BUDGET, EPOCH, WINDOW, LEVEL_CAP = 1 / 45, 0.75, 45, 12
+  local bench = { on = false, level = 0, timer = 0, dts = {}, score = nil, budget = nil }
 
   local function bench_reset()
-    bench.on, bench.level, bench.timer, bench.dts, bench.score = false, 0, 0, {}, nil
+    bench.on, bench.level, bench.timer, bench.dts, bench.score, bench.budget =
+      false, 0, 0, {}, nil, nil
   end
 
   local function bench_best_key(k) return "sc_bench_" .. k end
@@ -71,7 +76,11 @@ function make_showcase()
     local sum = 0
     for _, d in ipairs(bench.dts) do sum = sum + d end
     local avg = sum / math.max(1, #bench.dts)
-    if avg <= BUDGET and bench.level < LEVEL_CAP then
+    if not bench.budget then -- first epoch: calibrate, don't judge
+      bench.budget = math.max(MIN_BUDGET, avg * 1.4)
+      return
+    end
+    if avg <= bench.budget and bench.level < LEVEL_CAP then
       bench.level = bench.level + 1
       game.play_sound("wall")
     else
@@ -151,7 +160,7 @@ function make_showcase()
         for _, k in ipairs(order) do
           local best = game.load(bench_best_key(k))
           if type(best) == "number" then
-            T.text(0, y, 16, 0.75, 0.85, 0.95, 1, NAMES[k] .. "  Lv " .. best)
+            T.text(0, y, 16, 0.75, 0.85, 0.95, 1, NAMES[k] .. "  Lv " .. math.floor(best))
             y = y - 24
           end
         end
@@ -266,7 +275,7 @@ function make_showcase()
       landmarks[#landmarks + 1] = T.sprite(x, y, 60, 60, tex)
     end
     return {
-      hint = "tap to toggle drone-follow / overview",
+      hint = "tap: follow -> overview -> back to hub",
       build = function()
         landmarks, follow = {}, true
         for _ = 1, 30 do add_landmark() end
@@ -292,7 +301,16 @@ function make_showcase()
           bench.on and string.format("  |  BENCH Lv%d%s", bench.level,
             bench.score and ("  SCORE " .. bench.score) or "") or ""))
       end,
-      tap = function() follow = not follow; game.play_sound("hit") end,
+      -- While the camera roams, world-anchored buttons drift off-screen, so a
+      -- plain tap cycles follow -> overview -> hub; nobody gets stranded.
+      tap = function()
+        if follow then
+          follow = false
+        else
+          enter_station(nil)
+        end
+        game.play_sound("hit")
+      end,
       teardown = function() game.cam(0, 0, 1) end,
     }
   end)()
