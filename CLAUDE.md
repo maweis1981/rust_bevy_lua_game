@@ -16,6 +16,11 @@ Lua. Both backends expose an identical `LuaVm` surface, so the ECS systems and e
 script are byte-for-byte the same across platforms — only the VM host differs. `make web` /
 `make web-serve` build the static browser bundle; see `docs/web-poc/` for the full rationale
 and validation, and `third_party/ottavino/PATCH_NOTES.md` for the one-line wasm fix we carry.
+The published GitHub Pages root is the **engine website** (homepage / blog / docs, static
+pages in `web/site/`; blog markdown comes from `docs/blog/` and is rendered client-side) —
+the playable game lives under `/play/` (`web/game.html` + the wasm bundle). `web/build.sh`
+assembles all of it into `build/web/`; adding a blog post = drop the `.md` in `docs/blog/`
+and register it in `web/site/blog/posts.js` (see `docs/blog/README.md`).
 
 `assets/scripts/main.lua` is a small **scene router**: a menu lists games and switches
 between them; each game is a closure returning `{ enter, update, tap, leave }` that tracks

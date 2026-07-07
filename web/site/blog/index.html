@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>开发博客 · hollowlullaby</title>
+  <meta name="description" content="hollowlullaby 引擎开发博客：用纯 vibe coding（Claude Code + Floniks + Rust/Bevy/Lua）做 AI 时代的游戏。" />
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 100 100%27><text y=%27.9em%27 font-size=%2790%27>🎮</text></svg>" />
+  <link rel="stylesheet" href="../assets/site.css" />
+</head>
+<body>
+  <nav class="nav">
+    <div class="nav-inner">
+      <a class="brand" href="../">hollowlullaby</a>
+      <a class="item" href="../#games">游戏作品</a>
+      <a class="item" href="./">博客</a>
+      <a class="item" href="../docs/">文档</a>
+      <a class="item" href="https://github.com/maweis1981/rust_bevy_lua_game">GitHub</a>
+      <span class="spacer"></span>
+      <a class="play" href="../play/">▶ 立即试玩</a>
+    </div>
+  </nav>
+
+  <main class="wrap">
+    <section class="block" style="margin-top: 1rem">
+      <h2>开发博客</h2>
+      <p class="lead">
+        记录我们如何用纯 vibe coding（Claude Code + Floniks + 本引擎）做 AI 时代的游戏。
+        每篇都来自真实的 git 历史，可照着复现。文章同步发布于
+        <a href="https://maweis.com">作者博客 maweis.com</a>。
+      </p>
+      <ul class="post-list" id="post-list"><li class="loading">加载中…</li></ul>
+    </section>
+  </main>
+
+  <footer class="site">
+    <div class="inner">
+      hollowlullaby / rust_bevy_lua_game ·
+      <a href="https://github.com/maweis1981/rust_bevy_lua_game">GitHub</a> ·
+      <a href="../">返回首页</a>
+    </div>
+  </footer>
+
+  <script src="posts.js"></script>
+  <script>
+    var list = document.getElementById('post-list');
+    list.innerHTML = window.BLOG_POSTS.map(function (p) {
+      return (
+        '<li><a class="card" href="post.html?p=' + p.file + '">' +
+        '<span class="tag">' + p.tag + '</span> <span class="date">' + p.date + '</span>' +
+        '<h3>' + p.title + '</h3><p>' + p.excerpt + '</p></a></li>'
+      );
+    }).join('');
+  </script>
+</body>
+</html>
