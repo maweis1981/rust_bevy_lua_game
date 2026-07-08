@@ -151,21 +151,30 @@ local function forge_body_invariants(d, tag)
   check_once(tag .. "_cnt", d.body_count() <= 48, "forge: body cap exceeded (" .. tag .. ")")
 end
 
-local function forge_orbit_stability()
+-- Direction A (attrition loop): orbits DECAY on purpose — a lone star must
+-- spiral inward over time, not sit forever on a stable circle. This is the
+-- mechanic that turns the sandbox into a game, so the invariant is now the
+-- *decay*, not stability: physics stays sane (no teleport/tunnel/NaN, speed
+-- capped, on-screen) AND the orbit measurably sinks toward the hole.
+local function forge_orbit_decay()
   boot(); rand_mode = "good"                    -- next_level pinned to 1
   local d = enter("forge")
   check(d and d.game == "forge", "menu tile should enter forge")
   check(d.daily_chip() ~= nil, "forge should expose the DAILY chip")
   inject_at(150, 0)
   check(d.body_count() == 1, "one hold-release injection should orbit exactly one star")
-  for _ = 1, 1200 do
+  local r0 = 150
+  local r_last = r0
+  for _ = 1, 400 do
     step()
-    forge_body_invariants(d, "orbit")
+    forge_body_invariants(d, "decay")         -- physics must stay sane while it sinks
+    if d.body_count() >= 1 then
+      local b = d.bodies()[1]
+      r_last = math.sqrt(b.x ^ 2 + b.y ^ 2)
+    end
   end
-  check(d.body_count() == 1, "a lone star on a circular orbit must neither fall in nor escape")
-  local b = d.bodies()[1]
-  local dist = math.sqrt(b.x ^ 2 + b.y ^ 2)
-  check(math.abs(dist - 150) < 30, string.format("circular orbit drifted: r=%.0f (want ~150)", dist))
+  -- the orbit must have decayed measurably inward (or the star already fell in)
+  check(r_last < r0 - 8, string.format("orbit should decay inward: r=%.0f (was %d)", r_last, r0))
   GAME_KIT.switch("menu"); step()
 end
 
@@ -470,7 +479,7 @@ local function fireflies_scoring_and_loss()
 end
 
 ----------------------------------------------------------------------
-forge_orbit_stability()
+forge_orbit_decay()
 forge_fusion()
 forge_long_run()
 forge_teaching()

@@ -24,9 +24,20 @@ function make_forge()
   -- tuning ------------------------------------------------------------
   local MAX_LEVEL   = 10
   local GM0         = 1.6e6   -- base gravity parameter (px^3/s^2-ish)
-  local MASS_SCALE  = 1400    -- total mass that doubles GM (bot-tuned twice: 220→20s, 700→30s medians)
-  local CORE_R      = 30      -- event-horizon radius
+  local MASS_SCALE  = 1150    -- total mass that doubles GM — lower = the field tightens
+                              -- sooner as you build, so careless spam has real stakes
+                              -- (bot-tuned baseline was 1400; nudged for felt pressure)
+  local CORE_R      = 30      -- base event-horizon radius (grows as it feeds)
   local VMAX        = 620     -- hard speed cap (invariant-tested)
+  -- Direction A — the ATTRITION loop (turns the stable sandbox into a game):
+  -- orbits slowly decay so "stable" is impossible; you must keep fusing to
+  -- survive, fusing buys altitude back, and the hole grows as it eats. All
+  -- conservative starting values — tune from playtest.
+  local DECAY0      = 0.045   -- base orbital-decay drag (fraction of speed lost / s)
+  local DECAY_LV    = 0.05    -- extra decay per level above 1 (heavier decays faster)
+  local FUSE_BOOST  = 0.12    -- outward re-boost a fresh fusion gets (the relief)
+  local CORE_GROW   = 1.4     -- px the horizon widens each time it eats a star
+  local CORE_R_MAX  = 58      -- horizon growth cap
   local MAX_BODIES  = 48
   local SPAWN_CD    = 0.22    -- seconds between injections
   local COMBO_WIN   = 1.4     -- chain window (s)
@@ -74,6 +85,7 @@ function make_forge()
   local teach_i = 0          -- >0 while dealing from TEACH_SEQ
   local spawn_cd = 0
   local core_id, preview_id, ring_id = nil, nil, nil
+  local core_r = CORE_R      -- current horizon radius (grows as the hole feeds)
   local ghost_id, aim_ring, aim_arrow = nil, {}, {}
   local ghost_t = 0          -- ghost-star pulse clock
   local core_t = 0           -- accretion-disk spin / heat clock
@@ -313,11 +325,15 @@ function make_forge()
     clear_tut()
     tut_stage, tut_t = stage, 0
     local P = tut_ids
-    local w = stage == 1 and 320 or 340
+    local w = stage == 1 and 340 or 340
     if stage == 1 then
-      P[#P + 1] = game.spawn(0, -40, w, 78, 0.03, 0.02, 0.06, 0.82)
-      P[#P + 1] = game.spawn_text(0, -22, 21, 1.0, 0.86, 0.5, 1, "HOLD  &  RELEASE")
-      P[#P + 1] = game.spawn_text(0, -54, 15, 0.85, 0.85, 0.95, 1, "fling a star into orbit")
+      -- premise + first action. The premise is the only place the story is told:
+      -- you tend a forge at a dying star, fusing star-cores to feed the well.
+      P[#P + 1] = game.spawn(0, -34, w, 112, 0.03, 0.02, 0.06, 0.86)
+      P[#P + 1] = game.spawn_text(0, 4, 19, 1.0, 0.78, 0.4, 1, "THE STARFORGE")
+      P[#P + 1] = game.spawn_text(0, -22, 14, 0.8, 0.85, 0.95, 1, "fuse star-cores to feed the dying star")
+      P[#P + 1] = game.spawn_text(0, -50, 20, 1.0, 0.86, 0.5, 1, "HOLD  &  RELEASE")
+      P[#P + 1] = game.spawn_text(0, -74, 14, 0.85, 0.85, 0.95, 1, "fling a star into orbit")
       -- shown once ever → mark seen immediately so a page refresh won't re-show
       -- it (save now persists to localStorage on web)
       game.save("forge_tutorial_done", true)
@@ -477,16 +493,24 @@ function make_forge()
     if earned > 0 then game.save("forge_dust", dust() + earned) end
     -- settlement card (E2: a dignified failure screen, one tap to retry)
     local P = over_ids
-    P[#P + 1] = game.spawn(0, 10, 330, 300, 0.06, 0.05, 0.13, 0.92)
-    P[#P + 1] = game.spawn_text(0, 120, 30, 1.0, 0.75, 0.35, 1,
+    P[#P + 1] = game.spawn(0, 10, 330, 316, 0.06, 0.05, 0.13, 0.92)
+    P[#P + 1] = game.spawn_text(0, 128, 28, 1.0, 0.75, 0.35, 1,
       daily and ("DAILY " .. date_key()) or "THE FORGE COOLED")
-    P[#P + 1] = game.spawn_text(0, 66, 26, 1, 1, 1, 1, string.format("SCORE  %d", score))
+    -- say WHY the run ended (this is the "lose" state) and that it isn't a fail:
+    -- an endless run ends when you run out of cores; the score is the result.
+    P[#P + 1] = game.spawn_text(0, 102, 13, 0.7, 0.6, 0.7, 1,
+      "OUT OF CORES  -  run over, your score stands")
+    P[#P + 1] = game.spawn_text(0, 64, 26, 1, 1, 1, 1, string.format("SCORE  %d", score))
     if daily then award("daily") end
-    P[#P + 1] = game.spawn_text(0, 26, 20, 0.8, 0.85, 1.0, 1,
-      (is_best and "NEW BEST!" or string.format("BEST  %d", best))
-        .. string.format("    ACH %d/%d", ach_count(), #ACHIEVEMENTS))
-    P[#P + 1] = game.spawn_text(0, -12, 20, 0.9, 0.8, 1.0, 1,
-      string.format("TOP STAR L%d    DUST +%d (%d)", best_level, earned, dust()))
+    -- celebrate a new record loudly; otherwise show the bar you're chasing
+    if is_best then
+      P[#P + 1] = game.spawn(0, 26, 210, 28, AMBER[1], AMBER[2], AMBER[3], 0.22)
+      P[#P + 1] = game.spawn_text(0, 26, 21, 1.0, 0.9, 0.5, 1, "*  NEW BEST  *")
+    else
+      P[#P + 1] = game.spawn_text(0, 26, 20, 0.8, 0.85, 1.0, 1, string.format("BEST  %d", best))
+    end
+    P[#P + 1] = game.spawn_text(0, -12, 18, 0.9, 0.8, 1.0, 1,
+      string.format("TOP STAR L%d    ACH %d/%d    DUST +%d", best_level, ach_count(), #ACHIEVEMENTS, earned))
     -- codex row: the fusion chain you have lit up so far (L1 is free — it is dealt)
     for k = 1, MAX_LEVEL do
       local id = game.spawn_sprite(-135 + (k - 1) * 30, -44, 22, 22, "forge_star")
@@ -519,6 +543,15 @@ function make_forge()
     local y = (a.y * a.m + b.y * b.m) / m
     local vx = (a.vx * a.m + b.vx * b.m) / m
     local vy = (a.vy * a.m + b.vy * b.m) / m
+    -- RELIEF: a fresh fusion gets a small outward kick, buying back altitude
+    -- against the decay. Fusing is how you survive, so it must feel like it —
+    -- this is the counter-force to orbital decay that keeps the loop alive.
+    local fd = math.sqrt(x * x + y * y)
+    if fd > 1 then
+      local sp = math.sqrt(vx * vx + vy * vy)
+      vx = vx + (x / fd) * sp * FUSE_BOOST
+      vy = vy + (y / fd) * sp * FUSE_BOOST
+    end
     -- combo chain
     combo_n = (combo_t > 0) and (combo_n + 1) or 1
     combo_t = COMBO_WIN
@@ -636,6 +669,7 @@ function make_forge()
     clear_over_card()
     score, lives, best_level = 0, LIVES0, 1
     total_mass, combo_n, combo_t = 0, 0, 0
+    core_r = CORE_R            -- fresh run: horizon back to its base size
     if daily then
       -- the daily board is pure: no upgrades, same contest for everyone
       daily_rng = daily_seed()
@@ -862,6 +896,13 @@ function make_forge()
           b.vx = b.vx - (b.x / d) * acc * dt
           b.vy = b.vy - (b.y / d) * acc * dt
         end
+        -- ORBITAL DECAY: a small velocity drag (heavier stars feel it more)
+        -- bleeds orbital energy every frame, so no orbit is permanent — the
+        -- field is always sinking toward the hole unless you keep fusing.
+        local damp = 1 - (DECAY0 + DECAY_LV * (b.level - 1)) * dt
+        if damp < 0 then damp = 0 end
+        b.vx = b.vx * damp
+        b.vy = b.vy * damp
         local sp2 = b.vx * b.vx + b.vy * b.vy
         if sp2 > VMAX * VMAX then
           local s = VMAX / math.sqrt(sp2)
@@ -875,17 +916,26 @@ function make_forge()
       for i = #bodies, 1, -1 do
         local b = bodies[i]
         local d = math.sqrt(b.x * b.x + b.y * b.y)
-        if d < CORE_R + b.r * 0.35 then
+        if d < core_r + b.r * 0.35 then
           -- the well eats it: it digests half the mass (failure still feeds
           -- the beast, but no runaway death spiral — bot-tuned)
           lives = lives - 1
           total_mass = total_mass - b.m * 0.5
+          -- the hole GROWS as it feeds: a wider kill radius + steeper pull is
+          -- the escalation ratchet — every miss makes the next orbit harder
+          core_r = math.min(core_r + CORE_GROW, CORE_R_MAX)
+          if core_id then game.set_size(core_id, core_r * 2, core_r * 2) end
+          if ring_id then game.set_size(ring_id, core_r * 3.4, core_r * 3.4) end
           game.track("forge_eaten", b.level)
           game.emit("dust", b.x, b.y)
           game.play_sound("hit"); game.haptic("heavy"); game.shake(0.4); game.zoom(0.5)
           despawn_body(i)
           hud()
           if lives <= 0 then game_over(); return end
+          -- spell out the consequence: a star fell in, that cost a core
+          clear_toast()
+          local msg = lives == 1 and "LAST CORE!" or (lives .. " CORES LEFT")
+          toast = { id = game.spawn_text(0, hh0 - 150, 22, 1.0, 0.4, 0.35, 1, "CORE LOST  -  " .. msg), t = 1.8 }
         elseif d > rmax then
           total_mass = total_mass - b.m   -- escaped: mass leaves the system
           game.track("forge_escape", b.level)
@@ -1017,13 +1067,28 @@ function make_forge()
           vis = "flash"
         else
           local d = math.sqrt(b.x * b.x + b.y * b.y)
-          vis = (d < CORE_R + b.r * 0.35 + 44) and "hot" or "cool"
+          -- danger zone: a star this close is spiralling toward the horizon and
+          -- about to be eaten (cost a core). Widened so the warning comes early.
+          vis = (d < core_r + b.r * 0.35 + 60) and "hot" or "cool"
         end
         if vis ~= b.vis then
+          local was = b.vis
           b.vis = vis
-          if vis == "hot" then game.set_color(b.id, 1.0, 0.22, 0.18, 1)
-          elseif vis == "cool" then tint(b.id, b.level) end
+          if vis == "hot" then
+            -- entering the danger zone: audible/haptic warning so a careless
+            -- drop that's about to cost a core doesn't happen silently
+            game.play_sound("wall"); game.haptic("light")
+          elseif vis == "cool" then
+            tint(b.id, b.level)
+            if was == "hot" and not b.spawn_t then game.set_size(b.id, b.r * 2, b.r * 2) end
+          end
           -- "flash" was painted white at fuse time
+        end
+        -- while in the danger zone, PULSE red + swell so the threat is unmistakable
+        if vis == "hot" and not b.flash_t then
+          local pz = 0.5 + 0.5 * math.sin(core_t * 13)
+          game.set_color(b.id, 1.0, 0.14 + 0.22 * pz, 0.12, 1)
+          if not b.spawn_t then game.set_size(b.id, b.r * 2 * (1.0 + 0.14 * pz), b.r * 2 * (1.0 + 0.14 * pz)) end
         end
       end
     end,
