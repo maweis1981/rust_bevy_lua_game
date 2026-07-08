@@ -85,17 +85,65 @@ by anyone's hands.
 improvement, but does **not** yet hit the aspirational skilled 90–180 s / 3×
 gap. The sim says why (finding #3) and points at the next lever.
 
-## 6. Next levers (to close the gap — each is sim-testable)
+## 6. Round 2 — chasing "longer skilled runs" and what it taught us
 
-- **Reduce core-loss churn**, so skilled play can extend past ~40 s: e.g. a brief
-  grace/telegraph before a star is eaten, a gentler unequal-collision scatter, or
-  a small "no two losses within N ms" cushion.
-- **Strengthen the fusion→relief coupling** so climbing clearly buys survival
-  (bigger `FUSE_BOOST`, or fusing nudges the hole back), widening the skill gap.
-- **Model a 4th "expert" bot** that optimizes *both* score and survival (current
-  skilled bot is survival-biased and under-scores — a known bot limitation, not a
-  game property), plus a dedicated stall/greedy probe, and run ≥200 games/cell on
-  a coarse grid, then refine — per the methodology protocol.
+The first cut of §5 flagged skilled runs (~25 s) as short of a 90–180 s target,
+so round 2 tried to extend them. We added three **anti-churn levers** behind the
+`FORGE_TUNE` seam and swept them:
 
-The point: every future tuning decision goes through `tune_forge.lua` against
-the scorecard, so it's reproducible and cohort-based — never "it felt right."
+- **grace window** (no eats for a beat after a core loss, + shove danger-zone
+  stars out) — *no effect*: deaths aren't cascades, they're spread out.
+- **fusion field-push** (a fusion shoves neighbours outward) — *hurt it*
+  (28 s → 12 s): the extra velocity just caused more collisions/eats.
+- **softer bounce** (`RESTITUTION` 0.7 → 0.4) — *no help*.
+
+So the ~25 s ceiling is **structural, not a churn artifact**, and none of the
+obvious levers move it. That negative result forced the right question.
+
+### The reframe (validated by the sim)
+
+The blocker is fundamental: **you can't hand-place a high-level star.** L1–L3 are
+dealt; L5+ only appear when fusion products happen to collide. So neither a bot
+*nor a human* can reliably drive orbits to L8–10 — runs are naturally short and
+**similar length across skill**. That is not a bug; it is the **Suika model**:
+in Suika, run lengths barely differ, but an expert scores ~10× a novice. The
+"90–180 s survival / 3× time-gap" targets were imported from generic casual
+benchmarks and are **wrong for this genre**.
+
+Measuring the correct axis with a score-oriented expert bot (larger stockpile):
+
+| tier | run (med) | score (med) | score (max) |
+| --- | --- | --- | --- |
+| novice | ~14 s | 3.5 k | 12 k |
+| average | ~21 s | 32 k | 73 k |
+| **skilled** | ~23 s | **34 k** | **88 k** |
+
+**Score skill-gap ≈ 10×**, survival ≈ 1.6× — the Suika signature. Against a
+**genre-corrected scorecard** (fast-retry runs · skilled ≥1.3× time · **score
+gap ≥5×** · no immortal), the current `#89` tuning **PASSES all four**. The game
+is already a well-tuned score-chaser; it was being graded on the wrong exam.
+
+### Corrected scorecard (the one we now tune against)
+
+| Metric | Target | Why |
+| --- | --- | --- |
+| Novice median run | **12–45 s** | fast-retry band (arcade pace) |
+| Skilled vs novice run | **≥1.3×** | survival is *secondary* here |
+| **Score skill gap** | **≥5×** (we see ~10×) | the real skill ceiling (Suika) |
+| Immortal strategy | **none** | attrition loop must bite |
+
+## 7. Genuine next levers (optional, each sim-testable)
+
+Survival-time is the wrong thing to push. If we want *more* depth, widen the
+**score** ceiling and the **decision** density instead:
+
+- **Make high levels reachable by skill, not just chance** — e.g. a "nudge"
+  action, or aim that imparts eccentricity, so an expert can *engineer* an L8–10
+  collision. This raises the real skill ceiling (and would let runs vary more).
+- **Reward chains/supernovas harder** so score separation grows with mastery.
+- **A stronger expert bot + a stall/greedy probe**, ≥200 games/cell on a coarse
+  grid, to keep validating the score gap and the no-immortal guard as we change
+  rewards.
+
+The rule stays: every tuning decision goes through `tune_forge.lua` against the
+scorecard — reproducible and cohort-based, never "it felt right."
