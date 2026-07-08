@@ -149,7 +149,7 @@ local function forge_orbit_stability()
   boot(); rand_mode = "good"                    -- next_level pinned to 1
   local d = enter("forge")
   check(d and d.game == "forge", "menu tile should enter forge")
-  check(d.back ~= nil, "forge should expose a back button")
+  check(d.daily_chip() ~= nil, "forge should expose the DAILY chip")
   inject_at(150, 0)
   check(d.body_count() == 1, "one hold-release injection should orbit exactly one star")
   for _ = 1, 1200 do
@@ -160,7 +160,7 @@ local function forge_orbit_stability()
   local b = d.bodies()[1]
   local dist = math.sqrt(b.x ^ 2 + b.y ^ 2)
   check(math.abs(dist - 150) < 30, string.format("circular orbit drifted: r=%.0f (want ~150)", dist))
-  on_tap(d.back.x, d.back.y); step()
+  GAME_KIT.switch("menu"); step()
 end
 
 local function forge_fusion()
@@ -189,7 +189,7 @@ local function forge_fusion()
   check(game._store.forge_codex_l2 ~= nil, "codex entries must persist via game.save")
   check(d.achievements().first_fusion == true, "the first fusion must unlock FIRST LIGHT")
   check(d.achievements().nova == false, "unearned achievements must stay locked")
-  on_tap(d.back.x, d.back.y); step()
+  GAME_KIT.switch("menu"); step()
 end
 
 local function forge_long_run()
@@ -229,7 +229,7 @@ local function forge_long_run()
         string.format("forge: big-dt hitch teleported a star %.0fpx", jump))
     end
   end
-  on_tap(d.back.x, d.back.y); step()
+  GAME_KIT.switch("menu"); step()
 end
 
 local function forge_teaching()
@@ -254,7 +254,7 @@ local function forge_teaching()
   check(d.total_mass() >= tm0 + 2 ^ (lvl - 1) - 1e-6,
     "release after aiming must inject exactly one star (mass ledger)")
   clear_input()
-  on_tap(d.back.x, d.back.y); step()
+  GAME_KIT.switch("menu"); step()
 end
 
 local function forge_daily()
@@ -293,7 +293,7 @@ local function forge_daily()
   step(); game._down = false; step()
   check(d.total_mass() <= tm0 + 1e-6, "holding/releasing on the DAILY chip must not inject")
   clear_input()
-  on_tap(d.back.x, d.back.y); step()
+  GAME_KIT.switch("menu"); step()
 end
 
 local function forge_upgrades()
@@ -321,7 +321,7 @@ local function forge_upgrades()
   check(d.lives() == 5, "normal run must gain +1 core from the upgrade")
   check(d.body_count() == 1, "normal run must pre-place one L3 head-start star")
   check(d.bodies()[1].level == 3, "the head-start star must be L3")
-  on_tap(d.back.x, d.back.y); step()
+  GAME_KIT.switch("menu"); step()
 end
 
 local function forge_twin_deal()
@@ -343,7 +343,7 @@ local function forge_twin_deal()
     end
     for _ = 1, 14 do step() end                 -- clear the injection cooldown
   end
-  on_tap(d.back.x, d.back.y); step()
+  GAME_KIT.switch("menu"); step()
 end
 
 local function forge_comet()
@@ -367,7 +367,7 @@ local function forge_comet()
   check(seen, "a comet must appear within one period")
   check(gone, "the comet must expire within its ttl")
   forge_body_invariants(d, "comet")
-  on_tap(d.back.x, d.back.y); step()
+  GAME_KIT.switch("menu"); step()
 end
 
 ----------------------------------------------------------------------

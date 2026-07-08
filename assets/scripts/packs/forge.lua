@@ -57,8 +57,12 @@ function make_forge()
   local TEACH_SEQ = { 1, 1, 1, 2, 2, 3 }
   local TEACH_RUNS = 3
 
+  local AMBER = { 1.0, 0.72, 0.28 }          -- HUD accent (deep-space forge gold)
+  local AIM_RING = 16                        -- dots drawn around the preview orbit
+  local AIM_ARROW = 6                        -- dots along the tangential launch dir
+
   -- state ---------------------------------------------------------------
-  local back, built, playing = nil, false, true
+  local built, playing = false, true
   local bodies = {}          -- { id, x, y, vx, vy, level, r, m, vis, flash_t }
   local score, lives, best_level = 0, LIVES0, 1
   local total_mass = 0
@@ -67,9 +71,12 @@ function make_forge()
   local teach_i = 0          -- >0 while dealing from TEACH_SEQ
   local spawn_cd = 0
   local core_id, preview_id = nil, nil
-  local ghost_id, aim_dots = nil, {}
+  local ghost_id, aim_ring, aim_arrow = nil, {}, {}
+  local ghost_t = 0          -- ghost-star pulse clock
   local aiming, aim_x, aim_y, was_down = false, 0, 0, false
   local over_ids, again_rect, up_rect = {}, nil, nil
+  local hud_ids, hud_cache = {}, nil         -- polished HUD (rebuilt only on change)
+  local tut_ids, tut_stage, tut_t = {}, 0, 0 -- first-play guide (0 = off)
   local hw0, hh0 = 0, 0
   local rmax = 900
   local trail_k = 0          -- frame counter for the speed trail
@@ -180,11 +187,80 @@ function make_forge()
 
   local function gm() return GM0 * (1 + total_mass / MASS_SCALE) end
 
+  -- ---- Polished HUD (Time Dodge-style instrument, forge-themed) -----------
+  -- Seven-segment glyphs drawn from thin rects (no font file), an amber score
+  -- readout, core pips that deplete, and combo / DAILY / TWIN badges. Rebuilt
+  -- only when a cache key changes, so calling it every frame is cheap.
+  local hud_add = function(id) hud_ids[#hud_ids + 1] = id end
+  local function hud_clear()
+    for _, id in ipairs(hud_ids) do game.despawn(id) end
+    hud_ids, hud_cache = {}, nil
+  end
+  local SEG = {
+    ["0"]="abcdef",["1"]="bc",["2"]="abged",["3"]="abgcd",["4"]="fgbc",
+    ["5"]="afgcd",["6"]="afgcde",["7"]="abc",["8"]="abcdefg",["9"]="abcfgd",
+  }
+  local function seg_char(cx, cy, ch, hw, hh, th, col)
+    local a = col[4] or 1
+    local function bar(x, y, w, h) hud_add(game.spawn(x, y, w, h, col[1], col[2], col[3], a)) end
+    local segs = SEG[ch]; if not segs then return end
+    local function on(s) return segs:find(s, 1, true) ~= nil end
+    if on("a") then bar(cx, cy + hh, hw * 2, th) end
+    if on("g") then bar(cx, cy, hw * 2, th) end
+    if on("d") then bar(cx, cy - hh, hw * 2, th) end
+    if on("f") then bar(cx - hw, cy + hh * 0.5, th, hh) end
+    if on("b") then bar(cx + hw, cy + hh * 0.5, th, hh) end
+    if on("e") then bar(cx - hw, cy - hh * 0.5, th, hh) end
+    if on("c") then bar(cx + hw, cy - hh * 0.5, th, hh) end
+  end
+  local function seg_number(cx, cy, str, scale, col)
+    local hw, hh, th = 5 * scale, 9 * scale, 2.2 * scale
+    local adv = hw * 2 + 4 * scale
+    local total = adv * #str
+    local x = cx - total * 0.5 + adv * 0.5
+    for i = 1, #str do seg_char(x, cy, str:sub(i, i), hw, hh, th, col); x = x + adv end
+    return total
+  end
+
   local function hud()
-    local combo = combo_n >= 2 and string.format("   x%d", combo_n) or ""
-    local tag = daily and "DAILY   " or ""
-    local twin = ((deal_n + 1) % TWIN_EVERY == 0) and " TWIN!" or ""
-    game.set_text(string.format("%sSCORE %d   NEXT L%d%s   CORES %d%s", tag, score, next_level, twin, lives, combo))
+    local twin_next = ((deal_n + 1) % TWIN_EVERY == 0)
+    local key = table.concat({ score, lives, combo_n, daily and 1 or 0, twin_next and 1 or 0 }, "|")
+    if key == hud_cache then return end
+    hud_clear(); hud_cache = key
+    local top = hh0 - 4
+    -- header band + hairline + corner brackets (sci-fi frame)
+    hud_add(game.spawn(0, top, hw0 * 2 + 40, 118, 0.03, 0.02, 0.06, 0.5))
+    hud_add(game.spawn(0, hh0 - 60, hw0 * 2, 2, AMBER[1], AMBER[2], AMBER[3], 0.5))
+    hud_add(game.spawn(-hw0 + 12, hh0 - 30, 22, 2, AMBER[1], AMBER[2], AMBER[3], 0.7))
+    hud_add(game.spawn(-hw0 + 22, hh0 - 24, 2, 14, AMBER[1], AMBER[2], AMBER[3], 0.7))
+    -- big amber score readout + caption
+    seg_number(0, hh0 - 40, tostring(score), 1.15, { 1.0, 0.86, 0.5, 1 })
+    hud_add(game.spawn_text(0, hh0 - 76, 13, AMBER[1], AMBER[2], AMBER[3], 1, "SCORE"))
+    -- core pips (deplete as you lose cores)
+    local shown = math.max(lives, 0)
+    for k = 1, math.max(shown, LIVES0) do
+      local x = -hw0 + 26 + (k - 1) * 22
+      local pid = game.spawn_sprite(x, hh0 - 40, 16, 16, "forge_star")
+      if k <= shown then game.set_color(pid, 1.0, 0.55, 0.3, 1)
+      else game.set_color(pid, 0.25, 0.22, 0.3, 0.7) end
+      hud_add(pid)
+    end
+    hud_add(game.spawn_text(-hw0 + 26 + (math.max(shown, LIVES0) - 1) * 11, hh0 - 60, 11,
+      0.8, 0.55, 0.4, 1, "CORES"))
+    -- combo badge
+    if combo_n >= 2 then
+      hud_add(game.spawn(hw0 - 44, hh0 - 40, 62, 26, AMBER[1], AMBER[2], AMBER[3], 0.18))
+      hud_add(game.spawn_text(hw0 - 44, hh0 - 40, 17, 1.0, 0.9, 0.5, 1, "x" .. combo_n))
+    end
+    -- DAILY badge
+    if daily then
+      hud_add(game.spawn(0, hh0 - 96, 84, 18, 0.35, 0.3, 0.65, 0.85))
+      hud_add(game.spawn_text(0, hh0 - 96, 12, 1, 1, 1, 1, "DAILY"))
+    end
+    -- TWIN telegraph on the next deal
+    if twin_next then
+      hud_add(game.spawn_text(hw0 - 62, hh0 - 78, 14, 0.6, 1.0, 0.7, 1, "TWIN!"))
+    end
   end
 
   local function tint(id, level)
@@ -203,6 +279,27 @@ function make_forge()
 
   local function clear_comet()
     if comet then game.despawn(comet.id); comet = nil end
+  end
+
+  -- First-play guide (#5): a two-stage on-screen coach shown only on the very
+  -- first run ever. ASCII only (the engine font has no CJK); dismissed by play.
+  local function clear_tut()
+    for _, id in ipairs(tut_ids) do game.despawn(id) end
+    tut_ids, tut_stage = {}, 0
+  end
+  local function show_tut(stage)
+    clear_tut()
+    tut_stage, tut_t = stage, 0
+    local P = tut_ids
+    if stage == 1 then
+      P[#P + 1] = game.spawn(0, -40, 320, 78, 0.03, 0.02, 0.06, 0.82)
+      P[#P + 1] = game.spawn_text(0, -22, 21, 1.0, 0.86, 0.5, 1, "HOLD  &  RELEASE")
+      P[#P + 1] = game.spawn_text(0, -54, 15, 0.85, 0.85, 0.95, 1, "fling a star into orbit")
+    elseif stage == 2 then
+      P[#P + 1] = game.spawn(0, -40, 340, 78, 0.03, 0.02, 0.06, 0.82)
+      P[#P + 1] = game.spawn_text(0, -22, 20, 0.6, 1.0, 0.7, 1, "DROP A SAME-COLOR STAR")
+      P[#P + 1] = game.spawn_text(0, -54, 15, 0.85, 0.85, 0.95, 1, "two of the same level FUSE")
+    end
   end
 
   local function comet_rand()
@@ -257,20 +354,41 @@ function make_forge()
   local function hide_aim()
     aiming = false
     if ghost_id then game.set_color(ghost_id, 1, 1, 1, 0) end
-    for _, id in ipairs(aim_dots) do game.set_color(id, 1, 1, 1, 0) end
+    for _, id in ipairs(aim_ring) do game.set_color(id, 1, 1, 1, 0) end
+    for _, id in ipairs(aim_arrow) do game.set_color(id, 1, 1, 1, 0) end
   end
 
+  -- Draw the FULL orbit the star will take (a ring of dots at radius d) plus a
+  -- bright arrow in the launch (tangential) direction. The ring + arrow reach
+  -- well past the finger, so the preview reads even though the finger covers
+  -- the drop point — this is what was invisible before.
   local function show_aim(x, y)
     local d = math.sqrt(x * x + y * y)
     local ok = d >= MIN_SPAWN_R and spawn_cd <= 0
     local c = RAMP[clamp(next_level, 1, MAX_LEVEL)]
+    local rr, gg, bb = c[1], c[2], c[3]
+    if not ok then rr, gg, bb = 1.0, 0.3, 0.28 end       -- invalid drop → red
+    -- pulsing ghost star at the drop point (sized to the star it becomes)
+    local pr = radius_of(next_level)
+    local pulse = 0.5 + 0.28 * math.sin(ghost_t * 7)
+    game.set_size(ghost_id, pr * 2, pr * 2)
     game.move_to(ghost_id, x, y)
-    game.set_color(ghost_id, c[1], c[2], c[3], ok and 0.55 or 0.15)
+    game.set_color(ghost_id, rr, gg, bb, ok and (0.45 + pulse * 0.4) or 0.3)
+    -- orbit ring: dots evenly spaced around the circle of radius d
+    for k, id in ipairs(aim_ring) do
+      local a = (k / AIM_RING) * 6.28318
+      game.move_to(id, math.cos(a) * d, math.sin(a) * d)
+      game.set_color(id, rr, gg, bb, ok and 0.32 or 0.14)
+    end
+    -- launch arrow: dots along the counter-clockwise tangent, brightening out
     if d > 1 then
-      local tx, ty = -y / d, x / d   -- the tangential launch direction
-      for k, id in ipairs(aim_dots) do
-        game.move_to(id, x + tx * (18 + 16 * k), y + ty * (18 + 16 * k))
-        game.set_color(id, c[1], c[2], c[3], ok and (0.5 - 0.1 * k) or 0)
+      local tx, ty = -y / d, x / d
+      for k, id in ipairs(aim_arrow) do
+        local reach = 20 + 17 * k
+        game.move_to(id, x + tx * reach, y + ty * reach)
+        local sz = 12 - k                        -- taper to a point (arrowhead)
+        game.set_size(id, sz, sz)
+        game.set_color(id, rr, gg, bb, ok and (0.7 - 0.07 * k) or 0)
       end
     end
   end
@@ -308,6 +426,7 @@ function make_forge()
   local function game_over()
     playing = false
     hide_aim()
+    hud_clear(); clear_tut()
     local best_key = daily and ("forge_daily_" .. date_key()) or "forge_best"
     local best = game.load(best_key) or 0
     local is_best = score > best
@@ -367,6 +486,7 @@ function make_forge()
     local ck = lvl > MAX_LEVEL and "forge_codex_nova" or ("forge_codex_l" .. lvl)
     game.save(ck, (game.load(ck) or 0) + 1)
     award("first_fusion")
+    if tut_stage == 2 then clear_tut() end       -- first-play guide: goal met
     if combo_n >= 3 then award("chain3") end
     if lvl == 5 then award("l5") elseif lvl == 8 then award("l8")
     elseif lvl > MAX_LEVEL then award("nova") end
@@ -445,20 +565,27 @@ function make_forge()
     -- accretion ring (Floniks art) drawn around the dark core, native colours
     local ring_id = T.sprite(0, 0, CORE_R * 3.4, CORE_R * 3.4, "forge_ring")
     game.set_color(ring_id, 1, 1, 1, 0.9)
-    preview_id = T.sprite(hw - 36, hh - 36, 26, 26, "forge_star")
-    ghost_id = T.sprite(9999, 9999, 26, 26, "forge_star")
+    -- NEXT preview + label, moved to the bottom-right so it clears the HUD band
+    T.text(hw - 40, -hh + 74, 12, 0.8, 0.6, 0.4, 1, "NEXT")
+    preview_id = T.sprite(hw - 40, -hh + 44, 30, 30, "forge_star")
+    -- aim indicators: a ghost ring at the drop point, an orbit-path ring, and a
+    -- tangential launch arrow (all start hidden, moved/lit in show_aim)
+    ghost_id = T.sprite(9999, 9999, 26, 26, "forge_ghost")
     game.set_color(ghost_id, 1, 1, 1, 0)
-    aim_dots = {}
-    for k = 1, 4 do
-      aim_dots[k] = T.sprite(9999, 9999, 8, 8, "forge_star")
-      game.set_color(aim_dots[k], 1, 1, 1, 0)
+    aim_ring, aim_arrow = {}, {}
+    for k = 1, AIM_RING do
+      aim_ring[k] = T.sprite(9999, 9999, 6, 6, "forge_star")
+      game.set_color(aim_ring[k], 1, 1, 1, 0)
     end
-    back = K.make_back(T, hw, hh)
-    -- DAILY chip: everyone plays the same deal today; tap toggles the mode
-    local chip_x, chip_y = hw - 62, hh - 84
-    local chip_id = T.spawn(chip_x, chip_y, 96, 34, 0.25, 0.2, 0.45, daily and 1 or 0.55)
-    T.text(chip_x, chip_y, 16, 1, 1, 1, 1, daily and "DAILY ON" or "DAILY")
-    daily_chip = { x = chip_x, y = chip_y, w = 96, h = 34, id = chip_id }
+    for k = 1, AIM_ARROW do
+      aim_arrow[k] = T.sprite(9999, 9999, 10, 10, "forge_star")
+      game.set_color(aim_arrow[k], 1, 1, 1, 0)
+    end
+    -- DAILY chip: bottom-left, clear of the HUD; tap toggles the mode
+    local chip_x, chip_y = -hw + 54, -hh + 44
+    local chip_id = T.spawn(chip_x, chip_y, 88, 32, 0.25, 0.2, 0.45, daily and 1 or 0.5)
+    T.text(chip_x, chip_y, 15, 1, 1, 1, 1, daily and "DAILY ON" or "DAILY")
+    daily_chip = { x = chip_x, y = chip_y, w = 88, h = 32, id = chip_id }
     clear_bodies()
     clear_over_card()
     score, lives, best_level = 0, LIVES0, 1
@@ -487,13 +614,17 @@ function make_forge()
     deal_n = 0
     clear_comet()
     comet_t = 0
+    -- first-play guide: only the very first run ever, and never in daily mode
+    clear_tut()
+    if not daily and game.load("forge_tutorial_done") ~= true then show_tut(1) end
+    hud_clear()
     game.play_music("forge_theme")
     game.track("forge_start")
     hud()
     game.set_bg_theme(0, 1)   -- cool palette, full deep-space darkening: the void near a black hole
     built = true
     DEBUG = {
-      game = "forge", back = back,
+      game = "forge",
       score = function() return score end,
       lives = function() return lives end,
       alive = function() return playing end,
@@ -538,21 +669,24 @@ function make_forge()
   end
 
   local function restart()
-    clear_bodies(); clear_over_card(); clear_shop(); clear_toast(); clear_comet(); T.clear(); built = false
+    clear_bodies(); clear_over_card(); clear_shop(); clear_toast(); clear_comet()
+    hud_clear(); clear_tut(); T.clear(); built = false
     build(game.bounds())
   end
 
   return {
     enter = function() built = false end,
     leave = function()
-      clear_bodies(); clear_over_card(); clear_shop(); clear_toast(); clear_comet(); T.clear()
+      clear_bodies(); clear_over_card(); clear_shop(); clear_toast(); clear_comet()
+      hud_clear(); clear_tut(); T.clear()
       game.stop_music()
       built = false
     end,
 
     -- Taps only drive UI now; injection is hold-to-aim + release (see update).
+    -- No back button: the game ships as a single-game bundle (no menu to return
+    -- to), so navigation lives on the settlement card, not a persistent button.
     tap = function(x, y)
-      if back and inr(back, x, y) then K.switch("menu"); return end
       if daily_chip and inr(daily_chip, x, y) then
         daily = not daily
         game.play_sound("hit"); game.haptic("light")
@@ -591,12 +725,12 @@ function make_forge()
       if not playing then return end
 
       spawn_cd = math.max(0, spawn_cd - dt)
+      ghost_t = ghost_t + dt
       if combo_t > 0 then combo_t = combo_t - dt; if combo_t <= 0 then combo_n = 0 end end
 
-      -- hold to aim, release to launch (the ghost + tangent dots preview)
+      -- hold to aim (orbit-path preview), release to launch
       local px, py, down = game.pointer()
-      if down and px and not (back and inr(back, px, py))
-          and not (daily_chip and inr(daily_chip, px, py)) then
+      if down and px and not (daily_chip and inr(daily_chip, px, py)) then
         aiming, aim_x, aim_y = true, px, py
         show_aim(px, py)
       elseif aiming and not down then
@@ -616,10 +750,19 @@ function make_forge()
           spawn_cd = SPAWN_CD
           draw_next()
           game.play_sound("hit"); game.haptic("light")
+          -- first-play guide: first launch done → advance to the fusion hint,
+          -- then mark the tutorial seen so it never shows again
+          if tut_stage == 1 then
+            show_tut(2)
+            game.save("forge_tutorial_done", true)
+          end
           hud()
         end
       end
       was_down = down
+
+      -- keep the polished HUD current (cached: no-op unless a value changed)
+      hud()
 
       -- gravity + integration (semi-implicit Euler) + speed cap
       local GM = gm()

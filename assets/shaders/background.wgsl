@@ -108,13 +108,25 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
     let d = distance(mesh.uv, vec2<f32>(0.5, 0.5));
     col = col * (1.0 - smoothstep(0.5, 1.05, d) * 0.55);
 
-    // Deep-space mode (Starforge): crush the aurora toward near-black with only
-    // a faint indigo nebula left, and scatter a few sharp stars — so the same
-    // shader that paints the garden can also read as the void near a black hole.
+    // Deep-space mode (Starforge): a dark, *flowing* nebula near a black hole.
+    // Keeps the domain-warped aurora motion (so it never looks static) but
+    // remaps it into a deep indigo/violet band, adds a drifting purple cloud
+    // and a twinkling starfield, and blooms cyan with gameplay energy.
     let space = clamp(data2.x, 0.0, 1.0);
     if (space > 0.001) {
-        let deep = col * 0.10 + vec3<f32>(0.010, 0.012, 0.028);
-        // sharp starfield: sparse bright points on a static hash grid, twinkling
+        // deep palette driven by the SAME animated fields f/q, so it flows
+        let n_base = vec3<f32>(0.02, 0.02, 0.05);
+        let n_mid  = vec3<f32>(0.06, 0.05, 0.16);     // indigo
+        let n_hot  = vec3<f32>(0.16, 0.10, 0.30);     // violet nebula core
+        var deep = mix(n_base, n_mid, clamp(f * f * 2.4, 0.0, 1.0));
+        deep = mix(deep, n_hot, clamp(length(q) * 0.8, 0.0, 1.0));
+        // a second, slower-drifting cloud layer for parallax motion
+        let drift = fbm(p * 0.6 + vec2<f32>(flow * 0.03, -flow * 0.02));
+        deep = deep + vec3<f32>(0.05, 0.03, 0.10) * smoothstep(0.4, 0.9, drift);
+        // gameplay reactivity: the void brightens and blooms cyan on impact
+        deep = deep * (1.0 + energy * 1.6);
+        deep = deep + vec3<f32>(0.10, 0.35, 0.60) * energy * smoothstep(0.35, 0.95, f);
+        // twinkling starfield: sparse bright points on a static hash grid
         let sv = vec2<f32>((mesh.uv.x - 0.5) * aspect, mesh.uv.y - 0.5);
         var stars = 0.0;
         for (var i: i32 = 0; i < 2; i = i + 1) {
@@ -126,12 +138,14 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
             if (h > 0.86) {
                 let ctr = vec2<f32>(0.5, 0.5) + 0.3 * vec2<f32>(hash2(id + 1.7) - 0.5, hash2(id + 4.1) - 0.5);
                 let dd = length(fq - ctr);
-                let tw = 0.6 + 0.4 * sin(t * 2.0 + h * 6.28);
-                stars = stars + smoothstep(0.09, 0.0, dd) * tw * (h - 0.86) * 7.0;
+                let tw = 0.55 + 0.45 * sin(t * 2.2 + h * 6.28);
+                stars = stars + smoothstep(0.085, 0.0, dd) * tw * (h - 0.86) * 7.5;
             }
         }
         let deep_star = deep + vec3<f32>(0.9, 0.93, 1.0) * stars;
-        col = mix(col, deep_star, space);
+        // vignette again so the flowing nebula still focuses the play area
+        let deep_v = deep_star * (1.0 - smoothstep(0.45, 1.05, d) * 0.6);
+        col = mix(col, deep_v, space);
     }
 
     return vec4<f32>(col, 1.0);
