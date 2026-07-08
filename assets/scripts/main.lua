@@ -72,8 +72,65 @@ GAME_KIT = {
 }
 
 -- App-wide settings, read by games. `hud` gates the on-screen HUD text (the
--- router blanks it every frame when off); Settings (in the menu) toggles it.
-SETTINGS = SETTINGS or { hud = true }
+-- router blanks it every frame when off); `sound`/`haptic` gate KIT.juice.
+-- Settings (in the menu) toggles them; games read via GAME_KIT.meta.settings.
+SETTINGS = SETTINGS or { hud = true, sound = true, haptic = true }
+
+-- ── KIT expansion (rapid-dev platform, see docs/PLATFORM_BLUEPRINT.md) ──────
+-- These are PURE LUA over the existing `game.*` bridge, so a game that uses them
+-- runs byte-for-byte identically on iOS/Android/web/TikTok. They only DEFINE
+-- functions here (no host calls at load), so loading main.lua stays side-effect
+-- free for the headless test harness.
+
+-- KIT.juice — one semantic verb = sound + haptic + shake + particles, tuned once
+-- for every game and gated on the SETTINGS toggles. x,y optional (screen centre).
+do
+  local function snd(n) if SETTINGS.sound ~= false then game.play_sound(n) end end
+  local function hap(s) if SETTINGS.haptic ~= false then game.haptic(s) end end
+  local J = {}
+  function J.hit(x, y)    snd("hit");   hap("heavy");   game.shake(0.28); game.emit("spark", x or 0, y or 0) end
+  function J.soft(x, y)   snd("hit");   hap("light");   game.shake(0.08); game.emit("dust",  x or 0, y or 0) end
+  function J.pickup(x, y) snd("score"); hap("light");   game.shake(0.10); game.emit("spark", x or 0, y or 0) end
+  function J.success()    snd("score"); hap("success"); game.shake(0.35); game.emit("confetti", 0, 0) end
+  function J.fail()       snd("hit");   hap("heavy");   game.shake(0.70); game.zoom(0.8); game.emit("splash", 0, 0) end
+  function J.wall(x, y)   snd("wall");  game.shake(0.04) end
+  function J.near(x, y)   snd("wall");  hap("light");   game.shake(0.06); game.zoom(0.25) end
+  GAME_KIT.juice = J
+end
+
+-- KIT.rng — a deterministic LCG for seeded/daily runs and reproducible tests.
+-- Use this, NOT math.random, for anything that must match across runtimes
+-- (fengari Lua 5.3 and mlua 5.4 have different math.random algorithms).
+function GAME_KIT.rng(seed)
+  local s = math.floor(seed or 1) % 2147483647
+  if s <= 0 then s = 45137 end
+  return function()
+    s = (s * 1103515245 + 12345) % 2147483648
+    return s / 2147483648
+  end
+end
+
+-- KIT.meta — the "shell" every published game needs: persistent records +
+-- once-per-install latches + settings, over game.save/load (typed KV),
+-- namespaced by game key.
+do
+  local M = { record = {}, settings = {} }
+  local function k(g, name) return g .. "." .. name end
+  function M.record.get(g, name) return tonumber(game.load(k(g, name))) or 0 end
+  function M.record.submit(g, name, value, mode)  -- mode "max"(default) | "min"
+    local cur = tonumber(game.load(k(g, name)))
+    local better = cur == nil or (mode == "min" and value < cur) or (mode ~= "min" and value > cur)
+    if better then game.save(k(g, name), value); return true end
+    return false
+  end
+  function M.first_run(g)  -- true exactly once per install, then latches false
+    if game.load(g .. ".seen") then return false end
+    game.save(g .. ".seen", true); return true
+  end
+  function M.settings.get(name) return SETTINGS[name] end
+  function M.settings.set(name, on) SETTINGS[name] = on and true or false; game.save("opt." .. name, on and 1 or 0) end
+  GAME_KIT.meta = M
+end
 
 -- ===================================================================
 -- Game 1: Grow the Paddle

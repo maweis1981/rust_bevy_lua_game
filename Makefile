@@ -11,7 +11,7 @@ DEVICE_APP := build/DerivedData/Build/Products/$(CONFIG)-iphoneos/hollowlullaby.
 
 .PHONY: run build check fmt clippy test test-lua web web-games web-serve ios-lib \
         ios-project ios-build ios-run device-build device-run ios-archive \
-        ios-export ios-ipa clean
+        ios-export ios-ipa clean new-game
 
 # Output locations for the App Store archive + exported IPA (TestFlight).
 ARCHIVE := build/hollowlullaby.xcarchive
@@ -123,3 +123,6 @@ ios-ipa: ios-archive ios-export   ## Archive + export the TestFlight .ipa
 clean:
 	cargo clean
 	rm -rf build hollowlullaby.xcodeproj
+
+new-game:  ## scaffold a new game pack: make new-game NAME=asteroids
+	@sh tools/new_game.sh "$(NAME)"

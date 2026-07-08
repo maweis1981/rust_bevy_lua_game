@@ -39,6 +39,20 @@ within a tier. The menu is built automatically from PACKS — no other edits.
 `K.make_back(T,hw,hh) -> rect` (a "back to lobby" button; hit-test it in `tap`),
 `K.switch("menu")` to return to the menu.
 
+### KIT rapid-dev layer (inherit juice + meta — don't re-implement)
+- **`K.juice`** — one semantic verb = sound + haptic + shake + particles, tuned once for
+  every game and gated on `SETTINGS.sound`/`SETTINGS.haptic`. `x,y` optional (screen
+  centre): `K.juice.hit/.soft/.pickup(x,y)`, `.success()`, `.fail()`, `.wall/.near(x,y)`.
+  Prefer these over raw `game.play_sound+haptic+shake+emit` triplets.
+- **`K.rng(seed) -> fn`** — deterministic LCG returning `[0,1)`. **Use this, not
+  `math.random`,** for daily/seeded runs and anything that must match across runtimes.
+- **`K.meta`** — the shell over `game.save/load` (typed KV), namespaced by game key:
+  `K.meta.record.get(key,name)` / `K.meta.record.submit(key,name,value,"max"|"min") -> is_new`,
+  `K.meta.first_run(key) -> bool`, `K.meta.settings.get/set(name[,on])`.
+
+**Scaffold:** `make new-game NAME=<key>` generates a playable pack on this KIT and
+registers it in the web list. Edit `update()` and ship.
+
 ## Existing textures you may use (no new art)
 orb, paddle, brick, tile, food, gem, hero, enemy, snakehead, snakebody, flower,
 villager, tree, rock, ship, alien, shot, sparkle, gberry, gdaisy, gbell, gleaf,
