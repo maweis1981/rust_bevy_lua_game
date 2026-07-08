@@ -40,7 +40,7 @@ miniprogram/
   wechat/            ← thin WeChat wrapper (no-DOM, wx.*)
     game.js  game.json  project.config.json  adapter.js (binds wx.*)
     boot/  (generated)         ← copy of ../boot   (main package)
-    engine/index.js            ← subpackage entry (checked in)
+    engine/game.js             ← subpackage entry (checked in; MUST be game.js)
     engine/shared/ (generated) ← copy of ../shared (subpackage)
   douyin/            ← thin Douyin wrapper (no-DOM, tt.*), same engine/ + boot/
   tiktok/            ← thin TikTok wrapper (HTML runtime = real DOM/webview)
@@ -87,7 +87,7 @@ demand and the launcher never grows.
   calls `wx.loadSubpackage`/`tt.loadSubpackage({ name: 'engine' })`, piping the
   task's `onProgress` (`{ progress: 0..100 }`) into the bar.
 - **Subpackage `engine/`** (declared in `game.json` `"subpackages"`, ~56 KB):
-  `engine/index.js` + the copied `shared/` engine. `require`d only inside
+  `engine/game.js` + the copied `shared/` engine. `require`d only inside
   `loadSubpackage`'s `success` — i.e. after the download completes.
 - **Fallback**: if the runtime exposes no `loadSubpackage` (a plain preview, or a
   base that inlines everything), the launcher boots the engine directly — the

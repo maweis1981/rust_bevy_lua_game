@@ -8,7 +8,7 @@
 #     game.js game.json project.config.json adapter.js   (checked in)
 #     boot/                 <- copy of ../boot   (loading screen + launcher)
 #     engine/               SUBPACKAGE root (declared in game.json "subpackages")
-#       index.js            (checked in) subpackage entry
+#       game.js             (checked in) subpackage entry (MUST be game.js)
 #       shared/             <- copy of ../shared  (the JS engine)
 #
 # The canonical sources are ../boot (main-package launcher) and ../shared (the
