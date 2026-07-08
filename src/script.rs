@@ -1552,7 +1552,10 @@ pub struct LuaVm {
 impl LuaVm {
     fn new() -> Self {
         let mut lua = Lua::full();
-        let bridge = Rc::new(RefCell::new(Bridge::default()));
+        let bridge = Rc::new(RefCell::new(Bridge {
+            store: load_store_from_localstorage(),
+            ..Bridge::default()
+        }));
         register_api(&mut lua, bridge.clone());
         Self {
             lua,
@@ -1665,8 +1668,12 @@ impl LuaVm {
     /// wasm has no filesystem: the store lives for the session only, so there
     /// is never anything to flush (clearing the flag keeps the system cheap).
     fn take_dirty_store(&mut self) -> Option<String> {
-        self.bridge.borrow_mut().store_dirty = false;
-        None
+        let mut bridge = self.bridge.borrow_mut();
+        if !bridge.store_dirty {
+            return None;
+        }
+        bridge.store_dirty = false;
+        Some(encode_store(&bridge.store))
     }
 }
 
@@ -2165,14 +2172,35 @@ fn write_store_to_disk(content: &str) {
     }
 }
 
-/// Flush `game.save` writes to disk once per frame at most (no-op on wasm,
-/// where the store lives for the session only).
+/// On the web the save store persists to `localStorage` (survives refresh and
+/// tab close), keyed under one entry. Same encoded format as the desktop file.
+#[cfg(target_arch = "wasm32")]
+const WASM_SAVE_KEY: &str = "hollowlullaby_save";
+
+#[cfg(target_arch = "wasm32")]
+fn load_store_from_localstorage() -> HashMap<String, String> {
+    web_sys::window()
+        .and_then(|w| w.local_storage().ok().flatten())
+        .and_then(|s| s.get_item(WASM_SAVE_KEY).ok().flatten())
+        .map(|text| decode_store(&text))
+        .unwrap_or_default()
+}
+
+#[cfg(target_arch = "wasm32")]
+fn write_store_to_localstorage(content: &str) {
+    if let Some(storage) = web_sys::window().and_then(|w| w.local_storage().ok().flatten()) {
+        let _ = storage.set_item(WASM_SAVE_KEY, content);
+    }
+}
+
+/// Flush `game.save` writes to persistent storage once per frame at most:
+/// a file on desktop/iOS, `localStorage` on the web.
 fn flush_save(mut vm: NonSendMut<LuaVm>) {
     if let Some(content) = vm.take_dirty_store() {
         #[cfg(not(target_arch = "wasm32"))]
         write_store_to_disk(&content);
         #[cfg(target_arch = "wasm32")]
-        let _ = content;
+        write_store_to_localstorage(&content);
     }
 }
 

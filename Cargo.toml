@@ -44,8 +44,9 @@ js-sys = "0.3"
 getrandom = { version = "0.3", features = ["wasm_js"] }
 getrandom_02 = { package = "getrandom", version = "0.2", features = ["js"] }
 # Direct dep (already in the tree via winit/bevy) so game.open_url can call
-# window.open / location.set_href; only the features we use are enabled.
-web-sys = { version = "0.3.103", features = ["Window", "Location"] }
+# window.open / location.set_href, and game.save/load can persist to
+# localStorage; only the features we use are enabled.
+web-sys = { version = "0.3.103", features = ["Window", "Location", "Storage"] }
 
 # Enable filesystem asset hot-reload during desktop development only (not iOS,
 # not web — neither has a watchable filesystem).

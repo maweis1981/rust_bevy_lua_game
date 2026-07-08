@@ -101,7 +101,13 @@ dofile("assets/scripts/packs/forge.lua")
 dofile("assets/scripts/packs/fireflies.lua")
 dofile("assets/scripts/main.lua")
 
-local function boot() rng = 987654321; frame_events = {}; on_start(); frame_events = {}; on_update(DT) end
+local function boot()
+  rng = 987654321; frame_events = {}; on_start(); frame_events = {}; on_update(DT)
+  -- run forge physics tests in the post-onboarding steady state: the first-play
+  -- guide overlay (with its close button) is a one-time thing and would sit over
+  -- the injection point some tests use. No test covers the tutorial itself.
+  game._store.forge_tutorial_done = true
+end
 local function enter(key)
   clear_input()
   for _, t in ipairs(DEBUG.tiles) do
