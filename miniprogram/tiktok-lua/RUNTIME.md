@@ -45,9 +45,22 @@ now implements the **full** `game.*` surface the shipped packs use, for real.
 
 ## Shipped games
 
-The whole collection, from the one source: **Grow, Breakout, Snake** (in main.lua)
-+ **Time Dodge, Catch, Forge, Glow (fireflies), Ponies, Mystery (gallery)** packs.
-`showcase` is excluded (engine tech-demo; the only pack needing rigs/tilemap).
+The whole collection, from the one source — kept in sync with the native
+`EXTRA_SCRIPTS` list + `scripts/packs/`:
+
+- **main.lua**: Grow, Breakout, Snake
+- **top-level games** (`games/`, native `EXTRA_SCRIPTS`): Rogue, 2048, Shooter,
+  Cozy Isle, Craft, Gem Match, Umami Cup
+- **packs** (`packs/`): Time Dodge, Catch, Forge, Glow (fireflies), Ponies,
+  Mystery (gallery)
+
+= **17 games**, identical to what the web (ottavino) build shows.
+`showcase` is excluded (engine tech-demo; the only module needing rigs/tilemap).
+
+The **TikTok** package (`package-tiktok.sh`) ships the tight **arcade subset** —
+the top-level games + Catch/Forge/Glow/Time Dodge (14 games), dropping the
+visual-novel packs (Ponies, Mystery) and their heavy VN backdrops/BGM to stay
+lean. Web/native keep the full 17.
 
 ## Verified (headless Chromium, portrait 450×800)
 

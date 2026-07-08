@@ -1,5 +1,6 @@
 # Derived by prepare.sh from assets/ — regenerate, don't commit (30MB of copies).
 main.lua
+games/
 packs/
 textures/
 audio/
