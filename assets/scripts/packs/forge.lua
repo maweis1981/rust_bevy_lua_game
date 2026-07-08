@@ -377,8 +377,9 @@ function make_forge()
     -- orbit ring: dots evenly spaced around the circle of radius d
     for k, id in ipairs(aim_ring) do
       local a = (k / AIM_RING) * 6.28318
+      game.set_size(id, 9, 9)
       game.move_to(id, math.cos(a) * d, math.sin(a) * d)
-      game.set_color(id, rr, gg, bb, ok and 0.32 or 0.14)
+      game.set_color(id, rr, gg, bb, ok and 0.5 or 0.18)
     end
     -- launch arrow: dots along the counter-clockwise tangent, brightening out
     if d > 1 then
