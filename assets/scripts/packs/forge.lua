@@ -366,30 +366,35 @@ function make_forge()
     local d = math.sqrt(x * x + y * y)
     local ok = d >= MIN_SPAWN_R and spawn_cd <= 0
     local c = RAMP[clamp(next_level, 1, MAX_LEVEL)]
-    local rr, gg, bb = c[1], c[2], c[3]
-    if not ok then rr, gg, bb = 1.0, 0.3, 0.28 end       -- invalid drop → red
+    -- the deep-space background is very dark, so the orbit preview is drawn
+    -- near-WHITE (level colour mixed 65% toward white) at high alpha so it
+    -- reads clearly against the void — only a hint of the level tint remains.
+    local rr = c[1] * 0.35 + 0.65
+    local gg = c[2] * 0.35 + 0.65
+    local bb = c[3] * 0.35 + 0.65
+    if not ok then rr, gg, bb = 1.0, 0.42, 0.38 end      -- invalid drop → red
     -- pulsing ghost star at the drop point (sized to the star it becomes)
     local pr = radius_of(next_level)
     local pulse = 0.5 + 0.28 * math.sin(ghost_t * 7)
     game.set_size(ghost_id, pr * 2, pr * 2)
     game.move_to(ghost_id, x, y)
-    game.set_color(ghost_id, rr, gg, bb, ok and (0.45 + pulse * 0.4) or 0.3)
-    -- orbit ring: dots evenly spaced around the circle of radius d
+    game.set_color(ghost_id, rr, gg, bb, ok and (0.7 + pulse * 0.3) or 0.5)
+    -- orbit ring: bright dots evenly spaced around the circle of radius d
     for k, id in ipairs(aim_ring) do
       local a = (k / AIM_RING) * 6.28318
-      game.set_size(id, 9, 9)
+      game.set_size(id, 10, 10)
       game.move_to(id, math.cos(a) * d, math.sin(a) * d)
-      game.set_color(id, rr, gg, bb, ok and 0.5 or 0.18)
+      game.set_color(id, rr, gg, bb, ok and 0.85 or 0.3)
     end
-    -- launch arrow: dots along the counter-clockwise tangent, brightening out
+    -- launch arrow: bright dots along the counter-clockwise tangent
     if d > 1 then
       local tx, ty = -y / d, x / d
       for k, id in ipairs(aim_arrow) do
         local reach = 20 + 17 * k
         game.move_to(id, x + tx * reach, y + ty * reach)
-        local sz = 12 - k                        -- taper to a point (arrowhead)
+        local sz = 14 - k                        -- taper to a point (arrowhead)
         game.set_size(id, sz, sz)
-        game.set_color(id, rr, gg, bb, ok and (0.7 - 0.07 * k) or 0)
+        game.set_color(id, rr, gg, bb, ok and (0.95 - 0.06 * k) or 0)
       end
     end
   end
