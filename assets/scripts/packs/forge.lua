@@ -22,22 +22,29 @@ function make_forge()
   local T = K.tracker()
 
   -- tuning ------------------------------------------------------------
+  -- Balance constants. The few that govern difficulty read from an optional
+  -- global `FORGE_TUNE` table so the headless bot simulator (tools/tune_forge.lua)
+  -- can sweep them for data-driven tuning; unset in production → defaults below.
+  local TUNE = rawget(_G, "FORGE_TUNE") or {}
   local MAX_LEVEL   = 10
   local GM0         = 1.6e6   -- base gravity parameter (px^3/s^2-ish)
-  local MASS_SCALE  = 1150    -- total mass that doubles GM — lower = the field tightens
-                              -- sooner as you build, so careless spam has real stakes
-                              -- (bot-tuned baseline was 1400; nudged for felt pressure)
+  local MASS_SCALE  = TUNE.MASS_SCALE or 1150  -- total mass that doubles GM — lower =
+                              -- the field tightens sooner as you build
   local CORE_R      = 30      -- base event-horizon radius (grows as it feeds)
   local VMAX        = 620     -- hard speed cap (invariant-tested)
   -- Direction A — the ATTRITION loop (turns the stable sandbox into a game):
   -- orbits slowly decay so "stable" is impossible; you must keep fusing to
-  -- survive, fusing buys altitude back, and the hole grows as it eats. All
-  -- conservative starting values — tune from playtest.
-  local DECAY0      = 0.045   -- base orbital-decay drag (fraction of speed lost / s)
-  local DECAY_LV    = 0.05    -- extra decay per level above 1 (heavier decays faster)
-  local FUSE_BOOST  = 0.12    -- outward re-boost a fresh fusion gets (the relief)
-  local CORE_GROW   = 1.4     -- px the horizon widens each time it eats a star
-  local CORE_R_MAX  = 58      -- horizon growth cap
+  -- survive, fusing buys altitude back, and the hole grows as it eats.
+  -- Defaults are BOT-SIMULATION tuned (tools/tune_forge.lua), not eyeballed:
+  -- the shipped-first-pass 0.045/0.05 killed every tier in ~7 s (vs a 20–45 s
+  -- novice target); the sim also showed "heavier decays faster" (DECAY_LV) was
+  -- anti-skill — it capped runs right when you climbed — so it's now 0 (uniform).
+  -- These ~4× run length and roughly double the skill gap. See docs.
+  local DECAY0      = TUNE.DECAY0 or 0.007   -- base orbital-decay drag (frac speed lost / s)
+  local DECAY_LV    = TUNE.DECAY_LV or 0.0   -- extra decay per level (0: uniform — pro-skill)
+  local FUSE_BOOST  = TUNE.FUSE_BOOST or 0.20 -- outward re-boost a fresh fusion gets (relief)
+  local CORE_GROW   = TUNE.CORE_GROW or 1.0  -- px the horizon widens each time it eats a star
+  local CORE_R_MAX  = TUNE.CORE_R_MAX or 58  -- horizon growth cap
   local MAX_BODIES  = 48
   local SPAWN_CD    = 0.22    -- seconds between injections
   local COMBO_WIN   = 1.4     -- chain window (s)
