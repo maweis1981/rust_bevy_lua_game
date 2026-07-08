@@ -1,0 +1,11 @@
+{
+  "orientation": "VERTICAL",
+  "navbar": {
+    "bgColorLight": "#05060d",
+    "bgColorDark": "#05060d"
+  },
+  "build": {
+    "htmlEntry": "index.html",
+    "outputDir": "."
+  }
+}
