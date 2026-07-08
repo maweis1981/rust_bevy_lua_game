@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<title>Time Dodge — fengari spike (one Lua, everywhere)</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #05060d; overflow: hidden; }
+  #wrap { display: flex; align-items: center; justify-content: center; height: 100%; }
+  #game { background: #05060d; touch-action: none; box-shadow: 0 0 60px #0af3; border-radius: 8px; }
+  #fps { position: fixed; top: 6px; right: 10px; font: 700 13px monospace; color: #6ef; opacity: .8; }
+</style>
+</head>
+<body>
+  <div id="wrap"><canvas id="game" width="450" height="800"></canvas></div>
+  <div id="fps">—</div>
+  <!-- fengari: a Lua 5.3 VM in JS. This is the whole thesis: the SAME
+       assets/scripts/main.lua that runs on native (mlua/ottavino) runs here,
+       unmodified, over a JS `game.*` bridge + Canvas renderer. -->
+  <script src="vendor/fengari-web.js"></script>
+  <script src="engine.js"></script>
+  <script>
+    (function () {
+      var fpsEl = document.getElementById('fps');
+      setInterval(function () { if (window.__spikeFps != null) fpsEl.textContent = window.__spikeFps + ' fps'; }, 250);
+      // Load the UNMODIFIED native game script and boot the VM on it.
+      fetch('main.lua').then(function (r) { return r.text(); }).then(function (src) {
+        window.__spikeLuaLoaded = true;
+        window.__spikeBoot(src);
+      }).catch(function (e) { console.error('failed to load main.lua', e); });
+    })();
+  </script>
+</body>
+</html>
