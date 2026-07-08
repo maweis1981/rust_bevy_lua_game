@@ -58,8 +58,11 @@ function make_forge()
   local TEACH_RUNS = 3
 
   local AMBER = { 1.0, 0.72, 0.28 }          -- HUD accent (deep-space forge gold)
+  local GO   = { 0.30, 1.00, 0.45 }          -- aim: drop is VALID → release to fire
+  local NOGO = { 1.00, 0.35, 0.32 }          -- aim: drop is INVALID → can't fire here
   local AIM_RING = 16                        -- dots drawn around the preview orbit
   local AIM_ARROW = 6                        -- dots along the tangential launch dir
+  local SPAWN_POP = 0.18                      -- launch pop-in animation length (s)
 
   -- state ---------------------------------------------------------------
   local built, playing = false, true
@@ -70,13 +73,14 @@ function make_forge()
   local next_level = 1
   local teach_i = 0          -- >0 while dealing from TEACH_SEQ
   local spawn_cd = 0
-  local core_id, preview_id = nil, nil
+  local core_id, preview_id, ring_id = nil, nil, nil
   local ghost_id, aim_ring, aim_arrow = nil, {}, {}
   local ghost_t = 0          -- ghost-star pulse clock
+  local core_t = 0           -- accretion-disk spin / heat clock
   local aiming, aim_x, aim_y, was_down = false, 0, 0, false
   local over_ids, again_rect, up_rect = {}, nil, nil
   local hud_ids, hud_cache = {}, nil         -- polished HUD (rebuilt only on change)
-  local tut_ids, tut_stage, tut_t = {}, 0, 0 -- first-play guide (0 = off)
+  local tut_ids, tut_stage, tut_t, tut_close = {}, 0, 0, nil -- first-play guide (0 = off)
   local hw0, hh0 = 0, 0
   local rmax = 900
   local trail_k = 0          -- frame counter for the speed trail
@@ -285,21 +289,30 @@ function make_forge()
   -- first run ever. ASCII only (the engine font has no CJK); dismissed by play.
   local function clear_tut()
     for _, id in ipairs(tut_ids) do game.despawn(id) end
-    tut_ids, tut_stage = {}, 0
+    tut_ids, tut_stage, tut_close = {}, 0, nil
   end
   local function show_tut(stage)
     clear_tut()
     tut_stage, tut_t = stage, 0
     local P = tut_ids
+    local w = stage == 1 and 320 or 340
     if stage == 1 then
-      P[#P + 1] = game.spawn(0, -40, 320, 78, 0.03, 0.02, 0.06, 0.82)
+      P[#P + 1] = game.spawn(0, -40, w, 78, 0.03, 0.02, 0.06, 0.82)
       P[#P + 1] = game.spawn_text(0, -22, 21, 1.0, 0.86, 0.5, 1, "HOLD  &  RELEASE")
       P[#P + 1] = game.spawn_text(0, -54, 15, 0.85, 0.85, 0.95, 1, "fling a star into orbit")
+      -- shown once ever → mark seen immediately so a page refresh won't re-show
+      -- it (save now persists to localStorage on web)
+      game.save("forge_tutorial_done", true)
     elseif stage == 2 then
-      P[#P + 1] = game.spawn(0, -40, 340, 78, 0.03, 0.02, 0.06, 0.82)
+      P[#P + 1] = game.spawn(0, -40, w, 78, 0.03, 0.02, 0.06, 0.82)
       P[#P + 1] = game.spawn_text(0, -22, 20, 0.6, 1.0, 0.7, 1, "DROP A SAME-COLOR STAR")
       P[#P + 1] = game.spawn_text(0, -54, 15, 0.85, 0.85, 0.95, 1, "two of the same level FUSE")
     end
+    -- close (X) button, top-right of the band: dismiss the guide at will
+    local cx = w / 2 - 16
+    P[#P + 1] = game.spawn(cx, -14, 30, 30, 0.45, 0.12, 0.14, 0.92)
+    P[#P + 1] = game.spawn_text(cx, -16, 20, 1, 1, 1, 1, "X")
+    tut_close = { x = cx, y = -14, w = 42, h = 42 }
   end
 
   local function comet_rand()
@@ -366,27 +379,29 @@ function make_forge()
     local d = math.sqrt(x * x + y * y)
     local ok = d >= MIN_SPAWN_R and spawn_cd <= 0
     local c = RAMP[clamp(next_level, 1, MAX_LEVEL)]
-    -- the deep-space background is very dark, so the orbit preview is drawn
-    -- near-WHITE (level colour mixed 65% toward white) at high alpha so it
-    -- reads clearly against the void — only a hint of the level tint remains.
-    local rr = c[1] * 0.35 + 0.65
-    local gg = c[2] * 0.35 + 0.65
-    local bb = c[3] * 0.35 + 0.65
-    if not ok then rr, gg, bb = 1.0, 0.42, 0.38 end      -- invalid drop → red
-    -- pulsing ghost star at the drop point (sized to the star it becomes)
+    -- Two channels, so "what you'll drop" and "can you drop here" never blur:
+    --   ghost star  = the incoming star (keeps its level tint, near-white on
+    --                 the dark void) — dims toward RED when the drop is invalid
+    --   ring + arrow = a pure GO / NO-GO signal: GREEN when you may fire,
+    --                 RED (and no arrow) when you may not. The arrow only ever
+    --                 appears on a valid drop, so "arrow = release to fire".
+    local sig = ok and GO or NOGO
+    local gr, gg, gb = c[1] * 0.35 + 0.65, c[2] * 0.35 + 0.65, c[3] * 0.35 + 0.65
+    if not ok then gr, gg, gb = NOGO[1], NOGO[2], NOGO[3] end
     local pr = radius_of(next_level)
     local pulse = 0.5 + 0.28 * math.sin(ghost_t * 7)
     game.set_size(ghost_id, pr * 2, pr * 2)
     game.move_to(ghost_id, x, y)
-    game.set_color(ghost_id, rr, gg, bb, ok and (0.7 + pulse * 0.3) or 0.5)
-    -- orbit ring: bright dots evenly spaced around the circle of radius d
+    game.set_color(ghost_id, gr, gg, gb, ok and (0.7 + pulse * 0.3) or 0.6)
+    -- orbit ring: GREEN (valid) or RED (invalid) dots around the circle of radius d
     for k, id in ipairs(aim_ring) do
       local a = (k / AIM_RING) * 6.28318
       game.set_size(id, 10, 10)
       game.move_to(id, math.cos(a) * d, math.sin(a) * d)
-      game.set_color(id, rr, gg, bb, ok and 0.85 or 0.3)
+      game.set_color(id, sig[1], sig[2], sig[3], ok and 0.9 or 0.55)
     end
-    -- launch arrow: bright dots along the counter-clockwise tangent
+    -- launch arrow: green dots along the counter-clockwise tangent — shown ONLY
+    -- on a valid drop, so its presence is the "you can fire now" cue
     if d > 1 then
       local tx, ty = -y / d, x / d
       for k, id in ipairs(aim_arrow) do
@@ -394,7 +409,7 @@ function make_forge()
         game.move_to(id, x + tx * reach, y + ty * reach)
         local sz = 14 - k                        -- taper to a point (arrowhead)
         game.set_size(id, sz, sz)
-        game.set_color(id, rr, gg, bb, ok and (0.95 - 0.06 * k) or 0)
+        game.set_color(id, sig[1], sig[2], sig[3], ok and (0.95 - 0.06 * k) or 0)
       end
     end
   end
@@ -421,9 +436,11 @@ function make_forge()
     local tx, ty = -y / d, x / d
     local id = game.spawn_sprite(x, y, r * 2, r * 2, "forge_star")
     tint(id, level)
+    -- spawn_t drives a quick pop-in (scale 0.3→1.0) in the present loop so a
+    -- launched star grows into being instead of blinking in at full size.
     bodies[#bodies + 1] = {
       id = id, x = x, y = y, vx = tx * v, vy = ty * v,
-      level = level, r = r, m = mass_of(level),
+      level = level, r = r, m = mass_of(level), spawn_t = SPAWN_POP,
     }
     total_mass = total_mass + mass_of(level)
     return true
@@ -568,10 +585,15 @@ function make_forge()
     rmax = math.sqrt(hw * hw + hh * hh) + 80
     core_id = T.sprite(0, 0, CORE_R * 2, CORE_R * 2, "orb")
     game.set_color(core_id, 0.08, 0.05, 0.16, 1)
-    -- accretion ring (Floniks art) drawn around the dark core, native colours
-    local ring_id = T.sprite(0, 0, CORE_R * 3.4, CORE_R * 3.4, "forge_ring")
+    -- accretion ring (Floniks art) drawn around the dark core, native colours.
+    -- Kept as an upvalue so the update loop can spin it and pulse its heat —
+    -- a black hole doesn't literally burn, but its disk glows hotter as the
+    -- well deepens, which is the "forge" coming alive at the centre.
+    ring_id = T.sprite(0, 0, CORE_R * 3.4, CORE_R * 3.4, "forge_ring")
     game.set_color(ring_id, 1, 1, 1, 0.9)
-    -- NEXT preview + label, moved to the bottom-right so it clears the HUD band
+    -- NEXT preview + label, moved to the bottom-right so it clears the HUD band.
+    -- The star pulses when a launch is READY and dims + recharges on cooldown
+    -- (animated in the update loop) so it's obvious a star is available to fling.
     T.text(hw - 40, -hh + 74, 12, 0.8, 0.6, 0.4, 1, "NEXT")
     preview_id = T.sprite(hw - 40, -hh + 44, 30, 30, "forge_star")
     -- aim indicators: a ghost ring at the drop point, an orbit-path ring, and a
@@ -693,6 +715,10 @@ function make_forge()
     -- No back button: the game ships as a single-game bundle (no menu to return
     -- to), so navigation lives on the settlement card, not a persistent button.
     tap = function(x, y)
+      if tut_stage > 0 and tut_close and inr(tut_close, x, y) then
+        clear_tut(); game.play_sound("hit"); game.haptic("light")
+        return
+      end
       if daily_chip and inr(daily_chip, x, y) then
         daily = not daily
         game.play_sound("hit"); game.haptic("light")
@@ -732,11 +758,43 @@ function make_forge()
 
       spawn_cd = math.max(0, spawn_cd - dt)
       ghost_t = ghost_t + dt
+      core_t = core_t + dt
       if combo_t > 0 then combo_t = combo_t - dt; if combo_t <= 0 then combo_n = 0 end end
+
+      -- Centre forge comes alive: spin the accretion disk and let it glow
+      -- hotter (toward amber) as the well deepens. A black hole doesn't burn
+      -- with flame — its disk radiates from infalling matter — so this reads
+      -- as heat and hunger, which is exactly the "forge" fantasy.
+      if ring_id then
+        local heat = clamp(gm() / GM0 - 1, 0, 1)
+        game.set_rotation(ring_id, core_t * 0.6)
+        local breath = 0.86 + 0.10 * math.sin(core_t * 1.7)
+        game.set_color(ring_id, breath + heat * 0.30, breath - heat * 0.10,
+          breath - heat * 0.34, 0.72 + heat * 0.22)
+        game.set_color(core_id, 0.08 + heat * 0.06, 0.05, 0.16 + heat * 0.04, 1)
+      end
+
+      -- NEXT indicator makes launch-readiness unmistakable: the star breathes
+      -- at full size while a launch is READY, then visibly shrinks + fades and
+      -- recharges during the brief post-launch cooldown — so the player can
+      -- always tell at a glance that a star is loaded and ready to fling.
+      if preview_id then
+        local c = RAMP[clamp(next_level, 1, MAX_LEVEL)]
+        if spawn_cd <= 0 then
+          local s = 30 + 3 * math.sin(core_t * 5)
+          game.set_size(preview_id, s, s)
+          game.set_color(preview_id, c[1], c[2], c[3], 1)
+        else
+          local frac = 1 - spawn_cd / SPAWN_CD
+          game.set_size(preview_id, 30 * (0.5 + 0.5 * frac), 30 * (0.5 + 0.5 * frac))
+          game.set_color(preview_id, c[1], c[2], c[3], 0.35 + 0.55 * frac)
+        end
+      end
 
       -- hold to aim (orbit-path preview), release to launch
       local px, py, down = game.pointer()
-      if down and px and not (daily_chip and inr(daily_chip, px, py)) then
+      if down and px and not (daily_chip and inr(daily_chip, px, py))
+          and not (tut_close and inr(tut_close, px, py)) then
         aiming, aim_x, aim_y = true, px, py
         show_aim(px, py)
       elseif aiming and not down then
@@ -755,6 +813,8 @@ function make_forge()
           end
           spawn_cd = SPAWN_CD
           draw_next()
+          game.emit("spark", aim_x, aim_y)   -- launch burst at the drop point
+          game.shake(0.12)
           game.play_sound("hit"); game.haptic("light")
           -- first-play guide: first launch done → advance to the fusion hint,
           -- then mark the tutorial seen so it never shows again
@@ -909,6 +969,18 @@ function make_forge()
       -- present: flash beats danger telegraph beats normal tint
       for _, b in ipairs(bodies) do
         game.move_to(b.id, b.x, b.y)
+        -- launch pop-in: grow the freshly-injected star from 30%→100% (ease-out)
+        if b.spawn_t then
+          b.spawn_t = b.spawn_t - dt
+          if b.spawn_t <= 0 then
+            b.spawn_t = nil
+            if not b.flash_t then game.set_size(b.id, b.r * 2, b.r * 2) end
+          else
+            local e = math.sin((1 - b.spawn_t / SPAWN_POP) * 1.5708)  -- 0→1 ease-out
+            local s = (0.3 + 0.7 * e) * b.r * 2
+            game.set_size(b.id, s, s)
+          end
+        end
         local vis
         if b.flash_t then
           b.flash_t = b.flash_t - dt

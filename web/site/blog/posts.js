@@ -4,6 +4,13 @@
 // docs/blog/README.md).
 window.BLOG_POSTS = [
   {
+    file: '2026-07-08-starforge-how-to-play',
+    date: '2026-07-08',
+    tag: '玩法说明',
+    title: '《星核熔炉》Starforge 玩法说明：一根手指，两条公式，把黑洞喂成超新星',
+    excerpt: '按住瞄准、松手把星核甩进轨道，同级相撞聚变升级——星越重引力越强，繁荣即危机。核心规则、数值表、连锁/双子星/彗星/每日挑战/星尘升级全解，附上手小抄。',
+  },
+  {
     file: '2026-07-07-generate-game-art-with-claude-code',
     date: '2026-07-07',
     tag: 'GUIDE · EN',
