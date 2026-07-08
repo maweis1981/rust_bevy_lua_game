@@ -27,8 +27,17 @@ function make_forge()
   local MASS_SCALE  = 1150    -- total mass that doubles GM — lower = the field tightens
                               -- sooner as you build, so careless spam has real stakes
                               -- (bot-tuned baseline was 1400; nudged for felt pressure)
-  local CORE_R      = 30      -- event-horizon radius
+  local CORE_R      = 30      -- base event-horizon radius (grows as it feeds)
   local VMAX        = 620     -- hard speed cap (invariant-tested)
+  -- Direction A — the ATTRITION loop (turns the stable sandbox into a game):
+  -- orbits slowly decay so "stable" is impossible; you must keep fusing to
+  -- survive, fusing buys altitude back, and the hole grows as it eats. All
+  -- conservative starting values — tune from playtest.
+  local DECAY0      = 0.045   -- base orbital-decay drag (fraction of speed lost / s)
+  local DECAY_LV    = 0.05    -- extra decay per level above 1 (heavier decays faster)
+  local FUSE_BOOST  = 0.12    -- outward re-boost a fresh fusion gets (the relief)
+  local CORE_GROW   = 1.4     -- px the horizon widens each time it eats a star
+  local CORE_R_MAX  = 58      -- horizon growth cap
   local MAX_BODIES  = 48
   local SPAWN_CD    = 0.22    -- seconds between injections
   local COMBO_WIN   = 1.4     -- chain window (s)
@@ -76,6 +85,7 @@ function make_forge()
   local teach_i = 0          -- >0 while dealing from TEACH_SEQ
   local spawn_cd = 0
   local core_id, preview_id, ring_id = nil, nil, nil
+  local core_r = CORE_R      -- current horizon radius (grows as the hole feeds)
   local ghost_id, aim_ring, aim_arrow = nil, {}, {}
   local ghost_t = 0          -- ghost-star pulse clock
   local core_t = 0           -- accretion-disk spin / heat clock
@@ -533,6 +543,15 @@ function make_forge()
     local y = (a.y * a.m + b.y * b.m) / m
     local vx = (a.vx * a.m + b.vx * b.m) / m
     local vy = (a.vy * a.m + b.vy * b.m) / m
+    -- RELIEF: a fresh fusion gets a small outward kick, buying back altitude
+    -- against the decay. Fusing is how you survive, so it must feel like it —
+    -- this is the counter-force to orbital decay that keeps the loop alive.
+    local fd = math.sqrt(x * x + y * y)
+    if fd > 1 then
+      local sp = math.sqrt(vx * vx + vy * vy)
+      vx = vx + (x / fd) * sp * FUSE_BOOST
+      vy = vy + (y / fd) * sp * FUSE_BOOST
+    end
     -- combo chain
     combo_n = (combo_t > 0) and (combo_n + 1) or 1
     combo_t = COMBO_WIN
@@ -650,6 +669,7 @@ function make_forge()
     clear_over_card()
     score, lives, best_level = 0, LIVES0, 1
     total_mass, combo_n, combo_t = 0, 0, 0
+    core_r = CORE_R            -- fresh run: horizon back to its base size
     if daily then
       -- the daily board is pure: no upgrades, same contest for everyone
       daily_rng = daily_seed()
@@ -876,6 +896,13 @@ function make_forge()
           b.vx = b.vx - (b.x / d) * acc * dt
           b.vy = b.vy - (b.y / d) * acc * dt
         end
+        -- ORBITAL DECAY: a small velocity drag (heavier stars feel it more)
+        -- bleeds orbital energy every frame, so no orbit is permanent — the
+        -- field is always sinking toward the hole unless you keep fusing.
+        local damp = 1 - (DECAY0 + DECAY_LV * (b.level - 1)) * dt
+        if damp < 0 then damp = 0 end
+        b.vx = b.vx * damp
+        b.vy = b.vy * damp
         local sp2 = b.vx * b.vx + b.vy * b.vy
         if sp2 > VMAX * VMAX then
           local s = VMAX / math.sqrt(sp2)
@@ -889,11 +916,16 @@ function make_forge()
       for i = #bodies, 1, -1 do
         local b = bodies[i]
         local d = math.sqrt(b.x * b.x + b.y * b.y)
-        if d < CORE_R + b.r * 0.35 then
+        if d < core_r + b.r * 0.35 then
           -- the well eats it: it digests half the mass (failure still feeds
           -- the beast, but no runaway death spiral — bot-tuned)
           lives = lives - 1
           total_mass = total_mass - b.m * 0.5
+          -- the hole GROWS as it feeds: a wider kill radius + steeper pull is
+          -- the escalation ratchet — every miss makes the next orbit harder
+          core_r = math.min(core_r + CORE_GROW, CORE_R_MAX)
+          if core_id then game.set_size(core_id, core_r * 2, core_r * 2) end
+          if ring_id then game.set_size(ring_id, core_r * 3.4, core_r * 3.4) end
           game.track("forge_eaten", b.level)
           game.emit("dust", b.x, b.y)
           game.play_sound("hit"); game.haptic("heavy"); game.shake(0.4); game.zoom(0.5)
@@ -1037,7 +1069,7 @@ function make_forge()
           local d = math.sqrt(b.x * b.x + b.y * b.y)
           -- danger zone: a star this close is spiralling toward the horizon and
           -- about to be eaten (cost a core). Widened so the warning comes early.
-          vis = (d < CORE_R + b.r * 0.35 + 60) and "hot" or "cool"
+          vis = (d < core_r + b.r * 0.35 + 60) and "hot" or "cool"
         end
         if vis ~= b.vis then
           local was = b.vis
