@@ -61,6 +61,12 @@ module.exports = {
     set: function (key, val) { wx.setStorageSync(key, val); },
   },
   rewardAd: makeRewardAd(),
+  // Web Audio context for the procedural SFX synth (shared/sound.js). WeChat
+  // exposes the standard Web Audio surface via wx.createWebAudioContext().
+  audio: function () {
+    try { return (typeof wx !== 'undefined' && wx.createWebAudioContext) ? wx.createWebAudioContext() : null; }
+    catch (e) { return null; }
+  },
   // Subpackage loader for boot/launch.js. wx.loadSubpackage downloads the
   // `engine` subpackage (game.json) and returns a task whose .onProgress
   // reports { progress: 0..100, totalBytesWritten, totalBytesExpectedToWrite }.

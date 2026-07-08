@@ -1,0 +1,10 @@
+{
+  "projectname": "time-dodge",
+  "appid": "YOUR_TIKTOK_APPID",
+  "compileType": "game",
+  "setting": {
+    "es6": true,
+    "minified": false,
+    "urlCheck": false
+  }
+}

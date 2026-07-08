@@ -39,7 +39,7 @@ BUNDLE="$HERE/tiktok/engine.bundle.js"
   echo "    var m={exports:{}};__cache[n]=m.exports;"
   echo "    __reg[n](m,m.exports,window.require);__cache[n]=m.exports;return __cache[n];};"
   echo "  window.__define=function(n,f){__reg[n]=f;};"
-  for f in config rng game render main; do
+  for f in config rng game render sound particles main; do
     echo "  window.__define('$f.js', function(module, exports, require){"
     cat "$HERE/shared/$f.js"
     echo "  });"
