@@ -9,5 +9,5 @@ var platform = require('./adapter.js');
 var launch = require('./boot/launch.js').launch;
 
 launch(platform, function (p) {
-  require('./engine/index.js').start(p);
+  require('./engine/game.js').start(p);
 });
