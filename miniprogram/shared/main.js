@@ -14,6 +14,7 @@
 
 var createGame = require('./game.js').createGame;
 var createRenderer = require('./render.js').createRenderer;
+var createSound = require('./sound.js').createSound;
 
 function startGame(platform) {
   var canvas = platform.canvas;
@@ -21,13 +22,26 @@ function startGame(platform) {
   var W = canvas.width, H = canvas.height;
   var SW = W / 2, SH = H / 2;
 
+  // --- Juice wiring: the game core already emits sound/shake/zoom cues in ALL
+  // three modes; here we give those hooks a real implementation. -------------
+  // Sound: synth on the platform's Web Audio context (if the adapter exposes
+  // one). Attach as platform.sound so game.js's snd() routes to it.
+  var sfx = createSound(platform.audio ? platform.audio() : null);
+  if (!platform.sound) platform.sound = function (n) { sfx.play(n); };
+  // Screen shake + zoom punch: a shared "trauma" the renderer reads and decays.
+  var juice = { trauma: 0, zoom: 0 };
+  platform.shake = function (a) { juice.trauma = Math.min(1, juice.trauma + (a || 0)); };
+  platform.zoom = function (a) { juice.zoom = Math.min(1, juice.zoom + (a || 0)); };
+
   var game = createGame(platform);
   game.setSize(SW, SH);
-  var renderer = createRenderer(ctx, W, H);
+  var renderer = createRenderer(ctx, W, H, juice);
 
   function toWorld(px, py) { return { x: px - SW, y: SH - py }; }
 
+  var audioReady = false;
   platform.onTouchStart(function (px, py) {
+    if (!audioReady) { sfx.resume(); audioReady = true; } // un-suspend on 1st gesture
     var w = toWorld(px, py);
     game.setPointer(w.x, w.y, true);
     game.tap(w.x, w.y);

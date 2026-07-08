@@ -56,6 +56,12 @@ module.exports = {
     set: function (key, val) { tt.setStorageSync(key, val); },
   },
   rewardAd: makeRewardAd(),
+  // Web Audio context for the procedural SFX synth (shared/sound.js). Douyin
+  // mirrors WeChat's tt.createWebAudioContext().
+  audio: function () {
+    try { return (typeof tt !== 'undefined' && tt.createWebAudioContext) ? tt.createWebAudioContext() : null; }
+    catch (e) { return null; }
+  },
   // Subpackage loader for boot/launch.js. tt.loadSubpackage mirrors wx's; it
   // returns a task whose .onProgress reports { progress: 0..100 }.
   loadSubpackage: (typeof tt !== 'undefined' && typeof tt.loadSubpackage === 'function')

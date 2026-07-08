@@ -98,6 +98,18 @@
       ? function (cb) { requestAnimationFrame(cb); }
       : function (cb) { setTimeout(cb, 16); };
 
+    // Web Audio context for the procedural SFX synth (shared/sound.js). Created
+    // lazily and cached; starts suspended and is resumed on the first touch.
+    var _actx = null;
+    function audioContext() {
+      if (_actx) return _actx;
+      try {
+        var AC = (typeof window !== 'undefined') && (window.AudioContext || window.webkitAudioContext);
+        if (AC) _actx = new AC();
+      } catch (e) { _actx = null; }
+      return _actx;
+    }
+
     return {
       canvas: canvas,
       onTouchStart: onStart,
@@ -105,6 +117,7 @@
       onTouchEnd: onEnd,
       storage: storage,
       rewardAd: makeRewardAd(),
+      audio: audioContext,
       raf: raf,
       now: function () {
         return (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();

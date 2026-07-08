@@ -14,13 +14,15 @@ function rgba(c, a) {
     Math.round(c[2] * 255) + ',' + (a === undefined ? 1 : a) + ')';
 }
 
-function createRenderer(ctx, W, H) {
+function createRenderer(ctx, W, H, juice) {
+  juice = juice || { trauma: 0, zoom: 0 };
   // starfield: fixed field, twinkles with time.
   var stars = [];
   for (var i = 0; i < 90; i++) {
     stars.push({ x: Math.random() * W, y: Math.random() * H, r: Math.random() * 1.4 + 0.3, p: Math.random() * 6.28 });
   }
   var t0 = 0;
+  var lastT = 0;
 
   function toX(SW, wx) { return SW + wx; }
   function toY(SH, wy) { return SH - wy; }
@@ -31,7 +33,8 @@ function createRenderer(ctx, W, H) {
     g.addColorStop(0, '#05060f');
     g.addColorStop(1, '#0a0a18');
     ctx.fillStyle = g;
-    ctx.fillRect(0, 0, W, H);
+    // Over-fill so the screen-shake translate never exposes black edges.
+    ctx.fillRect(-24, -24, W + 48, H + 48);
     for (var i = 0; i < stars.length; i++) {
       var s = stars[i];
       var tw = 0.4 + 0.6 * (0.5 + 0.5 * Math.sin(time * 2 + s.p));
@@ -146,6 +149,51 @@ function createRenderer(ctx, W, H) {
     ctx.restore();
   }
 
+  // The player: same low-poly faceted style as the rocks (so the whole scene
+  // reads as one material language across all three modes) — but emissive: a
+  // bright cyan crystal with a glow halo + core, so it's unmistakably "you".
+  function drawPlayer(SW, SH, S, time) {
+    var pcx = toX(SW, S.px), pcy = toY(SH, S.py), pr = S.mass * 0.5;
+    var tsf = S.ts;
+    // glow halo
+    var hg = ctx.createRadialGradient(pcx, pcy, pr * 0.3, pcx, pcy, pr * 2.1);
+    hg.addColorStop(0, 'rgba(150,235,255,0.45)');
+    hg.addColorStop(1, 'rgba(120,220,255,0)');
+    ctx.fillStyle = hg;
+    ctx.beginPath(); ctx.arc(pcx, pcy, pr * 2.1, 0, 6.2832); ctx.fill();
+    // cached irregular crystal outline
+    if (!S._prock) {
+      var seed = 917;
+      var rnd = function () { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; };
+      var nn = 9, rr = [], tn = [];
+      for (var q = 0; q < nn; q++) { rr.push(0.72 + rnd() * 0.34); tn.push(0.9 + rnd() * 0.2); }
+      S._prock = { n: nn, r: rr, tone: tn };
+    }
+    var sh = S._prock, n = sh.n, rot = time * 0.5;
+    var LWx = -0.7071, LWy = -0.7071, cr = Math.cos(-rot), sr = Math.sin(-rot);
+    var lx = LWx * cr - LWy * sr, ly = LWx * sr + LWy * cr;
+    var base = [0.60 + 0.4 * tsf, 0.95, 1.0];   // cooler/bluer when frozen
+    ctx.save();
+    ctx.translate(pcx, pcy);
+    ctx.rotate(rot);
+    var vx = [], vy = [];
+    for (var k = 0; k < n; k++) { var a = (k / n) * 6.2832, r2 = pr * sh.r[k]; vx.push(Math.cos(a) * r2); vy.push(Math.sin(a) * r2); }
+    for (var k = 0; k < n; k++) {
+      var k2 = (k + 1) % n, mx = (vx[k] + vx[k2]) * 0.5, my = (vy[k] + vy[k2]) * 0.5, ml = Math.hypot(mx, my) || 1;
+      var ndot = (mx / ml) * lx + (my / ml) * ly;
+      var lit = (0.66 + 0.34 * Math.max(0, ndot)) * sh.tone[k];  // high ambient -> emissive
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(vx[k], vy[k]); ctx.lineTo(vx[k2], vy[k2]); ctx.closePath();
+      ctx.fillStyle = rgba([Math.min(1, base[0] * lit), Math.min(1, base[1] * lit), Math.min(1, base[2] * lit)], 1);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,0.32)'; ctx.lineWidth = 0.7; ctx.stroke();
+    }
+    var cg = ctx.createRadialGradient(0, 0, 0, 0, 0, pr * 0.72);
+    cg.addColorStop(0, 'rgba(255,255,255,0.85)');
+    cg.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = cg; ctx.beginPath(); ctx.arc(0, 0, pr * 0.72, 0, 6.2832); ctx.fill();
+    ctx.restore();
+  }
+
   function frozenTint(c, ts) {
     var k = (1 - ts) * 0.55;
     return [c[0] + (C.FROZEN_C[0] - c[0]) * k,
@@ -187,15 +235,8 @@ function createRenderer(ctx, W, H) {
       var ft = frozenTint(c, S.ts);
       drawRock(SW, SH, b, [ft[0] * br, ft[1] * br, ft[2] * br]);
     }
-    // player orb
-    var pc = [1 - (1 - S.ts) * 0.3, 1, 1];
-    var pcx = toX(SW, S.px), pcy = toY(SH, S.py), pr = S.mass * 0.5;
-    var grad = ctx.createRadialGradient(pcx, pcy, 1, pcx, pcy, pr);
-    grad.addColorStop(0, 'rgba(255,255,255,0.95)');
-    grad.addColorStop(1, rgba(pc, 0.85));
-    ctx.fillStyle = grad;
-    ctx.beginPath(); ctx.arc(pcx, pcy, pr, 0, 6.2832); ctx.fill();
-    ctx.strokeStyle = 'rgba(200,240,255,0.9)'; ctx.lineWidth = 2; ctx.stroke();
+    // player — faceted emissive crystal (same style language as the rocks)
+    drawPlayer(SW, SH, S, time);
 
     hud(game);
     if (!S.playing && S.card) endCard(game);
@@ -279,10 +320,24 @@ function createRenderer(ctx, W, H) {
 
   function draw(game, time) {
     var G = game.state;
+    // Decay the shared shake/zoom trauma (time-based so it's frame-rate stable).
+    var dt = time - lastT; lastT = time;
+    if (dt < 0 || dt > 0.1) dt = 0.016;
+    juice.trauma = Math.max(0, juice.trauma - dt * 1.6);
+    juice.zoom = Math.max(0, juice.zoom - dt * 2.4);
+    var tr = juice.trauma * juice.trauma;      // trauma² feels right
+    var amp = 18 * tr;
+    var sx = (Math.random() * 2 - 1) * amp, sy = (Math.random() * 2 - 1) * amp;
+    var zs = 1 + 0.06 * juice.zoom;            // slight punch-in on impacts
+
+    ctx.save();
+    if (zs !== 1) { ctx.translate(W / 2, H / 2); ctx.scale(zs, zs); ctx.translate(-W / 2, -H / 2); }
+    if (amp > 0.1) ctx.translate(sx, sy);
     bg(G.SW, G.SH, time);
     if (G.mode === 'select') drawSelect(game);
     else if (G.mode === 'levels') drawLevels(game);
     else if (G.mode === 'run' && G.S) drawRun(game, time);
+    ctx.restore();
   }
 
   return { draw: draw };
