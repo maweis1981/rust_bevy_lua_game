@@ -63,8 +63,17 @@ game = {
   stop_voice = function() record("stopvoice") end,
   stop_music = function() record("stopmusic") end,
   set_volume = function(c, v) record("volume", c) end,
-  track = function(e) record("track", e) end,
+  track = function(e, p) record("track", e) end,
   open_url = function(u) record("open_url", u) end,
+  -- Ad director mock: ad_moment is a no-op log; ad_ready is always false (Null
+  -- backend parity); ad_reward defers the callback to the NEXT pumped frame and
+  -- fires it exactly once with granted=false/no_fill (mirrors apply_ad_events).
+  _ad_pending = {},
+  ad_moment = function(p) record("ad_moment", p) end,
+  ad_ready = function(k) return false end,
+  ad_reward = function(k, cb)
+    game._ad_pending[#game._ad_pending + 1] = cb
+  end,
   _store = {},
   save = function(k, v)
     local t = type(v)
@@ -1432,6 +1441,47 @@ local function touches_tests()
   check(#game.touches() == 0, "touches: empty when no fingers down")
 end
 touches_tests()
+
+----------------------------------------------------------------------
+-- Analytics + Ad-director API contract (platform pillars, first slice):
+--   * game.track accepts a props TABLE (and a number, and nothing) w/o erroring
+--   * game.ad_reward's callback fires EXACTLY once, granted=false/no_fill
+--   * game.ad_moment / game.ad_ready exist and behave (no-op / always false)
+----------------------------------------------------------------------
+local function pump_ads()
+  local pend = game._ad_pending
+  game._ad_pending = {}
+  for _, cb in ipairs(pend) do cb(false, "no_fill") end
+end
+local function platform_api_tests()
+  frame_events = {}
+  -- Back-compat + new table form: none of these may raise.
+  local ok = pcall(function()
+    game.track("level_start")
+    game.track("score", 42)
+    game.track("run_end", { score = 42, mode = "hard", win = true })
+  end)
+  check(ok, "track: accepts nil / number / table props without erroring")
+
+  -- ad_ready is false with the Null backend; ad_moment is a logged no-op.
+  check(game.ad_ready("rewarded") == false, "ad_ready: false with the Null backend")
+  game.ad_moment("level_complete")
+  check(events_have("ad_moment", "level_complete"), "ad_moment: declares the placement")
+
+  -- ad_reward: the callback must fire exactly once, on a later pump, false/no_fill.
+  local calls, seen_granted, seen_reason = 0, nil, nil
+  game.ad_reward("rewarded", function(granted, reason)
+    calls = calls + 1; seen_granted = granted; seen_reason = reason
+  end)
+  check(calls == 0, "ad_reward: callback does not fire synchronously")
+  pump_ads()
+  check(calls == 1, "ad_reward: callback fires exactly once")
+  check(seen_granted == false and seen_reason == "no_fill",
+    "ad_reward: Null backend resolves granted=false / no_fill")
+  pump_ads()
+  check(calls == 1, "ad_reward: callback never fires a second time")
+end
+platform_api_tests()
 
 ----------------------------------------------------------------------
 -- Showcase pack: 9 capability stations, each with a BENCH mode

@@ -89,10 +89,24 @@
 //!                                               applies from the next shot)
 //!   game.haptic(kind)                          ("light"/"medium"/"heavy"/
 //!                                               "success"; iOS only, else no-op)
-//!   game.track(event [, value])                (analytics: append to the local
+//!   game.track(event [, value|props])          (analytics: append to the local
 //!                                               ~/.hollowlullaby/analytics.log,
 //!                                               console on web; remote sink
-//!                                               can replace this later)
+//!                                               can replace this later. 2nd arg
+//!                                               is optional: a number becomes a
+//!                                               "value" prop, a table becomes one
+//!                                               prop per key (string/number/bool),
+//!                                               nil = no props)
+//!   game.ad_moment(placement)                  (declare an ad opportunity by
+//!                                               name; the Rust Director decides
+//!                                               whether to show one — a no-op with
+//!                                               the Null backend)
+//!   game.ad_reward(kind, cb)                    (request a rewarded ad; `cb(granted,
+//!                                               reason)` fires EXACTLY once on a
+//!                                               later system — granted=false,
+//!                                               reason="no_fill" with the Null backend)
+//!   game.ad_ready(kind) -> bool                 (is a rewarded ad of `kind` cached
+//!                                               and ready to show? false w/ Null)
 //!   game.open_url(url)                         (open an http(s):// URL in the
 //!                                               system browser; web opens a new
 //!                                               tab (same-tab fallback if the
@@ -168,6 +182,8 @@ impl Plugin for ScriptPlugin {
             .init_resource::<TextureCache>()
             .init_resource::<SheetRegistry>()
             .init_resource::<TilemapRegistry>()
+            .init_resource::<AdDirector>()
+            .init_resource::<AdEventQueue>()
             .insert_non_send(LuaVm::new())
             .add_systems(Startup, (setup_scene, load_scripts))
             .add_systems(
@@ -176,6 +192,7 @@ impl Plugin for ScriptPlugin {
                     reload_changed_scripts,
                     tick_lua,
                     apply_lua,
+                    apply_ad_events,
                     flush_save,
                     particle_update,
                     build_rigs,
@@ -280,6 +297,73 @@ struct MusicSound;
 /// Marks a one-shot voice/dialogue entity (only one plays at a time).
 #[derive(Component)]
 struct VoiceSound;
+
+// ---------------------------------------------------------------------------
+// Ad Director (Phase-0 slice: Lua declares moments, Rust decides — Null backend)
+// ---------------------------------------------------------------------------
+
+/// The ad adapter interface. Real networks (AppLovin MAX on native, TTMinis on
+/// TikTok) will implement this behind cfg-gated shims; the Null backend below is
+/// the desktop/CI default and never fills. Keeping policy in Rust means the Lua
+/// stays byte-identical across platforms.
+trait AdBackend: Send + Sync {
+    /// Is a rewarded ad of `kind` cached and ready to show right now? `game.ad_ready`
+    /// returns false directly while the Null backend is the only one (no inventory
+    /// ever); Phase 1 snapshots this per-kind into the `Bridge` read-path (like
+    /// pointer/keys) so scripts read a real backend without touching the World.
+    #[allow(dead_code)]
+    fn ready(&self, kind: &str) -> bool;
+    /// Resolve a rewarded-ad request into `(granted, reason)`.
+    fn resolve_reward(&self, kind: &str) -> (bool, String);
+    /// Show (or decline) an ad opportunity declared by `game.ad_moment`.
+    fn show_moment(&self, placement: &str);
+}
+
+/// The default backend: no inventory, no network. `ad_ready` is always false and
+/// every reward resolves `granted=false, reason="no_fill"`, so games can wire up
+/// and exercise the full ad flow with zero SDKs linked.
+struct NullAdBackend;
+
+impl AdBackend for NullAdBackend {
+    fn ready(&self, _kind: &str) -> bool {
+        false
+    }
+    fn resolve_reward(&self, _kind: &str) -> (bool, String) {
+        (false, "no_fill".to_string())
+    }
+    fn show_moment(&self, placement: &str) {
+        info!("ad_moment: {placement} (null backend: no ad shown)");
+    }
+}
+
+/// Central ad policy layer. Owns the active backend; a later remote-config layer
+/// will tune grace/caps here without any Lua change (policy stays central and
+/// identical across games and platforms).
+#[derive(Resource)]
+struct AdDirector {
+    backend: Box<dyn AdBackend>,
+}
+
+impl Default for AdDirector {
+    fn default() -> Self {
+        Self { backend: Box::new(NullAdBackend) }
+    }
+}
+
+/// A resolved rewarded-ad outcome awaiting delivery to its stashed Lua callback.
+struct AdResolution {
+    token: u64,
+    granted: bool,
+    reason: String,
+}
+
+/// Reward resolutions produced while `apply_lua` drains `AdReward` commands,
+/// drained in turn by `apply_ad_events` (chained after it) which fires each Lua
+/// callback exactly once.
+#[derive(Resource, Default)]
+struct AdEventQueue {
+    resolutions: Vec<AdResolution>,
+}
 
 // ---------------------------------------------------------------------------
 // CPU particles (the roadmap's "fallback first" tier — the Lua API stays put
@@ -767,10 +851,31 @@ enum LuaCommand {
     },
     Track {
         event: String,
-        value: Option<f64>,
+        props: Vec<(String, TrackVal)>,
+    },
+    /// Lua declared an ad opportunity (`game.ad_moment`). The Director decides.
+    AdMoment {
+        placement: String,
+    },
+    /// Lua requested a rewarded ad (`game.ad_reward`). The Lua callback itself is
+    /// NOT carried here (that would need the queue to be VM-typed); it is stashed
+    /// in the VM keyed by `token`, and `apply_ad_events` fires it once resolved.
+    AdReward {
+        kind: String,
+        token: u64,
     },
     OpenUrl(String),
     Haptic(i32),
+}
+
+/// One analytics property value. `game.track`'s optional 2nd arg decodes into a
+/// list of these (a number -> one `("value", N)` pair; a table -> one pair per
+/// key), so the event schema is `(name, props)` without pulling in serde.
+#[derive(Clone, Debug, PartialEq)]
+enum TrackVal {
+    S(String),
+    N(f64),
+    B(bool),
 }
 
 /// Shared state stored in `mlua` app-data: the command queue, the id counter,
@@ -800,6 +905,21 @@ struct Bridge {
     /// Today's UTC civil date `(year, month, day)`, snapshotted once per frame
     /// before `on_update` — serves `game.date_utc()` (daily-challenge seeds).
     date_utc: (i32, u32, u32),
+    /// Analytics envelope state: a per-run session id (stamped once at VM
+    /// creation) and a monotonic sequence number bumped on every `game.track`,
+    /// so the local log is orderable and groupable by run.
+    session_id: String,
+    track_seq: u64,
+    /// Monotonic token minted per `game.ad_reward` call; keys the stashed Lua
+    /// callback so a resolution can fire exactly the right closure exactly once.
+    next_ad_token: u64,
+    /// Stashed `game.ad_reward` callbacks keyed by token. The closure is NEVER
+    /// pushed through the command queue (which is VM-agnostic); it lives here in
+    /// a VM-typed slot until `apply_ad_events` fetches and fires it, then drops it.
+    #[cfg(not(target_arch = "wasm32"))]
+    ad_callbacks: HashMap<u64, mlua::RegistryKey>,
+    #[cfg(target_arch = "wasm32")]
+    ad_callbacks: HashMap<u64, ottavino::StashedFunction>,
 }
 
 // ---------------------------------------------------------------------------
@@ -819,6 +939,7 @@ impl LuaVm {
         let lua = Lua::new();
         let bridge = Bridge {
             store: load_store_from_disk(),
+            session_id: new_session_id(),
             ..Bridge::default()
         };
         lua.set_app_data(bridge);
@@ -916,6 +1037,37 @@ impl LuaVm {
             Some(mut bridge) => std::mem::take(&mut bridge.queue),
             None => Vec::new(),
         }
+    }
+
+    /// Next analytics envelope `(seq, session)` for a `game.track` event: bumps
+    /// the per-run sequence and returns it with the session id.
+    fn track_meta(&mut self) -> (u64, String) {
+        match self.lua.app_data_mut::<Bridge>() {
+            Some(mut b) => {
+                b.track_seq += 1;
+                (b.track_seq, b.session_id.clone())
+            }
+            None => (0, String::new()),
+        }
+    }
+
+    /// Fire the stashed `game.ad_reward` callback for `token` with `(granted,
+    /// reason)`, then free the registry key. Removing the token BEFORE the call
+    /// guarantees exactly-once: a second resolution for the same token is a no-op.
+    fn fire_reward(&mut self, token: u64, granted: bool, reason: &str) {
+        let key = self
+            .lua
+            .app_data_mut::<Bridge>()
+            .and_then(|mut b| b.ad_callbacks.remove(&token));
+        let Some(key) = key else { return };
+        let result: mlua::Result<()> = (|| {
+            let f: Function = self.lua.registry_value(&key)?;
+            f.call::<()>((granted, reason.to_string()))
+        })();
+        if let Err(err) = result {
+            error!("lua ad_reward callback error: {err}");
+        }
+        let _ = self.lua.remove_registry_value(key);
     }
 }
 
@@ -1468,11 +1620,46 @@ fn register_api(lua: &Lua) -> mlua::Result<()> {
 
     game.set(
         "track",
-        lua.create_function(|lua, (event, value): (String, Option<f64>)| {
+        lua.create_function(|lua, (event, arg): (String, mlua::Value)| {
+            let props = decode_track_props_mlua(&arg);
             if let Some(mut bridge) = lua.app_data_mut::<Bridge>() {
-                bridge.queue.push(LuaCommand::Track { event, value });
+                bridge.queue.push(LuaCommand::Track { event, props });
             }
             Ok(())
+        })?,
+    )?;
+
+    game.set(
+        "ad_moment",
+        lua.create_function(|lua, placement: String| {
+            if let Some(mut bridge) = lua.app_data_mut::<Bridge>() {
+                bridge.queue.push(LuaCommand::AdMoment { placement });
+            }
+            Ok(())
+        })?,
+    )?;
+
+    game.set(
+        "ad_reward",
+        lua.create_function(|lua, (kind, cb): (String, Function)| {
+            // Stash the callback in the registry keyed by a fresh token; only the
+            // token travels through the command queue (which stays VM-agnostic).
+            let key = lua.create_registry_value(cb)?;
+            if let Some(mut bridge) = lua.app_data_mut::<Bridge>() {
+                bridge.next_ad_token += 1;
+                let token = bridge.next_ad_token;
+                bridge.ad_callbacks.insert(token, key);
+                bridge.queue.push(LuaCommand::AdReward { kind, token });
+            }
+            Ok(())
+        })?,
+    )?;
+
+    game.set(
+        "ad_ready",
+        lua.create_function(|_lua, _kind: String| {
+            // Null backend: nothing is ever cached, so no ad is ready.
+            Ok(false)
         })?,
     )?;
 
@@ -1552,7 +1739,10 @@ pub struct LuaVm {
 impl LuaVm {
     fn new() -> Self {
         let mut lua = Lua::full();
-        let bridge = Rc::new(RefCell::new(Bridge::default()));
+        let bridge = Rc::new(RefCell::new(Bridge {
+            session_id: new_session_id(),
+            ..Bridge::default()
+        }));
         register_api(&mut lua, bridge.clone());
         Self {
             lua,
@@ -1667,6 +1857,36 @@ impl LuaVm {
     fn take_dirty_store(&mut self) -> Option<String> {
         self.bridge.borrow_mut().store_dirty = false;
         None
+    }
+
+    /// Next analytics envelope `(seq, session)` for a `game.track` event.
+    fn track_meta(&mut self) -> (u64, String) {
+        let mut b = self.bridge.borrow_mut();
+        b.track_seq += 1;
+        (b.track_seq, b.session_id.clone())
+    }
+
+    /// Fire the stashed `game.ad_reward` callback for `token` with `(granted,
+    /// reason)`. The token is removed BEFORE the call, so a second resolution for
+    /// the same token is a no-op — the callback fires exactly once.
+    fn fire_reward(&mut self, token: u64, granted: bool, reason: &str) {
+        let stashed = self.bridge.borrow_mut().ad_callbacks.remove(&token);
+        let Some(stashed) = stashed else { return };
+        let reason = reason.to_string();
+        let res = (|| -> Result<(), String> {
+            let ex = self
+                .lua
+                .try_enter(|ctx| {
+                    let f = ctx.fetch(&stashed);
+                    let s = ctx.intern(reason.as_bytes());
+                    Ok(ctx.stash(Executor::start(ctx, f, (granted, Value::String(s)))))
+                })
+                .map_err(|e| e.to_string())?;
+            self.lua.execute::<()>(&ex).map_err(|e| e.to_string())
+        })();
+        if let Err(err) = res {
+            error!("lua ad_reward callback error: {err}");
+        }
     }
 }
 
@@ -2011,11 +2231,49 @@ fn register_api(lua: &mut Lua, bridge: Rc<RefCell<Bridge>>) {
 
         let b = bridge.clone();
         game.set(ctx, "track", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
-            let (event, value): (ottavino::String, Option<f64>) = stack.consume(ctx)?;
+            let (event, arg): (ottavino::String, Value) = stack.consume(ctx)?;
+            let props = decode_track_props_ottavino(arg);
             b.borrow_mut().queue.push(LuaCommand::Track {
                 event: event.to_str().unwrap_or("").to_string(),
-                value,
+                props,
             });
+            Ok(CallbackReturn::Return)
+        })).unwrap();
+
+        let b = bridge.clone();
+        game.set(ctx, "ad_moment", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let placement: ottavino::String = stack.consume(ctx)?;
+            b.borrow_mut().queue.push(LuaCommand::AdMoment {
+                placement: placement.to_str().unwrap_or("").to_string(),
+            });
+            Ok(CallbackReturn::Return)
+        })).unwrap();
+
+        let b = bridge.clone();
+        game.set(ctx, "ad_reward", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            // Consume (kind, callback). The callback is a Function value; stash it
+            // in a VM-typed registry slot keyed by a fresh token — never push it
+            // through the (VM-agnostic) command queue.
+            let (kind, cb): (ottavino::String, Value) = stack.consume(ctx)?;
+            if let Value::Function(f) = cb {
+                let stashed = ctx.stash(f);
+                let mut br = b.borrow_mut();
+                br.next_ad_token += 1;
+                let token = br.next_ad_token;
+                br.ad_callbacks.insert(token, stashed);
+                br.queue.push(LuaCommand::AdReward {
+                    kind: kind.to_str().unwrap_or("").to_string(),
+                    token,
+                });
+            }
+            Ok(CallbackReturn::Return)
+        })).unwrap();
+
+        let _b = bridge.clone();
+        game.set(ctx, "ad_ready", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            // Null backend: nothing is ever cached, so no ad is ready.
+            let _kind: ottavino::String = stack.consume(ctx)?;
+            stack.replace(ctx, false);
             Ok(CallbackReturn::Return)
         })).unwrap();
 
@@ -2401,7 +2659,9 @@ fn apply_lua(
     mut emit_seed: Local<u64>,
     mut rig_states: Query<&mut RigState>,
     assets: Res<AssetServer>,
-    hud: Option<Res<Hud>>,
+    // Ad Director + reward queue + the HUD text handle, bundled into one tuple to
+    // stay under Bevy's 16-parameter system limit.
+    mut ads: (Res<AdDirector>, ResMut<AdEventQueue>, Option<Res<Hud>>),
 ) {
     let (
         ref mut tex_cache,
@@ -2923,7 +3183,7 @@ fn apply_lua(
                 }
             }
             LuaCommand::SetText(text) => {
-                if let Some(hud) = &hud {
+                if let Some(hud) = &ads.2 {
                     if let Ok(mut hud_text) = texts.get_mut(hud.0) {
                         hud_text.0 = text;
                     }
@@ -3022,13 +3282,35 @@ fn apply_lua(
             LuaCommand::Haptic(style) => {
                 trigger_haptic(style);
             }
-            LuaCommand::Track { event, value } => {
-                track_event(&event, value);
+            LuaCommand::Track { event, props } => {
+                let (seq, session) = vm.track_meta();
+                track_event(seq, &session, &event, &props);
+            }
+            LuaCommand::AdMoment { placement } => {
+                ads.0.backend.show_moment(&placement);
+            }
+            LuaCommand::AdReward { kind, token } => {
+                // The Director decides via its backend; the resolution is queued
+                // for `apply_ad_events` to deliver to the stashed Lua callback.
+                let (granted, reason) = ads.0.backend.resolve_reward(&kind);
+                ads.1.resolutions.push(AdResolution { token, granted, reason });
             }
             LuaCommand::OpenUrl(url) => {
                 open_url(&url);
             }
         }
+    }
+}
+
+/// Deliver resolved ad rewards to their stashed Lua callbacks — one system after
+/// `apply_lua`, so each callback fires OUTSIDE `on_update` (never re-entrantly)
+/// and exactly once (the token is consumed as it fires).
+fn apply_ad_events(mut vm: NonSendMut<LuaVm>, mut queue: ResMut<AdEventQueue>) {
+    if queue.resolutions.is_empty() {
+        return;
+    }
+    for res in std::mem::take(&mut queue.resolutions) {
+        vm.fire_reward(res.token, res.granted, &res.reason);
     }
 }
 
@@ -3116,21 +3398,135 @@ fn track_sanitize(event: &str) -> String {
     }
 }
 
+/// A fresh per-run analytics session id. Derived from the wall clock (nanos on
+/// native, `Date.now()` on web) with one LCG hop to spread low-entropy clocks —
+/// no OS entropy / `getrandom` needed, so it links on `wasm32-unknown-unknown`.
+fn new_session_id() -> String {
+    #[cfg(not(target_arch = "wasm32"))]
+    let seed = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0);
+    #[cfg(target_arch = "wasm32")]
+    let seed = (js_sys::Date::now() as u64).wrapping_mul(1_000_000);
+    let mut s = seed ^ 0x9E37_79B9_7F4A_7C15;
+    lcg(&mut s); // one hop so successive launches don't share a prefix
+    format!("{s:016x}")
+}
+
+/// Render one prop value for the local log.
+fn track_prop_value_str(v: &TrackVal) -> String {
+    match v {
+        TrackVal::S(s) => s.clone(),
+        TrackVal::N(n) => format!("{n}"),
+        TrackVal::B(b) => b.to_string(),
+    }
+}
+
+/// Sanitize a prop key/value so it can never break the `k=v,k=v` / TSV framing:
+/// tab, newline, CR, `,` and `=` all collapse to `_`.
+fn track_field(s: &str) -> String {
+    s.chars()
+        .map(|c| if matches!(c, '\t' | '\n' | '\r' | ',' | '=') { '_' } else { c })
+        .collect()
+}
+
+/// Serialize props as a single `k=v,k=v` field (empty when there are no props).
+fn format_props(props: &[(String, TrackVal)]) -> String {
+    props
+        .iter()
+        .map(|(k, v)| format!("{}={}", track_field(k), track_field(&track_prop_value_str(v))))
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+/// Decode `game.track`'s optional 2nd arg (mlua) into props: a number/bool/string
+/// becomes one `("value", …)` pair, a table becomes one pair per key, nil = none.
+#[cfg(not(target_arch = "wasm32"))]
+fn decode_track_props_mlua(arg: &mlua::Value) -> Vec<(String, TrackVal)> {
+    fn key(v: &mlua::Value) -> Option<String> {
+        match v {
+            mlua::Value::String(s) => Some(s.to_string_lossy().to_string()),
+            mlua::Value::Integer(i) => Some(i.to_string()),
+            mlua::Value::Number(n) => Some(n.to_string()),
+            _ => None,
+        }
+    }
+    fn val(v: &mlua::Value) -> Option<TrackVal> {
+        match v {
+            mlua::Value::String(s) => Some(TrackVal::S(s.to_string_lossy().to_string())),
+            mlua::Value::Integer(i) => Some(TrackVal::N(*i as f64)),
+            mlua::Value::Number(n) => Some(TrackVal::N(*n)),
+            mlua::Value::Boolean(b) => Some(TrackVal::B(*b)),
+            _ => None,
+        }
+    }
+    match arg {
+        mlua::Value::Table(t) => {
+            let mut props = Vec::new();
+            for pair in t.clone().pairs::<mlua::Value, mlua::Value>() {
+                let Ok((k, v)) = pair else { continue };
+                if let (Some(k), Some(v)) = (key(&k), val(&v)) {
+                    props.push((k, v));
+                }
+            }
+            props
+        }
+        other => val(other).map(|v| vec![("value".to_string(), v)]).unwrap_or_default(),
+    }
+}
+
+/// Decode `game.track`'s optional 2nd arg (ottavino) into props — mirror of the
+/// mlua path so both VMs produce the identical event schema.
+#[cfg(target_arch = "wasm32")]
+fn decode_track_props_ottavino(arg: Value) -> Vec<(String, TrackVal)> {
+    fn key(v: &Value) -> Option<String> {
+        match v {
+            Value::String(s) => Some(String::from_utf8_lossy(s.as_bytes()).into_owned()),
+            Value::Integer(i) => Some(i.to_string()),
+            Value::Number(n) => Some(n.to_string()),
+            _ => None,
+        }
+    }
+    fn val(v: &Value) -> Option<TrackVal> {
+        match v {
+            Value::String(s) => Some(TrackVal::S(String::from_utf8_lossy(s.as_bytes()).into_owned())),
+            Value::Integer(i) => Some(TrackVal::N(*i as f64)),
+            Value::Number(n) => Some(TrackVal::N(*n)),
+            Value::Boolean(b) => Some(TrackVal::B(*b)),
+            _ => None,
+        }
+    }
+    match arg {
+        Value::Table(t) => {
+            let mut props = Vec::new();
+            for (k, v) in t.iter() {
+                if let (Some(k), Some(v)) = (key(&k), val(&v)) {
+                    props.push((k, v));
+                }
+            }
+            props
+        }
+        other => val(&other).map(|v| vec![("value".to_string(), v)]).unwrap_or_default(),
+    }
+}
+
 /// Append one analytics event to the local log (same directory as the save
-/// file). Local-first: swapping in a remote endpoint later only changes this
-/// sink, not the Lua API. On wasm the event goes to the console instead.
-fn track_event(event: &str, value: Option<f64>) {
+/// file), one line per event: `seq\tsession\tts\tname\tk=v,k=v`. Local-first:
+/// swapping in a remote endpoint later only changes this sink, not the Lua API.
+/// On wasm the event goes to the console instead.
+fn track_event(seq: u64, session: &str, event: &str, props: &[(String, TrackVal)]) {
     let name = track_sanitize(event);
+    let kv = format_props(props);
+    // TODO(platform): GameAnalytics REST sink — batch these envelopes and POST
+    // them (HMAC/gzip) instead of (as well as) the local log.
     #[cfg(not(target_arch = "wasm32"))]
     {
         let ts = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
             .unwrap_or(0);
-        let line = match value {
-            Some(v) => format!("{ts}\t{name}\t{v}\n"),
-            None => format!("{ts}\t{name}\t\n"),
-        };
+        let line = format!("{seq}\t{session}\t{ts}\t{name}\t{kv}\n");
         let path = save_file_path().with_file_name("analytics.log");
         if let Some(dir) = path.parent() {
             let _ = std::fs::create_dir_all(dir);
@@ -3141,7 +3537,7 @@ fn track_event(event: &str, value: Option<f64>) {
         }
     }
     #[cfg(target_arch = "wasm32")]
-    info!("[track] {name} {:?}", value);
+    info!("[track] seq={seq} session={session} {name} {kv}");
 }
 
 /// `game.open_url` gate: only plain web URLs may leave the sandbox. Anything
@@ -3427,5 +3823,72 @@ mod tests {
         assert_eq!(zoom_scale(0.0), 1.0);
         let z = zoom_scale(1.0);
         assert!(z < 1.0 && z >= 0.90, "full punch stays a gentle push-in: {z}");
+    }
+
+    #[test]
+    fn track_props_serialize_and_sanitize() {
+        use super::{format_props, TrackVal};
+        let props = vec![
+            ("value".to_string(), TrackVal::N(3.0)),
+            ("mode".to_string(), TrackVal::S("hard".to_string())),
+            ("win".to_string(), TrackVal::B(true)),
+        ];
+        assert_eq!(format_props(&props), "value=3,mode=hard,win=true");
+        // No props -> empty field (a bare `game.track("name")` still logs cleanly).
+        assert_eq!(format_props(&[]), "");
+        // Framing chars in keys/values collapse to `_` so the TSV/`k=v` never breaks.
+        let nasty = vec![("a,b\tc".to_string(), TrackVal::S("x=y\nz".to_string()))];
+        assert_eq!(format_props(&nasty), "a_b_c=x_y_z");
+    }
+
+    #[test]
+    fn null_ad_backend_never_fills() {
+        use super::{AdBackend, NullAdBackend};
+        let b = NullAdBackend;
+        assert!(!b.ready("coins"), "null backend has no inventory");
+        assert_eq!(b.resolve_reward("coins"), (false, "no_fill".to_string()));
+    }
+
+    // The ad-reward round trip is mlua-specific (registry-stashed callback), so
+    // it only runs on the native VM.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn ad_reward_callback_fires_exactly_once() {
+        use super::{LuaCommand, LuaVm};
+        let mut vm = LuaVm::new();
+        vm.exec_chunk(
+            r#"
+                _G.calls = 0
+                _G.last_granted = true
+                _G.last_reason = ""
+                game.ad_reward("coins", function(granted, reason)
+                    _G.calls = _G.calls + 1
+                    _G.last_granted = granted
+                    _G.last_reason = reason
+                end)
+            "#,
+            "ad_reward_test",
+        )
+        .expect("chunk exec");
+
+        // The call must have queued exactly one AdReward carrying a token.
+        let cmds = vm.drain();
+        let mut token = None;
+        for c in &cmds {
+            if let LuaCommand::AdReward { token: t, kind } = c {
+                assert_eq!(kind, "coins");
+                token = Some(*t);
+            }
+        }
+        let token = token.expect("game.ad_reward should queue an AdReward command");
+
+        // Fire the resolution twice; the Lua callback must run exactly once.
+        vm.fire_reward(token, false, "no_fill");
+        vm.fire_reward(token, false, "no_fill");
+
+        let globals = vm.lua.globals();
+        assert_eq!(globals.get::<i64>("calls").unwrap(), 1, "callback fired more than once");
+        assert!(!globals.get::<bool>("last_granted").unwrap(), "Null backend never grants");
+        assert_eq!(globals.get::<String>("last_reason").unwrap(), "no_fill");
     }
 }
