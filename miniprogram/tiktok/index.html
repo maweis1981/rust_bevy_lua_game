@@ -1,17 +1,17 @@
 <!DOCTYPE html>
-<!--
-  tiktok/index.html — TikTok Mini Games entry (HTML runtime).
-
-  Unlike WeChat/Douyin mini-GAMES (no DOM, wx/tt.createCanvas), TikTok Minis'
-  HTML runtime is a real webview: normal <canvas>, document/window, DOM touch
-  events, localStorage. So the SAME platform-agnostic shared/ engine runs here
-  directly — only the adapter differs (adapter.js, DOM + TTMinis.game.*).
-
-  The SDK's own loading-progress + rewarded-ad hooks are wired in adapter.js.
-  See README "TikTok (TTMinis) build" and RESEARCH §8.
--->
 <html lang="en">
 <head>
+  <!-- TikTok Mini Games JSSDK — MUST be the first tag after <head>, from this
+       exact host (the DevTools validates this). Native audio, ads, loading
+       progress, storage all hang off TTMinis.game.* -->
+  <script src="https://connect.tiktok-minis.com/game/sdk.js"></script>
+  <script>
+    // Init right after the SDK per the docs. Guarded so a plain-browser preview
+    // (SDK absent) doesn't throw. TODO(ship): put your real client key here.
+    if (typeof TTMinis !== 'undefined' && TTMinis.game && TTMinis.game.init) {
+      try { TTMinis.game.init({ clientKey: 'YOUR_TIKTOK_CLIENT_KEY' }); } catch (e) {}
+    }
+  </script>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
   <title>Time Dodge</title>
@@ -19,9 +19,16 @@
     html, body { margin: 0; padding: 0; height: 100%; background: #080b1a; overflow: hidden; }
     #game { display: block; width: 100vw; height: 100vh; touch-action: none; }
   </style>
-  <!-- TikTok Mini Games SDK. Only needed for the HTML runtime. -->
-  <script src="https://developers.tiktok.com/js/minis.js"></script>
 </head>
+<!--
+  tiktok/index.html — TikTok Mini Games entry (HTML runtime).
+
+  Unlike WeChat/Douyin mini-GAMES (no DOM, wx/tt.createCanvas), TikTok Minis'
+  HTML runtime is a real webview: normal <canvas>, document/window, DOM touch
+  events, localStorage. So the SAME platform-agnostic shared/ engine runs here
+  directly — only the adapter differs (adapter.js, DOM + TTMinis.game.*).
+  See README "TikTok (TTMinis) build", RESEARCH §8, and minigame.config.json.
+-->
 <body>
   <canvas id="game"></canvas>
 
@@ -34,15 +41,6 @@
   <script>
     (function () {
       'use strict';
-      // Initialize the TikTok SDK if present (no-op in a plain browser preview).
-      if (typeof TTMinis !== 'undefined' && TTMinis.game && TTMinis.game.init) {
-        try {
-          // TODO(ship): replace with your app's client key from the TikTok
-          // Developer Portal → Credentials.
-          TTMinis.game.init({ clientKey: 'YOUR_TIKTOK_CLIENT_KEY' });
-        } catch (e) { /* preview outside TikTok */ }
-      }
-
       // The HTML runtime loads the whole page up front; report a simple 0→1
       // progress so TikTok can show its native loading UI, then start.
       function report(p) {

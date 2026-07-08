@@ -189,7 +189,7 @@ engine runs there directly in a plain HTML page; the port needs no canvas
 shim, only a DOM adapter (`tiktok/adapter.js`).
 
 SDK surface used (confirmed present in the docs):
-- **Init**: `<script src="https://developers.tiktok.com/js/minis.js">` then
+- **Init**: `<script src="https://connect.tiktok-minis.com/game/sdk.js">` (first tag after `<head>`) then
   `TTMinis.game.init({ clientKey })` — all other SDK calls must follow init.
 - **Loading**: `TTMinis.game.setLoadingProgress({ progress })` (0..1).
 - **Rewarded ad**: `TTMinis.game.createRewardedVideoAd({ adUnitId })` — the

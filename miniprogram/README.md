@@ -44,7 +44,8 @@ miniprogram/
     engine/shared/ (generated) ← copy of ../shared (subpackage)
   douyin/            ← thin Douyin wrapper (no-DOM, tt.*), same engine/ + boot/
   tiktok/            ← thin TikTok wrapper (HTML runtime = real DOM/webview)
-    index.html                 ← loads minis.js, inits TTMinis, starts engine
+    index.html                 ← loads sdk.js (connect.tiktok-minis.com), inits TTMinis, starts engine
+    minigame.config.json       ← TikTok HTML-runtime config (orientation, entry) — required
     adapter.js                 ← DOM adapter + TTMinis rewarded ad (checked in)
     engine.bundle.js (generated) ← ../shared bundled with a browser require()
   test/run.js        ← Node invariant harness (no deps)
@@ -60,7 +61,7 @@ mini-games, which have **no DOM** and hand you a canvas only via
 `wx/tt.createCanvas`. So the TikTok build is the simplest of the three: the SAME
 `shared/` engine runs in a normal HTML page with a normal `<canvas>`.
 
-- `tiktok/index.html` loads the SDK (`https://developers.tiktok.com/js/minis.js`),
+- `tiktok/index.html` loads the JSSDK (`https://connect.tiktok-minis.com/game/sdk.js`, first tag after `<head>`),
   calls `TTMinis.game.init({ clientKey })`, reports `TTMinis.game.setLoadingProgress`,
   then `startGame(platform)`.
 - `tiktok/adapter.js` is plain web APIs (canvas, DOM touch/mouse, `localStorage`)
