@@ -77,6 +77,7 @@ function make_forge()
   local ghost_id, aim_ring, aim_arrow = nil, {}, {}
   local ghost_t = 0          -- ghost-star pulse clock
   local core_t = 0           -- accretion-disk spin / heat clock
+  local music_vol = nil      -- last BGM volume set (throttles set_volume calls)
   local aiming, aim_x, aim_y, was_down = false, 0, 0, false
   local over_ids, again_rect, up_rect = {}, nil, nil
   local hud_ids, hud_cache = {}, nil         -- polished HUD (rebuilt only on change)
@@ -228,7 +229,7 @@ function make_forge()
 
   local function hud()
     local twin_next = ((deal_n + 1) % TWIN_EVERY == 0)
-    local key = table.concat({ score, lives, combo_n, daily and 1 or 0, twin_next and 1 or 0 }, "|")
+    local key = table.concat({ score, lives, combo_n, daily and 1 or 0, twin_next and 1 or 0, best_level }, "|")
     if key == hud_cache then return end
     hud_clear(); hud_cache = key
     local top = hh0 - 4
@@ -256,10 +257,27 @@ function make_forge()
       hud_add(game.spawn(hw0 - 44, hh0 - 40, 62, 26, AMBER[1], AMBER[2], AMBER[3], 0.18))
       hud_add(game.spawn_text(hw0 - 44, hh0 - 40, 17, 1.0, 0.9, 0.5, 1, "x" .. combo_n))
     end
-    -- DAILY badge
-    if daily then
-      hud_add(game.spawn(0, hh0 - 96, 84, 18, 0.35, 0.3, 0.65, 0.85))
-      hud_add(game.spawn_text(0, hh0 - 96, 12, 1, 1, 1, 1, "DAILY"))
+    -- OBJECTIVE — the game is endless, but the next target is always on screen:
+    -- a persistent goal line + a milestone ladder (L3 → L5 → L8 → L10 → NOVA)
+    -- that lights up as you climb. This is what tells the player "what to do".
+    local goal
+    if daily then                       goal = "DAILY   BEAT THE BOARD"
+    elseif best_level < 3 then          goal = "GOAL   FORGE AN L3 STAR"
+    elseif best_level < 5 then          goal = "GOAL   REACH L5"
+    elseif best_level < 8 then          goal = "GOAL   REACH L8"
+    elseif best_level < 10 then         goal = "GOAL   REACH L10"
+    elseif best_level <= MAX_LEVEL then goal = "GOAL   L10 + L10 = SUPERNOVA"
+    else                                goal = "GOAL   CHAIN A HIGHER SCORE"
+    end
+    hud_add(game.spawn_text(0, hh0 - 96, 13, 0.8, 0.88, 1.0, 1, goal))
+    local miles = { { 3, "L3" }, { 5, "L5" }, { 8, "L8" }, { 10, "L10" }, { MAX_LEVEL + 1, "NOVA" } }
+    for i, m in ipairs(miles) do
+      local x = (i - (#miles + 1) / 2) * 60
+      if best_level >= m[1] then
+        hud_add(game.spawn_text(x, hh0 - 114, 12, AMBER[1], AMBER[2], AMBER[3], 1, m[2]))
+      else
+        hud_add(game.spawn_text(x, hh0 - 114, 12, 0.45, 0.45, 0.55, 0.7, m[2]))
+      end
     end
     -- TWIN telegraph on the next deal
     if twin_next then
@@ -909,6 +927,15 @@ function make_forge()
       -- loaded, the calm theme returns when it clears (CurrentMusic dedups)
       if total_mass > 300 then game.play_music("forge_hi")
       elseif total_mass < 200 then game.play_music("forge_theme") end
+      -- BGM rides the game's rhythm: the track swells with field pressure and
+      -- lifts another notch on an active combo, so the music tracks the tension
+      -- instead of sitting at a flat level. Throttled to meaningful changes.
+      local pressure = clamp(total_mass / 700, 0, 1)
+      local vol = clamp(0.5 + 0.4 * pressure + (combo_n >= 2 and 0.1 or 0), 0, 1)
+      if not music_vol or math.abs(vol - music_vol) > 0.04 then
+        music_vol = vol
+        game.set_volume("music", vol)
+      end
 
       -- comet event: straight-line skill target; catch it with a star to
       -- level that star up for free (max level pays score instead)
