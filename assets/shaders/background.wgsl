@@ -114,18 +114,20 @@ fn fragment(mesh: VertexOutput) -> @location(0) vec4<f32> {
     // and a twinkling starfield, and blooms cyan with gameplay energy.
     let space = clamp(data2.x, 0.0, 1.0);
     if (space > 0.001) {
-        // deep palette driven by the SAME animated fields f/q, so it flows
-        let n_base = vec3<f32>(0.02, 0.02, 0.05);
-        let n_mid  = vec3<f32>(0.06, 0.05, 0.16);     // indigo
-        let n_hot  = vec3<f32>(0.16, 0.10, 0.30);     // violet nebula core
-        var deep = mix(n_base, n_mid, clamp(f * f * 2.4, 0.0, 1.0));
-        deep = mix(deep, n_hot, clamp(length(q) * 0.8, 0.0, 1.0));
-        // a second, slower-drifting cloud layer for parallax motion
+        // deep palette driven by the SAME animated fields f/q, so it FLOWS
+        // while staying genuinely dark (the void near a black hole, not a
+        // bright nebula). Near-black base → dim indigo → a faint violet vein.
+        let n_base = vec3<f32>(0.006, 0.007, 0.018);
+        let n_mid  = vec3<f32>(0.020, 0.022, 0.060);   // dim indigo
+        let n_hot  = vec3<f32>(0.050, 0.040, 0.110);   // faint violet vein
+        var deep = mix(n_base, n_mid, clamp(f * f * 2.2, 0.0, 1.0));
+        deep = mix(deep, n_hot, clamp(length(q) * 0.7, 0.0, 1.0));
+        // a second, slower-drifting cloud layer for subtle parallax motion
         let drift = fbm(p * 0.6 + vec2<f32>(flow * 0.03, -flow * 0.02));
-        deep = deep + vec3<f32>(0.05, 0.03, 0.10) * smoothstep(0.4, 0.9, drift);
-        // gameplay reactivity: the void brightens and blooms cyan on impact
-        deep = deep * (1.0 + energy * 1.6);
-        deep = deep + vec3<f32>(0.10, 0.35, 0.60) * energy * smoothstep(0.35, 0.95, f);
+        deep = deep + vec3<f32>(0.020, 0.014, 0.040) * smoothstep(0.5, 0.95, drift);
+        // gameplay reactivity: a restrained brighten + cyan bloom on impact
+        deep = deep * (1.0 + energy * 0.9);
+        deep = deep + vec3<f32>(0.06, 0.20, 0.34) * energy * smoothstep(0.45, 0.97, f);
         // twinkling starfield: sparse bright points on a static hash grid
         let sv = vec2<f32>((mesh.uv.x - 0.5) * aspect, mesh.uv.y - 0.5);
         var stars = 0.0;
