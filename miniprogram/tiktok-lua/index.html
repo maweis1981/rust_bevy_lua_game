@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-<title>Time Dodge — fengari spike (one Lua, everywhere)</title>
+<title>Hollow Lullaby — one Lua, everywhere (fengari runtime)</title>
 <style>
   html, body { margin: 0; height: 100%; background: #05060d; overflow: hidden; }
   #wrap { display: flex; align-items: center; justify-content: center; height: 100%; }
@@ -14,20 +14,31 @@
 <body>
   <div id="wrap"><canvas id="game" width="450" height="800"></canvas></div>
   <div id="fps">—</div>
-  <!-- fengari: a Lua 5.3 VM in JS. This is the whole thesis: the SAME
-       assets/scripts/main.lua that runs on native (mlua/ottavino) runs here,
-       unmodified, over a JS `game.*` bridge + Canvas renderer. -->
+  <!-- fengari: a Lua 5.3 VM in JS. The SAME assets/scripts/main.lua + packs that
+       run on native (mlua/ottavino) run here, unmodified, over engine.js's
+       game.* bridge + Canvas renderer. -->
   <script src="vendor/fengari-web.js"></script>
   <script src="engine.js"></script>
   <script>
     (function () {
       var fpsEl = document.getElementById('fps');
-      setInterval(function () { if (window.__spikeFps != null) fpsEl.textContent = window.__spikeFps + ' fps'; }, 250);
-      // Load the UNMODIFIED native game script and boot the VM on it.
-      fetch('main.lua').then(function (r) { return r.text(); }).then(function (src) {
-        window.__spikeLuaLoaded = true;
-        window.__spikeBoot(src);
-      }).catch(function (e) { console.error('failed to load main.lua', e); });
+      setInterval(function () { var f = window.__hlFps; if (f != null) fpsEl.textContent = f + ' fps'; }, 250);
+
+      // AUTOBOOT: append ?scene=timedodge to jump straight into one game
+      // (useful for ad-campaign landing) — otherwise the menu shows the collection.
+      var scene = new URLSearchParams(location.search).get('scene') || null;
+
+      function text(u) { return fetch(u).then(function (r) { return r.text(); }); }
+      fetch('manifest.json').then(function (r) { return r.json(); }).then(function (m) {
+        var jobs = (m.packs || []).map(function (path) {
+          return text(path).then(function (src) { return { name: path, src: src }; });
+        });
+        return Promise.all(jobs).then(function (packs) {
+          return text(m.main).then(function (mainSrc) {
+            window.__hlBoot(packs, mainSrc, scene);
+          });
+        });
+      }).catch(function (e) { console.error('boot failed', e); });
     })();
   </script>
 </body>

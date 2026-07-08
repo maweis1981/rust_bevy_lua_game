@@ -1,0 +1,8 @@
+# Derived by prepare.sh from assets/ — regenerate, don't commit (30MB of copies).
+main.lua
+packs/
+textures/
+audio/
+manifest.json
+# TikTok submission staging (built on demand)
+dist/
