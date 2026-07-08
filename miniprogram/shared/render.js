@@ -71,27 +71,78 @@ function createRenderer(ctx, W, H) {
     text(cx, cy, Math.min(26, r.h * 0.42), [1, 1, 1], label);
   }
 
+  // A stable irregular low-poly outline per rock, generated once and cached on
+  // the foe object (cosmetic only). Deterministic so the facets don't shimmer.
+  function rockShape(b) {
+    if (b._rock) return b._rock;
+    var seed = ((Math.abs(b.spin || 0) * 1000 + (b.size || 10) * 97 + (b.kind ? b.kind.length : 3) * 31) | 0) % 233280;
+    if (seed <= 0) seed = 45137;
+    function rnd() { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; }
+    var n = 8 + Math.floor(rnd() * 4);         // 8..11 vertices -> chunky facets
+    var r = [], tone = [];
+    for (var k = 0; k < n; k++) {
+      r.push(0.60 + rnd() * 0.55);             // irregular radius 0.60..1.15
+      tone.push(0.82 + rnd() * 0.34);          // per-facet material variation
+    }
+    b._rock = { n: n, r: r, tone: tone };
+    return b._rock;
+  }
+
+  // Faceted "3D" asteroid: an irregular polygon fanned into triangles, each
+  // facet shaded by its outward normal vs a screen-fixed light (upper-left),
+  // plus a lit rim + a soft specular pop. Reads as an angular rock, not a ball.
   function drawRock(SW, SH, b, color) {
     var cx = toX(SW, b.x), cy = toY(SH, b.y);
     var rad = (b.sc || b.size) * 0.5;
-    // angular 2.5D look: a rotated polygon with a lit rim.
-    var n = 7;
+    var sh = rockShape(b), n = sh.n;
+    var rot = b.rot || 0;
+    // Screen-fixed light (upper-left) expressed in the rock's local frame.
+    var LWx = -0.7071, LWy = -0.7071, cr = Math.cos(-rot), sr = Math.sin(-rot);
+    var lx = LWx * cr - LWy * sr, ly = LWx * sr + LWy * cr;
+
     ctx.save();
     ctx.translate(cx, cy);
-    ctx.rotate(b.rot || 0);
-    ctx.beginPath();
+    ctx.rotate(rot);
+    var vx = [], vy = [];
     for (var k = 0; k < n; k++) {
-      var a = (k / n) * 6.2832;
-      var rr = rad * (0.82 + 0.18 * Math.sin(k * 2.3 + (b.spin || 0)));
-      var px = Math.cos(a) * rr, py = Math.sin(a) * rr;
-      if (k === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      var a = (k / n) * 6.2832, rr = rad * sh.r[k];
+      vx.push(Math.cos(a) * rr); vy.push(Math.sin(a) * rr);
     }
+    // Per-facet shaded triangles (fan from centroid).
+    for (var k = 0; k < n; k++) {
+      var k2 = (k + 1) % n;
+      var mx = (vx[k] + vx[k2]) * 0.5, my = (vy[k] + vy[k2]) * 0.5;
+      var ml = Math.hypot(mx, my) || 1;
+      var ndot = (mx / ml) * lx + (my / ml) * ly;      // -1..1
+      var lit = (0.30 + 0.75 * Math.max(0, ndot)) * sh.tone[k];
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(vx[k], vy[k]);
+      ctx.lineTo(vx[k2], vy[k2]);
+      ctx.closePath();
+      ctx.fillStyle = rgba([color[0] * lit, color[1] * lit, color[2] * lit], 1);
+      ctx.fill();
+      // faint facet seam for crystalline definition
+      ctx.strokeStyle = 'rgba(0,0,0,0.28)';
+      ctx.lineWidth = 0.6;
+      ctx.stroke();
+    }
+    // Lit outer rim.
+    ctx.beginPath();
+    for (var k = 0; k < n; k++) { if (k === 0) ctx.moveTo(vx[k], vy[k]); else ctx.lineTo(vx[k], vy[k]); }
     ctx.closePath();
-    ctx.fillStyle = rgba(color, 1);
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(255,255,255,0.25)';
-    ctx.lineWidth = 1;
+    ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+    ctx.lineWidth = 1.1;
     ctx.stroke();
+    // Soft specular pop toward the light.
+    if (rad > 6) {
+      var sx = lx * rad * 0.45, sy = ly * rad * 0.45;
+      var sg = ctx.createRadialGradient(sx, sy, 0, sx, sy, rad * 0.6);
+      sg.addColorStop(0, 'rgba(255,255,255,0.22)');
+      sg.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = sg;
+      ctx.beginPath(); ctx.arc(sx, sy, rad * 0.6, 0, 6.2832); ctx.fill();
+    }
     ctx.restore();
   }
 
