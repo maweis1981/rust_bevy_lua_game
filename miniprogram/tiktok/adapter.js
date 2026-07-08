@@ -49,6 +49,16 @@
       canvas.addEventListener('touchcancel', function () { cb(); });
       canvas.addEventListener('mouseup', function () { cb(); });
     }
+    // Fires when the mini game is backgrounded — used to auto-pause. TTMinis may
+    // also expose onHide; the webview's visibilitychange is the reliable path.
+    function onHide(cb) {
+      if (typeof document !== 'undefined' && document.addEventListener) {
+        document.addEventListener('visibilitychange', function () { if (document.hidden) cb(); });
+      }
+      if (typeof TTMinis !== 'undefined' && TTMinis.game && TTMinis.game.onHide) {
+        try { TTMinis.game.onHide(cb); } catch (e) {}
+      }
+    }
 
     // Rewarded video ad via the TikTok SDK. TTMinis.game.createRewardedVideoAd
     // mirrors the wx/tt shape (singleton .show()/.load() + a close callback that
@@ -118,6 +128,7 @@
       storage: storage,
       rewardAd: makeRewardAd(),
       audio: audioContext,
+      onHide: onHide,
       raf: raf,
       now: function () {
         return (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();

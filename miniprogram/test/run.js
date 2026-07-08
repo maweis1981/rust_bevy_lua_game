@@ -191,6 +191,31 @@ console.log('TIME DODGE — shared engine invariants\n');
   ok(moved <= C.PLAYER_MAX * C.MAX_DT + 1e-6, 'player move bounded by PLAYER_MAX*MAX_DT (moved ' + moved.toFixed(2) + ')');
 })();
 
+// ---- 7b. pause freezes the run; settings toggle gates + persists -----------
+(function () {
+  console.log('[7b] pause + settings');
+  var plat = makePlatform();
+  var sounds = [];
+  plat.sound = function (n) { sounds.push(n); };
+  var g = createGame(plat); g.setSize(200, 356);
+  g.tap(0, 10);                 // ENDLESS
+  hold(g, 6);
+  var scoreBefore = g.state.S.score;
+  g.pause();
+  ok(g.state.S.paused === true, 'pause() paused the run');
+  hold(g, 30);
+  ok(Math.abs(g.state.S.score - scoreBefore) < 1e-9, 'score does not advance while paused');
+  g.resume();
+  ok(g.state.S.paused === false, 'resume() unpaused the run');
+
+  g.state.overlay = 'settings';
+  var n0 = sounds.length;
+  g.tap(78, 34);                // toggle SOUND off (UI.setSound rect)
+  ok(g.state.opt.sound === false, 'SOUND toggled off');
+  ok(plat._store.td_sound === '0', 'sound preference persisted');
+  ok(sounds.length === n0, 'no SFX plays once sound is disabled (juice gated)');
+})();
+
 // ---- 8. Subpackage (分包) launcher: loads the engine, then boots ------------
 (function () {
   console.log('[8] boot/launch: subpackage loads with progress, then boots once');

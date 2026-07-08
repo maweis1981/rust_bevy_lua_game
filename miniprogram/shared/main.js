@@ -58,6 +58,9 @@ function startGame(platform) {
     game.setPointer(null, null, false);
   });
 
+  // Auto-pause when the app is backgrounded (call/notification/switch away).
+  if (platform.onHide) platform.onHide(function () { if (game.pause) game.pause(); });
+
   var now = platform.now || function () { return Date.now(); };
   var last = now();
   function frame() {

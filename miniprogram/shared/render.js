@@ -63,6 +63,54 @@ function createRenderer(ctx, W, H, juice, particles) {
     ctx.fill();
     ctx.restore();
   }
+  function gearGlyph(cx, cy, r, alpha) {
+    ctx.save();
+    var col = 'rgba(205,218,245,' + (alpha === undefined ? 0.85 : alpha) + ')';
+    ctx.strokeStyle = col; ctx.lineWidth = Math.max(2, r * 0.22);
+    for (var i = 0; i < 8; i++) {
+      var a = i * Math.PI / 4;
+      ctx.beginPath();
+      ctx.moveTo(cx + Math.cos(a) * r * 0.8, cy + Math.sin(a) * r * 0.8);
+      ctx.lineTo(cx + Math.cos(a) * r * 1.25, cy + Math.sin(a) * r * 1.25);
+      ctx.stroke();
+    }
+    ctx.beginPath(); ctx.arc(cx, cy, r * 0.8, 0, 6.2832); ctx.stroke();
+    ctx.beginPath(); ctx.arc(cx, cy, r * 0.32, 0, 6.2832); ctx.stroke();
+    ctx.restore();
+  }
+  function pauseGlyph(cx, cy, s, alpha) {
+    ctx.save();
+    ctx.fillStyle = 'rgba(10,16,30,0.5)';
+    ctx.beginPath(); ctx.arc(cx, cy, s * 1.35, 0, 6.2832); ctx.fill();
+    ctx.fillStyle = 'rgba(225,238,255,' + (alpha === undefined ? 0.92 : alpha) + ')';
+    ctx.fillRect(cx - s * 0.55, cy - s, s * 0.42, s * 2);
+    ctx.fillRect(cx + s * 0.13, cy - s, s * 0.42, s * 2);
+    ctx.restore();
+  }
+  // one settings toggle row: label left, ON/OFF pill = the tappable rect r.
+  function toggleRow(SW, SH, r, label, on) {
+    text(toX(SW, -68), toY(SH, r.y), 17, [0.82, 0.9, 1.0], label);
+    var base = on ? [0.18, 0.60, 0.42] : [0.30, 0.32, 0.40];
+    panel(SW, SH, r, rgba(base, 1), 'rgba(255,255,255,0.18)');
+    text(toX(SW, r.x), toY(SH, r.y), 16, [1, 1, 1], on ? 'ON' : 'OFF');
+  }
+  function settingsOverlay(game) {
+    var G = game.state, SW = G.SW, SH = G.SH, o = G.opt, U = G.ui;
+    ctx.fillStyle = 'rgba(0,0,0,0.72)'; ctx.fillRect(0, 0, W, H);
+    panel(SW, SH, { x: 0, y: -8, w: 320, h: 300 }, 'rgba(20,26,42,0.98)', 'rgba(120,170,255,0.4)');
+    text(SW, toY(SH, 108), 26, [1, 1, 1], 'SETTINGS');
+    toggleRow(SW, SH, U.setSound, 'SOUND', o.sound);
+    toggleRow(SW, SH, U.setHaptic, 'VIBRATION', o.haptic);
+    button(SW, SH, U.setClose, 'CLOSE', [0.24, 0.30, 0.42]);
+  }
+  function pauseOverlay(game) {
+    var G = game.state, SW = G.SW, SH = G.SH, U = G.ui;
+    ctx.fillStyle = 'rgba(0,0,0,0.72)'; ctx.fillRect(0, 0, W, H);
+    text(SW, toY(SH, 150), 30, [1, 1, 1], 'PAUSED');
+    button(SW, SH, U.pResume, 'RESUME', [0.18, 0.60, 0.40]);
+    button(SW, SH, U.pRestart, 'RESTART', [0.24, 0.34, 0.50]);
+    button(SW, SH, U.pHome, 'HOME', [0.30, 0.32, 0.42]);
+  }
 
   function toX(SW, wx) { return SW + wx; }
   function toY(SH, wy) { return SH - wy; }
@@ -365,6 +413,11 @@ function createRenderer(ctx, W, H, juice, particles) {
     text(SW, 40, 28, [1, 1, 1], primary);
     text(SW, 70, 14, [0.72, 0.82, 1.0], secondary);
     if (frozen) text(SW, 90, 12, [0.55, 0.85, 1.0], '- FROZEN -');
+    // pause button (oversized, top-right) while the run is live
+    if (G.btn.pause && S.playing && !S.paused) {
+      var pr = G.btn.pause;
+      pauseGlyph(toX(SW, pr.x), toY(SH, pr.y), 8);
+    }
   }
 
   function endCard(game) {
@@ -427,6 +480,7 @@ function createRenderer(ctx, W, H, juice, particles) {
     text(SW, toY(SH, b.trials.y - 22), 13, [0.8, 0.95, 1.0], 'ten sealed moments to break');
     button(SW, SH, b.absorb, 'ABSORB', [0.45, 0.28, 0.70]);
     text(SW, toY(SH, b.absorb.y - 22), 13, [0.85, 0.8, 1.0], 'eat the small - fear the big');
+    if (b.gear) gearGlyph(toX(SW, b.gear.x), toY(SH, b.gear.y), 13);
   }
 
   function drawLevels(game) {
@@ -476,6 +530,9 @@ function createRenderer(ctx, W, H, juice, particles) {
     ctx.restore();
     // full-screen grade sits OUTSIDE the shake transform so edges stay clean
     postFx(G);
+    // overlays sit on top of everything (incl. the vignette)
+    if (G.overlay === 'settings') settingsOverlay(game);
+    else if (G.mode === 'run' && G.S && G.S.paused) pauseOverlay(game);
   }
 
   return { draw: draw };
