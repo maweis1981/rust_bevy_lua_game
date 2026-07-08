@@ -59,6 +59,17 @@ function createGame(platform) {
 
   function starsOf(i) { return loadNum('td_lv' + i + '_stars') || 0; }
   function unlocked(i) { return i === 1 || starsOf(i - 1) > 0; }
+  // aggregate persisted records for the menu (never shown before).
+  function bests() {
+    var total = 0;
+    for (var i = 1; i <= C.LEVELS.length; i++) total += starsOf(i);
+    return {
+      endless: loadNum('timedodge_best') || 0,
+      absorb: loadNum('td_absorb_best') || 0,
+      stars: total,
+      maxStars: C.LEVELS.length * 3,
+    };
+  }
 
   // ---- screens -------------------------------------------------------------
   function buildSelect() {
@@ -149,12 +160,12 @@ function createGame(platform) {
     var S = G.S;
     S.playing = false;
     clearFoes();
-    snd('hit'); hap('heavy'); shake(0.7); zoom(0.8); emit('spark', S.px, S.py);
+    snd('hit'); hap('heavy'); shake(0.7); zoom(0.8); emit('shatter', S.px, S.py);
     var retry = { label: 'RETRY', act: 'retry', primary: true };
     var modes = { label: 'MODES', act: 'modes' };
     if (S.absorb) {
       var best = loadNum('td_absorb_best') || 0;
-      if (S.peak > best) { best = S.peak; save('td_absorb_best', best); }
+      if (S.peak > best) { best = S.peak; save('td_absorb_best', best); S.newBest = true; }
       card('YOU FADED AWAY',
         'PEAK ' + Math.floor(S.peak) + '   EATEN ' + S.eaten + '   BEST ' + Math.floor(best),
         [retry, modes]);
@@ -164,7 +175,7 @@ function createGame(platform) {
         [retry, { label: 'LEVELS', act: 'levels' }]);
     } else {
       var b2 = loadNum('timedodge_best') || 0;
-      if (S.score > b2) { b2 = S.score; save('timedodge_best', b2); }
+      if (S.score > b2) { b2 = S.score; save('timedodge_best', b2); S.newBest = true; }
       card('TIME RECLAIMED YOU',
         'STOLEN ' + S.score.toFixed(1) + 's   BEST ' + b2.toFixed(1) + 's', [retry, modes]);
     }
@@ -189,7 +200,7 @@ function createGame(platform) {
     var stars = (S.elapsed <= lv.s3) ? 3 : (S.elapsed <= lv.s2 ? 2 : 1);
     if (stars > starsOf(i)) save('td_lv' + i + '_stars', stars);
     var best = loadNum('td_lv' + i + '_best');
-    if (best === null || S.elapsed < best) save('td_lv' + i + '_best', S.elapsed);
+    if (best === null || S.elapsed < best) { save('td_lv' + i + '_best', S.elapsed); S.newBest = true; }
     card('MOMENT SEALED',
       'TIME ' + S.elapsed.toFixed(1) + 's      ' + (stars >= 1 ? '*'.repeat(stars) : '-'),
       [{ label: 'LEVELS', act: 'levels', primary: true }, { label: 'REPLAY', act: 'retry' }]);
@@ -503,6 +514,7 @@ function createGame(platform) {
     // helpers exposed for the renderer / harness
     starsOf: starsOf,
     unlocked: unlocked,
+    bests: bests,
     startRun: startRun,
     toSelect: toSelect,
     toLevels: toLevels,

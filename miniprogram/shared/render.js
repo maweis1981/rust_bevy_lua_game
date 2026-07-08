@@ -14,34 +14,116 @@ function rgba(c, a) {
     Math.round(c[2] * 255) + ',' + (a === undefined ? 1 : a) + ')';
 }
 
-function createRenderer(ctx, W, H, juice) {
+function createRenderer(ctx, W, H, juice, particles) {
   juice = juice || { trauma: 0, zoom: 0 };
-  // starfield: fixed field, twinkles with time.
+  particles = particles || { draw: function () {} };
+  // starfield: three parallax sub-layers (far dim/small -> near bright), fixed
+  // field, twinkles with time. Plus a couple of static nebula blobs for depth.
   var stars = [];
-  for (var i = 0; i < 90; i++) {
-    stars.push({ x: Math.random() * W, y: Math.random() * H, r: Math.random() * 1.4 + 0.3, p: Math.random() * 6.28 });
+  for (var i = 0; i < 130; i++) {
+    var layer = i < 70 ? 0 : (i < 110 ? 1 : 2);
+    stars.push({
+      x: Math.random() * W, y: Math.random() * H,
+      r: (layer === 0 ? 0.4 : layer === 1 ? 0.9 : 1.5) + Math.random() * 0.5,
+      p: Math.random() * 6.28, l: layer,
+    });
+  }
+  var nebula = [];
+  for (var i = 0; i < 4; i++) {
+    var cols = [[60, 40, 120], [30, 70, 120], [90, 40, 110], [24, 66, 96]];
+    nebula.push({ x: Math.random() * W, y: Math.random() * H, r: 140 + Math.random() * 180, c: cols[i] });
   }
   var t0 = 0;
   var lastT = 0;
+
+  // ---- little glyphs (replace ASCII '*' / '?' / 'BACK') --------------------
+  function starGlyph(cx, cy, rad, color, alpha) {
+    ctx.save();
+    ctx.beginPath();
+    for (var k = 0; k < 10; k++) {
+      var a = -Math.PI / 2 + k * Math.PI / 5;
+      var rr = (k % 2 === 0) ? rad : rad * 0.45;
+      var px = cx + Math.cos(a) * rr, py = cy + Math.sin(a) * rr;
+      if (k === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.fillStyle = rgba(color, alpha === undefined ? 1 : alpha);
+    ctx.fill();
+    ctx.restore();
+  }
+  function lockGlyph(cx, cy, s, alpha) {
+    ctx.save();
+    ctx.strokeStyle = 'rgba(200,210,230,' + (alpha || 0.5) + ')';
+    ctx.fillStyle = 'rgba(200,210,230,' + (alpha || 0.5) + ')';
+    ctx.lineWidth = Math.max(1.5, s * 0.16);
+    ctx.beginPath(); ctx.arc(cx, cy - s * 0.15, s * 0.5, Math.PI, 0); ctx.stroke(); // shackle
+    var bw = s * 1.2, bh = s * 0.85;
+    ctx.beginPath();
+    ctx.rect(cx - bw / 2, cy - s * 0.15, bw, bh);
+    ctx.fill();
+    ctx.restore();
+  }
 
   function toX(SW, wx) { return SW + wx; }
   function toY(SH, wy) { return SH - wy; }
 
   function bg(SW, SH, time) {
     t0 = time;
+    // deep void gradient (over-filled so screen-shake never exposes black edges)
     var g = ctx.createLinearGradient(0, 0, 0, H);
-    g.addColorStop(0, '#05060f');
-    g.addColorStop(1, '#0a0a18');
+    g.addColorStop(0, '#04050d');
+    g.addColorStop(0.55, '#080a18');
+    g.addColorStop(1, '#0c0a1e');
     ctx.fillStyle = g;
-    // Over-fill so the screen-shake translate never exposes black edges.
     ctx.fillRect(-24, -24, W + 48, H + 48);
+    // soft nebula clouds, drifting slowly (additive so they glow, not muddy)
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (var m = 0; m < nebula.length; m++) {
+      var nb = nebula[m];
+      var dx = Math.sin(time * 0.05 + m) * 14, dy = Math.cos(time * 0.04 + m) * 12;
+      var ng = ctx.createRadialGradient(nb.x + dx, nb.y + dy, 0, nb.x + dx, nb.y + dy, nb.r);
+      ng.addColorStop(0, 'rgba(' + nb.c[0] + ',' + nb.c[1] + ',' + nb.c[2] + ',0.16)');
+      ng.addColorStop(1, 'rgba(' + nb.c[0] + ',' + nb.c[1] + ',' + nb.c[2] + ',0)');
+      ctx.fillStyle = ng;
+      ctx.beginPath(); ctx.arc(nb.x + dx, nb.y + dy, nb.r, 0, 6.2832); ctx.fill();
+    }
+    // parallax twinkling stars (additive)
     for (var i = 0; i < stars.length; i++) {
       var s = stars[i];
-      var tw = 0.4 + 0.6 * (0.5 + 0.5 * Math.sin(time * 2 + s.p));
-      ctx.fillStyle = 'rgba(180,205,255,' + tw.toFixed(3) + ')';
-      ctx.beginPath();
-      ctx.arc(s.x, s.y, s.r, 0, 6.2832);
-      ctx.fill();
+      var tw = (s.l === 0 ? 0.3 : 0.5) + 0.5 * (0.5 + 0.5 * Math.sin(time * (1.4 + s.l) + s.p));
+      var drift = time * (2 + s.l * 4);
+      var yy = (s.y + drift) % (H + 8);
+      ctx.fillStyle = 'rgba(200,220,255,' + tw.toFixed(3) + ')';
+      ctx.beginPath(); ctx.arc(s.x, yy, s.r, 0, 6.2832); ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  // Final full-screen pass: freeze wash (keyed off timescale) + vignette + grade.
+  function postFx(G) {
+    var ts = (G.mode === 'run' && G.S) ? G.S.ts : 1;
+    // freeze wash: as time freezes (ts->0), a pale cyan frost creeps in
+    var frost = (1 - ts);
+    if (frost > 0.02) {
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.fillStyle = 'rgba(90,150,190,' + (0.10 * frost).toFixed(3) + ')';
+      ctx.fillRect(0, 0, W, H);
+      ctx.restore();
+    }
+    // vignette (multiply-ish darken at edges) — the single biggest cinematic win
+    var vg = ctx.createRadialGradient(W / 2, H / 2, H * 0.32, W / 2, H / 2, H * 0.75);
+    vg.addColorStop(0, 'rgba(0,0,0,0)');
+    vg.addColorStop(1, 'rgba(0,0,0,0.55)');
+    ctx.fillStyle = vg;
+    ctx.fillRect(0, 0, W, H);
+    // frozen edge tint (cool the corners a touch when frozen)
+    if (frost > 0.3) {
+      var fv = ctx.createRadialGradient(W / 2, H / 2, H * 0.30, W / 2, H / 2, H * 0.78);
+      fv.addColorStop(0, 'rgba(120,180,220,0)');
+      fv.addColorStop(1, 'rgba(120,180,220,' + (0.14 * frost).toFixed(3) + ')');
+      ctx.fillStyle = fv; ctx.fillRect(0, 0, W, H);
     }
   }
 
@@ -68,10 +150,20 @@ function createRenderer(ctx, W, H, juice) {
     if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = 1.5; ctx.stroke(); }
   }
 
+  var curGame = null;  // set each frame in draw(), for button press feedback
+  function isPressed(r) {
+    if (!curGame) return false;
+    var inp = curGame.state.input;
+    return inp && inp.down && inp.x !== null && curGame.inRect(r, inp.x, inp.y);
+  }
   function button(SW, SH, r, label, base) {
+    var pressed = isPressed(r);
+    var k = pressed ? 0.94 : 1;                 // scale-down on press
+    var rr = { x: r.x, y: r.y, w: r.w * k, h: r.h * k };
     var cx = toX(SW, r.x), cy = toY(SH, r.y);
-    panel(SW, SH, r, rgba(base, 1), 'rgba(255,255,255,0.14)');
-    text(cx, cy, Math.min(26, r.h * 0.42), [1, 1, 1], label);
+    var fill = pressed ? [Math.min(1, base[0] * 1.25 + 0.05), Math.min(1, base[1] * 1.25 + 0.05), Math.min(1, base[2] * 1.25 + 0.05)] : base;
+    panel(SW, SH, rr, rgba(fill, 1), pressed ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.14)');
+    text(cx, cy, Math.min(26, r.h * 0.42) * k, [1, 1, 1], label);
   }
 
   // A stable irregular low-poly outline per rock, generated once and cached on
@@ -203,25 +295,36 @@ function createRenderer(ctx, W, H, juice) {
 
   function drawRun(game, time) {
     var G = game.state, S = G.S, SW = G.SW, SH = G.SH;
-    // trail
+    // trail (additive light-streak)
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
     for (var i = 0; i < S.trail.length; i++) {
       var tr = S.trail[i];
       if (tr.a > 0.02) {
-        ctx.fillStyle = 'rgba(180,230,255,' + (tr.a).toFixed(3) + ')';
+        ctx.fillStyle = 'rgba(120,210,255,' + (tr.a * 0.9).toFixed(3) + ')';
         ctx.beginPath();
-        ctx.arc(toX(SW, tr.x), toY(SH, tr.y), C.PLAYER * 0.32, 0, 6.2832);
+        ctx.arc(toX(SW, tr.x), toY(SH, tr.y), C.PLAYER * 0.34, 0, 6.2832);
         ctx.fill();
       }
     }
-    // trial gate
+    ctx.restore();
+    // trial gate (portal: two additive rings + inner glow)
     if (S.trial && S.gate) {
       var pulse = 0.7 + 0.3 * Math.sin((S.elapsed || 0) * 6);
       var gx = toX(SW, S.gate.x), gy = toY(SH, S.gate.y);
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
       ctx.strokeStyle = 'rgba(128,242,255,' + pulse.toFixed(3) + ')';
       ctx.lineWidth = 3;
       ctx.beginPath(); ctx.arc(gx, gy, C.GATE * 0.55, 0, 6.2832); ctx.stroke();
-      ctx.fillStyle = 'rgba(128,242,255,' + (pulse * 0.35).toFixed(3) + ')';
-      ctx.beginPath(); ctx.arc(gx, gy, C.GATE * 0.32, 0, 6.2832); ctx.fill();
+      ctx.strokeStyle = 'rgba(200,250,255,' + (pulse * 0.5).toFixed(3) + ')';
+      ctx.lineWidth = 1.4;
+      ctx.beginPath(); ctx.arc(gx, gy, C.GATE * (0.42 + 0.05 * Math.sin(time * 4)), 0, 6.2832); ctx.stroke();
+      var igg = ctx.createRadialGradient(gx, gy, 0, gx, gy, C.GATE * 0.4);
+      igg.addColorStop(0, 'rgba(128,242,255,' + (pulse * 0.4).toFixed(3) + ')');
+      igg.addColorStop(1, 'rgba(128,242,255,0)');
+      ctx.fillStyle = igg; ctx.beginPath(); ctx.arc(gx, gy, C.GATE * 0.4, 0, 6.2832); ctx.fill();
+      ctx.restore();
     }
     // foes (far/dim first)
     var ordered = S.bullets.slice().sort(function (a, b) { return b.z - a.z; });
@@ -235,6 +338,8 @@ function createRenderer(ctx, W, H, juice) {
       var ft = frozenTint(c, S.ts);
       drawRock(SW, SH, b, [ft[0] * br, ft[1] * br, ft[2] * br]);
     }
+    // particles (additive) sit above rocks, below the player + HUD
+    particles.draw(ctx, toX, toY, SW, SH);
     // player — faceted emissive crystal (same style language as the rocks)
     drawPlayer(SW, SH, S, time);
 
@@ -271,6 +376,17 @@ function createRenderer(ctx, W, H, juice) {
     ctx.fillRect(toX(SW, -180), toY(SH, 106) - 3, 360, 6);
     text(SW, toY(SH, 68), 29, [1, 1, 1], S.cardTitle);
     if (S.cardSub) text(SW, toY(SH, 24), 16, [0.8, 0.88, 1.0], S.cardSub);
+    // NEW BEST! stamp when this run set a record (rotated gold badge).
+    if (S.newBest) {
+      var bx = toX(SW, 120), by = toY(SH, 92);
+      ctx.save();
+      ctx.translate(bx, by); ctx.rotate(-0.18);
+      ctx.globalCompositeOperation = 'lighter';
+      starGlyph(0, 0, 26, [1, 0.8, 0.25], 0.9);
+      ctx.restore();
+      text(bx, by, 10, [0.15, 0.1, 0.0], 'NEW');
+      text(bx, by + 11, 9, [0.15, 0.1, 0.0], 'BEST');
+    }
     for (var i = 0; i < S.card.length; i++) {
       var b = S.card[i];
       button(SW, SH, b.rect, b.label, b.primary ? [0.20, 0.62, 0.35] : [0.24, 0.30, 0.42]);
@@ -293,6 +409,17 @@ function createRenderer(ctx, W, H, juice) {
     text(SW, toY(SH, 210), 44, [1, 1, 1], 'TIME DODGE');
     text(SW, toY(SH, 150), 15, [0.75, 0.85, 1.0], 'Hold: time flows.  Release: the world freezes.');
     text(SW, toY(SH, 124), 14, [0.75, 0.85, 1.0], 'Every second you hold on is a second stolen back.');
+    // player records (persisted but never shown before) — a reason to return.
+    if (game.bests) {
+      var bs = game.bests();
+      var cyv = toY(SH, 96);
+      text(SW - 96, cyv, 12, [0.55, 0.7, 0.95], 'BEST');
+      text(SW - 96, cyv + 17, 15, [0.9, 0.96, 1.0], bs.endless.toFixed(1) + 's');
+      starGlyph(SW - 2, cyv - 3, 7, [1, 0.85, 0.4], 1);
+      text(SW + 14, cyv, 15, [1, 0.9, 0.5], bs.stars + '/' + bs.maxStars);
+      text(SW + 96, cyv, 12, [0.55, 0.7, 0.95], 'MASS');
+      text(SW + 96, cyv + 17, 15, [0.9, 0.96, 1.0], String(Math.floor(bs.absorb)));
+    }
     var b = G.btn;
     button(SW, SH, b.endless, 'ENDLESS', [0.75, 0.22, 0.20]);
     text(SW, toY(SH, b.endless.y - 22), 13, [1, 0.85, 0.8], 'steal as long as you can');
@@ -311,15 +438,24 @@ function createRenderer(ctx, W, H, juice) {
       var base = open ? [0.20, 0.55, 0.70] : [0.28, 0.30, 0.36];
       panel(SW, SH, r, rgba(base, 1), 'rgba(255,255,255,0.12)');
       var cx = toX(SW, r.x), cy = toY(SH, r.y);
-      text(cx, cy - 10, 26, [1, 1, 1], String(r.i), open ? 1 : 0.45);
-      var st = open ? (game.starsOf(r.i) >= 1 ? '*'.repeat(game.starsOf(r.i)) : '-') : '?';
-      text(cx, cy + 20, 15, [1, 0.9, 0.4], st, open ? 1 : 0.4);
+      if (open) {
+        text(cx, cy - 12, 26, [1, 1, 1], String(r.i), 1);
+        var sc = game.starsOf(r.i);
+        for (var s = 0; s < 3; s++) {
+          var lit = s < sc;
+          starGlyph(cx + (s - 1) * 15, cy + 20, 6, lit ? [1, 0.85, 0.4] : [0.4, 0.44, 0.55], lit ? 1 : 0.6);
+        }
+      } else {
+        text(cx, cy - 12, 26, [1, 1, 1], String(r.i), 0.35);
+        lockGlyph(cx, cy + 16, 8, 0.55);
+      }
     }
     if (G.btn.back) button(SW, SH, G.btn.back, 'BACK', [0.30, 0.32, 0.40]);
   }
 
   function draw(game, time) {
     var G = game.state;
+    curGame = game;
     // Decay the shared shake/zoom trauma (time-based so it's frame-rate stable).
     var dt = time - lastT; lastT = time;
     if (dt < 0 || dt > 0.1) dt = 0.016;
@@ -338,6 +474,8 @@ function createRenderer(ctx, W, H, juice) {
     else if (G.mode === 'levels') drawLevels(game);
     else if (G.mode === 'run' && G.S) drawRun(game, time);
     ctx.restore();
+    // full-screen grade sits OUTSIDE the shake transform so edges stay clean
+    postFx(G);
   }
 
   return { draw: draw };

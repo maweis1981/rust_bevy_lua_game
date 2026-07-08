@@ -15,6 +15,7 @@
 var createGame = require('./game.js').createGame;
 var createRenderer = require('./render.js').createRenderer;
 var createSound = require('./sound.js').createSound;
+var createParticles = require('./particles.js').createParticles;
 
 function startGame(platform) {
   var canvas = platform.canvas;
@@ -32,10 +33,13 @@ function startGame(platform) {
   var juice = { trauma: 0, zoom: 0 };
   platform.shake = function (a) { juice.trauma = Math.min(1, juice.trauma + (a || 0)); };
   platform.zoom = function (a) { juice.zoom = Math.min(1, juice.zoom + (a || 0)); };
+  // Particles: the game core emits presets on eats/gates/deaths/clears.
+  var particles = createParticles(240);
+  platform.emit = function (preset, x, y, opts) { particles.burst(preset, x, y, opts); };
 
   var game = createGame(platform);
   game.setSize(SW, SH);
-  var renderer = createRenderer(ctx, W, H, juice);
+  var renderer = createRenderer(ctx, W, H, juice, particles);
 
   function toWorld(px, py) { return { x: px - SW, y: SH - py }; }
 
@@ -63,6 +67,7 @@ function startGame(platform) {
     if (dt > 0.1) dt = 0.1;    // tab-away / stall guard
     if (dt < 0) dt = 0;
     game.update(dt);
+    particles.update(dt);
     renderer.draw(game, t / 1000);
     platform.raf(frame);
   }
