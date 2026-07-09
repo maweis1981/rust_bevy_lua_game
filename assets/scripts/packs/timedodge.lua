@@ -240,6 +240,26 @@ function make_timedodge()
     DEBUG = d
   end
 
+  -- Starship-console framing for a rect: a dark seat panel, the coloured fill, a
+  -- top accent hairline, and four inward corner brackets — one consistent UI
+  -- "system" over the colour-coded buttons. `ac` = the cyan console accent.
+  local function sci_panel(rect, r, g, b)
+    local x, y, w, h = rect.x, rect.y, rect.w, rect.h
+    local hw, hh = w * 0.5, h * 0.5
+    T.spawn(x, y, w + 10, h + 10, 0.05, 0.07, 0.12, 0.9)   -- seat/bezel behind the fill
+    T.spawn(x, y, w, h, r, g, b, 1)                        -- the coloured button face
+    T.spawn(x, y + hh - 3, w - 14, 2, CY[1], CY[2], CY[3], 0.85)  -- top accent hairline
+    local cl, th, pad = 16, 3, 4
+    local function bracket(cx, cy, dx, dy)
+      T.spawn(cx + dx * cl * 0.5, cy, cl, th, CY[1], CY[2], CY[3], 1)
+      T.spawn(cx, cy + dy * cl * 0.5, th, cl, CY[1], CY[2], CY[3], 1)
+    end
+    bracket(x - hw + pad, y + hh - pad, 1, -1)
+    bracket(x + hw - pad, y + hh - pad, -1, -1)
+    bracket(x - hw + pad, y - hh + pad, 1, 1)
+    bracket(x + hw - pad, y - hh + pad, -1, 1)
+  end
+
   local function build_select(hw, hh)
     mode = "select"; keep_space()
     game.set_text("")
@@ -247,15 +267,15 @@ function make_timedodge()
     T.text(0, 150, 17, 0.75, 0.85, 1.0, 1, "Hold: time flows. Release: the world freezes.")
     T.text(0, 122, 17, 0.75, 0.85, 1.0, 1, "Every second you hold on is a second stolen back.")
     btn_endless = { x = 0, y = 10, w = 300, h = 86 }
-    T.spawn(btn_endless.x, btn_endless.y, btn_endless.w, btn_endless.h, 0.75, 0.22, 0.20, 1)
+    sci_panel(btn_endless, 0.75, 0.22, 0.20)
     T.text(btn_endless.x, btn_endless.y + 12, 30, 1, 1, 1, 1, "ENDLESS")
     T.text(btn_endless.x, btn_endless.y - 22, 14, 1, 0.85, 0.8, 1, "steal as long as you can")
     btn_trials = { x = 0, y = -110, w = 300, h = 86 }
-    T.spawn(btn_trials.x, btn_trials.y, btn_trials.w, btn_trials.h, 0.20, 0.55, 0.70, 1)
+    sci_panel(btn_trials, 0.20, 0.55, 0.70)
     T.text(btn_trials.x, btn_trials.y + 12, 30, 1, 1, 1, 1, "TRIALS")
     T.text(btn_trials.x, btn_trials.y - 22, 14, 0.8, 0.95, 1, 1, "ten sealed moments to break")
     btn_absorb = { x = 0, y = -230, w = 300, h = 86 }
-    T.spawn(btn_absorb.x, btn_absorb.y, btn_absorb.w, btn_absorb.h, 0.45, 0.28, 0.70, 1)
+    sci_panel(btn_absorb, 0.45, 0.28, 0.70)
     T.text(btn_absorb.x, btn_absorb.y + 12, 30, 1, 1, 1, 1, "ABSORB")
     T.text(btn_absorb.x, btn_absorb.y - 22, 14, 0.85, 0.8, 1, 1, "eat the small - fear the big")
     -- In a single-game build (STANDALONE) the mode select IS the home, so there
@@ -562,8 +582,11 @@ function make_timedodge()
   local function die()
     S.playing = false
     clear_foes()
-    game.play_sound("hit"); game.haptic("heavy"); game.shake(0.7); game.zoom(0.8)
-    game.emit("spark", S.px, S.py)
+    -- Heavy impact: max shake + zoom punch, a layered burst (debris chunks +
+    -- sparks) and a strong haptic so the crash lands on the body too.
+    game.play_sound("hit"); game.haptic("heavy"); game.shake(1.0); game.zoom(0.9)
+    game.emit("debris", S.px, S.py, 24)
+    game.emit("spark", S.px, S.py, 16)
     local retry = { label = "RETRY", act = "retry", primary = true }
     local modes = { label = "MODES", act = "modes" }
     -- A one-per-run rewarded revive: watch a video, resume where you fell. Only
@@ -618,7 +641,8 @@ function make_timedodge()
   -- Shared by the in-loop hit path and the dialog's NO button.
   local function apply_chip()
     S.mass = S.mass * CHIP
-    game.play_sound("wall"); game.haptic("heavy"); game.shake(0.5); game.zoom(0.5)
+    game.play_sound("hit"); game.haptic("heavy"); game.shake(0.65); game.zoom(0.55)
+    game.emit("debris", S.px, S.py, 14)
     if S.mass < MIN_MASS then die(); return end
     player_size(S.mass)
     hud()
@@ -710,8 +734,8 @@ function make_timedodge()
       game.set_color(gate_id, 0.5, 0.95, 1.0, 0.7 + 0.3 * math.sin(S.elapsed * 6))
       if math.sqrt((S.gate.x - S.px) ^ 2 + (S.gate.y - S.py) ^ 2) < (GATE + PLAYER) * 0.5 then
         S.gate_i = S.gate_i + 1
-        game.play_sound("score"); game.haptic("light"); game.shake(0.25)
-        game.emit("spark", S.gate.x, S.gate.y)
+        game.play_sound("score"); game.haptic("medium"); game.shake(0.35)
+        game.emit("splash", S.gate.x, S.gate.y); game.emit("spark", S.gate.x, S.gate.y, 10)
         if S.gate_i >= LEVELS[S.trial].gates then
           game.set_color(gate_id, 0, 0, 0, 0)
           finish_trial(); return
@@ -786,7 +810,7 @@ function make_timedodge()
         if d < HIT_R then die(); return end
         if d < NEAR and not b.near then      -- near miss: a graze of juice
           b.near = true
-          game.play_sound("wall"); game.haptic("light"); game.shake(0.06); game.zoom(0.25)
+          game.play_sound("wall"); game.haptic("light"); game.shake(0.12); game.zoom(0.30)
         end
       end
       if consumed then
@@ -863,10 +887,10 @@ function make_timedodge()
       -- YES = leave the run "up one level" (trial -> levels, else -> mode select).
       if confirm then
         if K.in_rect(confirm.yes, x, y) then
-          close_confirm()
+          game.play_sound("ui_confirm"); close_confirm()
           if S and S.trial then to_levels() else to_select() end
         elseif K.in_rect(confirm.no, x, y) then
-          close_confirm()
+          game.play_sound("ui_back"); close_confirm()
         end
         return
       end
@@ -895,22 +919,23 @@ function make_timedodge()
       -- The small "return to base" icon. In a RUN it asks for confirmation
       -- (a mis-tap must never abandon progress); on the menus it just steps up.
       if base_btn and K.in_rect(base_btn, x, y) then
-        if mode == "run" then open_confirm()
-        elseif mode == "levels" then to_select()
-        else K.switch("menu") end
+        if mode == "run" then game.play_sound("ui_tap"); open_confirm()
+        elseif mode == "levels" then game.play_sound("ui_back"); to_select()
+        else game.play_sound("ui_back"); K.switch("menu") end
         return
       end
       if mode == "select" then
-        if btn_endless and K.in_rect(btn_endless, x, y) then start_run(nil)
-        elseif btn_trials and K.in_rect(btn_trials, x, y) then to_levels()
-        elseif btn_absorb and K.in_rect(btn_absorb, x, y) then start_run(nil, true) end
+        if btn_endless and K.in_rect(btn_endless, x, y) then game.play_sound("ui_confirm"); start_run(nil)
+        elseif btn_trials and K.in_rect(btn_trials, x, y) then game.play_sound("ui_tap"); to_levels()
+        elseif btn_absorb and K.in_rect(btn_absorb, x, y) then game.play_sound("ui_confirm"); start_run(nil, true) end
       elseif mode == "levels" then
         for i, r in ipairs(lv_rects) do
-          if K.in_rect(r, x, y) and unlocked(i) then start_run(i); return end
+          if K.in_rect(r, x, y) and unlocked(i) then game.play_sound("ui_confirm"); start_run(i); return end
         end
       elseif S and not S.playing and S.card then
         for _, b in ipairs(S.card) do
           if K.in_rect(b.rect, x, y) then
+            if b.act ~= "revive" then game.play_sound("ui_tap") end
             if b.act == "retry" then start_run(S.trial, S.absorb)
             elseif b.act == "levels" then to_levels()
             elseif b.act == "revive" then        -- watch a rewarded video, then resume

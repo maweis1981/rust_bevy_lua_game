@@ -42,18 +42,22 @@
   var STARS = makeStars(140);
   var NEBULA = makeNebula(5);
 
-  // ---- particles (native parity: presets + 512 cap) -------------------------
+  // ---- particles ------------------------------------------------------------
+  // Two looks: soft additive GLOW discs (sparks/embers/splash — real light) and
+  // solid spinning BITS (confetti/debris). Presets carry native's 4 names plus a
+  // grey "debris" burst for impacts. drag slows them so they settle, not fly flat.
   var PCAP = 512, parts = [];
   var PRESETS = {
-    spark:    { speed: [180, 320], grav: -300, ttl: 0.40, size: 5, up: false, count: 16,
-                cols: [[1.0, 0.8, 0.3], [1.0, 0.55, 0.2]] },
-    dust:     { speed: [30, 90],   grav: -60,  ttl: 0.70, size: 4, up: false, count: 14,
+    spark:    { speed: [200, 360], grav: -260, drag: 2.2, ttl: 0.45, size: 6, up: false, count: 18, glow: true,
+                cols: [[1, 0.85, 0.35], [1, 0.6, 0.2], [1, 0.95, 0.7]] },
+    dust:     { speed: [30, 100],  grav: -40,  drag: 1.6, ttl: 0.80, size: 7, up: false, count: 14, glow: true,
                 cols: [[0.62, 0.55, 0.45], [0.72, 0.66, 0.55]] },
-    confetti: { speed: [120, 260], grav: -220, ttl: 1.20, size: 6, up: true,  count: 20,
-                cols: [[0.95, 0.35, 0.45], [0.35, 0.75, 0.95], [0.95, 0.85, 0.35],
-                       [0.55, 0.9, 0.5], [0.8, 0.5, 0.95]] },
-    splash:   { speed: [140, 280], grav: -500, ttl: 0.50, size: 4, up: true,  count: 18,
+    confetti: { speed: [140, 300], grav: -260, drag: 0.6, ttl: 1.30, size: 7, up: true,  count: 24, glow: false,
+                cols: [[0.95, 0.35, 0.45], [0.35, 0.75, 0.95], [0.95, 0.85, 0.35], [0.55, 0.9, 0.5], [0.8, 0.5, 0.95]] },
+    splash:   { speed: [150, 300], grav: -460, drag: 1.0, ttl: 0.55, size: 5, up: true,  count: 20, glow: true,
                 cols: [[0.5, 0.75, 0.95], [0.7, 0.88, 1.0]] },
+    debris:   { speed: [120, 320], grav: -360, drag: 1.2, ttl: 0.70, size: 5, up: false, count: 16, glow: false,
+                cols: [[0.72, 0.74, 0.80], [0.55, 0.57, 0.62], [0.88, 0.88, 0.94]] },
   };
   function emit(preset, x, y, count) {
     var p = PRESETS[preset] || PRESETS.spark;
@@ -63,7 +67,9 @@
       var sp = p.speed[0] + Math.random() * (p.speed[1] - p.speed[0]);
       var c = p.cols[(Math.random() * p.cols.length) | 0];
       parts.push({ x: x, y: y, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp,
-        life: p.ttl, ttl: p.ttl, size: p.size, r: c[0], g: c[1], b: c[2], grav: p.grav });
+        life: p.ttl, ttl: p.ttl, size: p.size * (0.7 + 0.6 * Math.random()),
+        r: c[0], g: c[1], b: c[2], grav: p.grav, drag: p.drag || 0, glow: p.glow,
+        rot: Math.random() * 6.28, spin: (Math.random() * 2 - 1) * 8 });
     }
   }
   function stepParticles(dt) {
@@ -71,8 +77,34 @@
       var p = parts[i];
       p.life -= dt;
       if (p.life <= 0) { parts.splice(i, 1); continue; }
-      p.vy += p.grav * dt; p.x += p.vx * dt; p.y += p.vy * dt;
+      var d = 1 - Math.min(0.9, (p.drag || 0) * dt);
+      p.vx *= d; p.vy = p.vy * d + p.grav * dt;
+      p.x += p.vx * dt; p.y += p.vy * dt; p.rot += p.spin * dt;
     }
+  }
+
+  // Soft glow disc, pre-rendered once and tinted+cached per quantized colour so
+  // particles read as real light rather than flat squares.
+  var GLOW = document.createElement('canvas'); GLOW.width = GLOW.height = 64;
+  (function () {
+    var g = GLOW.getContext('2d');
+    var rg = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+    rg.addColorStop(0, 'rgba(255,255,255,1)');
+    rg.addColorStop(0.35, 'rgba(255,255,255,0.6)');
+    rg.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = rg; g.fillRect(0, 0, 64, 64);
+  })();
+  var glowCache = {};
+  function glowFor(r, g, b) {
+    var key = ((r * 5) | 0) + '_' + ((g * 5) | 0) + '_' + ((b * 5) | 0);
+    if (glowCache[key]) return glowCache[key];
+    var c = document.createElement('canvas'); c.width = c.height = 64;
+    var cx = c.getContext('2d');
+    cx.drawImage(GLOW, 0, 0);
+    cx.globalCompositeOperation = 'source-in';
+    cx.fillStyle = 'rgb(' + (r * 255 | 0) + ',' + (g * 255 | 0) + ',' + (b * 255 | 0) + ')';
+    cx.fillRect(0, 0, 64, 64);
+    glowCache[key] = c; return c;
   }
 
   // ---- audio (Web Audio; sfx overlap+dedup, one music loop, one voice) ------
@@ -103,11 +135,32 @@
     if (!ensureAudio()) return;
     if (sfxPlayedThisFrame[name]) return;                 // dedup identical within a frame
     sfxPlayedThisFrame[name] = true;
+    if (name.slice(0, 2) === 'ui') { synthUi(name); return; }   // synthesized console blip
     getBuffer(name, function (b) {
       var s = actx.createBufferSource(); s.buffer = b;
       var g = actx.createGain(); g.gain.value = vol.sfx;
       s.connect(g); g.connect(actx.destination); s.start();
     });
+  }
+  // Sci-fi UI sounds, synthesized (no asset) — a starship-console blip for taps,
+  // a rising chime for confirm, a falling one for back. ui_tap/ui/ui_confirm/ui_back.
+  function synthUi(name) {
+    var t = actx.currentTime, dur, f0, f1;
+    if (name === 'ui_back') { f0 = 540; f1 = 300; dur = 0.10; }
+    else if (name === 'ui_confirm') { f0 = 480; f1 = 900; dur = 0.15; }
+    else { f0 = 680; f1 = 940; dur = 0.07; }              // ui / ui_tap
+    function tone(type, mul, gain) {
+      var o = actx.createOscillator(), g = actx.createGain();
+      o.type = type;
+      o.frequency.setValueAtTime(f0 * mul, t);
+      o.frequency.exponentialRampToValueAtTime(f1 * mul, t + dur);
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(gain * vol.sfx, t + 0.006);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      o.connect(g); g.connect(actx.destination); o.start(t); o.stop(t + dur + 0.02);
+    }
+    tone('square', 1, 0.16);
+    tone('triangle', 2, 0.05);                            // a harmonic for "console" timbre
   }
   function playMusic(name) {
     if (!ensureAudio()) return;
@@ -280,7 +333,16 @@
     emit: function (L) { emit(str(L, 1), num(L, 2), num(L, 3), opt(L, 4, 0)); return 0; },
     set_bg_theme: function (L) { bg.theme = num(L, 1) | 0; return 0; },
     space_mode: function (L) { bg.space = lua.lua_toboolean(L, 1) ? true : false; return 0; },
-    haptic: function (L) { if (navigator.vibrate) { var s = str(L, 1); navigator.vibrate(s === 'heavy' ? 30 : s === 'medium' ? 18 : s === 'success' ? [12, 40, 12] : 10); } return 0; },
+    haptic: function (L) {
+      if (navigator.vibrate) {
+        var s = str(L, 1);
+        // Punchier patterns so impacts read on the body, not just the eyes.
+        var pat = s === 'heavy' ? [40, 25, 30] : s === 'medium' ? 22
+          : s === 'success' ? [15, 30, 15, 30, 22] : 12;
+        try { navigator.vibrate(pat); } catch (e) {}
+      }
+      return 0;
+    },
 
     // ---- audio ----
     play_sound: function (L) { playSound(str(L, 1)); return 0; },
@@ -528,16 +590,29 @@
       ctx.restore();
     }
 
-    // particles (additive glow) — in the same camera space
+    // particles — pass 1: additive glow discs; pass 2: solid spinning bits
     if (parts.length) {
+      var k, p, a, px, py;
       ctx.globalCompositeOperation = 'lighter';
-      for (var k = 0; k < parts.length; k++) {
-        var p = parts[k], a = Math.max(0, p.life / p.ttl);
-        ctx.fillStyle = col(p.r, p.g, p.b, a);
-        var px = toX(p.x), py = toY(p.y), sz = p.size * (0.5 + 0.5 * a);
-        ctx.fillRect(px - sz / 2, py - sz / 2, sz, sz);
+      for (k = 0; k < parts.length; k++) {
+        p = parts[k]; if (!p.glow) continue;
+        a = Math.max(0, p.life / p.ttl);
+        px = toX(p.x); py = toY(p.y);
+        var gz = p.size * (1.4 + 1.6 * (1 - a));      // bloom out as it fades
+        ctx.globalAlpha = a;
+        ctx.drawImage(glowFor(p.r, p.g, p.b), px - gz, py - gz, gz * 2, gz * 2);
       }
       ctx.globalCompositeOperation = 'source-over';
+      for (k = 0; k < parts.length; k++) {
+        p = parts[k]; if (p.glow) continue;
+        a = Math.max(0, p.life / p.ttl);
+        px = toX(p.x); py = toY(p.y);
+        ctx.globalAlpha = Math.min(1, a * 1.6);
+        ctx.fillStyle = col(p.r, p.g, p.b, 1);
+        ctx.save(); ctx.translate(px, py); ctx.rotate(p.rot);
+        ctx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size * 0.62); ctx.restore();
+      }
+      ctx.globalAlpha = 1;
     }
     ctx.restore();
 
