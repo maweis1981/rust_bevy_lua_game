@@ -258,7 +258,10 @@ function make_timedodge()
     T.spawn(btn_absorb.x, btn_absorb.y, btn_absorb.w, btn_absorb.h, 0.45, 0.28, 0.70, 1)
     T.text(btn_absorb.x, btn_absorb.y + 12, 30, 1, 1, 1, 1, "ABSORB")
     T.text(btn_absorb.x, btn_absorb.y - 22, 14, 0.85, 0.8, 1, 1, "eat the small - fear the big")
-    place_base()
+    -- In a single-game build (STANDALONE) the mode select IS the home, so there
+    -- is nowhere to "return to base" — hide the icon. In the collection it steps
+    -- back out to the lobby as usual.
+    if STANDALONE then base_btn = nil else place_base() end
     set_debug({ btn_endless = btn_endless, btn_trials = btn_trials, btn_absorb = btn_absorb })
   end
 

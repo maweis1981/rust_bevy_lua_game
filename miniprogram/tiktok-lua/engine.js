@@ -368,9 +368,12 @@
   // Public boot: `packs` = [{name, src}] loaded first (they self-register into
   // PACKS), then `mainSrc` (main.lua) which reads PACKS in on_start. `autoboot`
   // optionally sets the landing scene (e.g. "timedodge" for an ad-campaign build).
-  window.__hlBoot = function (packs, mainSrc, autoboot) {
+  window.__hlBoot = function (packs, mainSrc, autoboot, standalone) {
     (packs || []).forEach(function (p) { loadChunk(p.src, p.name); });
     if (autoboot) loadChunk('AUTOBOOT = "' + String(autoboot).replace(/"/g, '') + '"', 'autoboot');
+    // Single-game build: the game's own screen is the home — no "return to the
+    // collection" affordance (there is no collection). Scripts read STANDALONE.
+    if (standalone) loadChunk('STANDALONE = true', 'standalone');
     if (!loadChunk(mainSrc, 'main.lua')) return;
     ensureAudio();
     callGlobal('on_start');
@@ -487,7 +490,13 @@
       if (r.kind === 'text') {
         ctx.fillStyle = col(r.r, r.g, r.b, r.a);
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.font = '700 ' + r.size + 'px system-ui, -apple-system, "Segoe UI", sans-serif';
+        var font = 'system-ui, -apple-system, "Segoe UI", sans-serif';
+        ctx.font = '700 ' + r.size + 'px ' + font;
+        // Auto-fit: the system font is wider than the native subset, so long
+        // centred lines can overrun the canvas — shrink to fit with a margin.
+        var maxW = W - 20;
+        var mw = ctx.measureText(r.str).width;
+        if (mw > maxW) ctx.font = '700 ' + (r.size * maxW / mw) + 'px ' + font;
         ctx.fillText(r.str, 0, 0);
       } else if (r.kind === 'sprite') {
         var im = texture(r.tex);

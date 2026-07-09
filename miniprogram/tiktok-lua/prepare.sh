@@ -26,8 +26,10 @@ A="$ROOT/assets"
 # EXTRA = the curated top-level game scripts (src/script.rs EXTRA_SCRIPTS). Like
 # packs, they load BEFORE main.lua and self-register into PACKS. All are core+juice
 # arcade games — kept in sync with the native list. PACKS = the drop-in packs.
-EXTRA="${EXTRA:-roguelike game2048 shooter world craftworld match3 umami}"
-PACKS="${PACKS:-catch fireflies forge gallery ponies timedodge}"
+# `-` (not `:-`) so an explicitly-empty EXTRA="" / PACKS="" means "none" (used by
+# the standalone single-game package), while unset falls back to the full set.
+EXTRA="${EXTRA-roguelike game2048 shooter world craftworld match3 umami}"
+PACKS="${PACKS-catch fireflies forge gallery ponies timedodge}"
 LEAN="${LEAN:-0}"
 
 echo ">> main.lua"

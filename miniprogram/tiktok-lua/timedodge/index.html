@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- TikTok Mini Games JSSDK — MUST be the first tag after <head>, from this
+       exact host (the DevTools validates this). Rewarded video ads, loading
+       progress, and storage hang off TTMinis.game.* -->
+  <script src="https://connect.tiktok-minis.com/game/sdk.js"></script>
+  <script>
+    if (typeof TTMinis !== 'undefined' && TTMinis.game && TTMinis.game.init) {
+      try { TTMinis.game.init({ clientKey: 'YOUR_TIKTOK_CLIENT_KEY' }); } catch (e) {}
+    }
+    function __ttProgress(p) {
+      if (typeof TTMinis !== 'undefined' && TTMinis.game && TTMinis.game.setLoadingProgress) {
+        try { TTMinis.game.setLoadingProgress({ progress: p }); } catch (e) {}
+      }
+    }
+  </script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <title>Time Dodge</title>
+  <style>
+    html, body { margin: 0; padding: 0; height: 100%; background: #05060d; overflow: hidden; }
+    #wrap { display: flex; align-items: center; justify-content: center; height: 100vh; }
+    #game { display: block; touch-action: none; max-width: 100vw; max-height: 100vh; }
+  </style>
+</head>
+<!--
+  timedodge/index.html — STANDALONE Time Dodge for TikTok (TTMinis HTML runtime).
+
+  Ships ONLY the Time Dodge game (its own native Lua, unmodified) via fengari +
+  engine.js: boots straight into it (AUTOBOOT), single-game mode (STANDALONE, no
+  collection lobby). The rewarded-video revive + cancel-hit hang off the TTMinis
+  ad API wired in engine.js. Assembled by ../package-timedodge.sh.
+-->
+<body>
+  <div id="wrap"><canvas id="game" width="450" height="800"></canvas></div>
+
+  <script src="vendor/fengari-web.js"></script>
+  <script src="engine.js"></script>
+  <script>
+    (function () {
+      'use strict';
+      __ttProgress(0.2);
+      function text(u) { return fetch(u).then(function (r) { return r.text(); }); }
+      fetch('manifest.json').then(function (r) { return r.json(); }).then(function (m) {
+        __ttProgress(0.4);
+        var jobs = (m.packs || []).map(function (path) {
+          return text(path).then(function (src) { return { name: path, src: src }; });
+        });
+        return Promise.all(jobs).then(function (packs) {
+          __ttProgress(0.8);
+          return text(m.main).then(function (mainSrc) {
+            // AUTOBOOT into timedodge; STANDALONE = single-game (no lobby).
+            window.__hlBoot(packs, mainSrc, 'timedodge', true);
+            __ttProgress(1);
+          });
+        });
+      }).catch(function (e) { console.error('boot failed', e); });
+    })();
+  </script>
+</body>
+</html>
