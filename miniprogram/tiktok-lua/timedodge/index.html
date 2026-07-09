@@ -6,11 +6,11 @@
        progress, and storage hang off TTMinis.game.* -->
   <script src="https://connect.tiktok-minis.com/game/sdk.js"></script>
   <script>
-    // ROW build: In-App Ads ENABLED (rewarded video revive + cancel-hit). Ships
-    // to regions where you hold rewarded-ad rights. The US app is a separate,
-    // ads-off build (index-us.html) — see package-timedodge.sh's two-app split.
+    // In-App Ads (IAA) build: rewarded video for revive, ABSORB cancel-hit, and a
+    // home-screen "watch ad -> gold skin". Ad placement id is set in engine.js
+    // (AD_UNIT); override per build here with window.__AD_UNIT_ID if you like.
     if (typeof TTMinis !== 'undefined' && TTMinis.game && TTMinis.game.init) {
-      try { TTMinis.game.init({ clientKey: 'YOUR_ROW_TIKTOK_CLIENT_KEY' }); } catch (e) {}
+      try { TTMinis.game.init({ clientKey: 'YOUR_TIKTOK_CLIENT_KEY' }); } catch (e) {}
     }
     function __ttProgress(p) {
       if (typeof TTMinis !== 'undefined' && TTMinis.game && TTMinis.game.setLoadingProgress) {

@@ -286,15 +286,21 @@ function make_timedodge()
     -- is nowhere to "return to base" — hide the icon. In the collection it steps
     -- back out to the lobby as usual.
     if STANDALONE then base_btn = nil else place_base() end
-    -- Store entry: a one-time IAP for a cosmetic gold skin. Shown only where the
-    -- host supports purchases (TikTok build); nil elsewhere so nothing to tap.
+    -- Home-screen reward entry for the cosmetic gold skin. Prefer a rewarded VIDEO
+    -- AD when ads are available (an easy, always-on ad trigger — good for review
+    -- and the IAA build); otherwise fall back to a one-time IAP. Hidden where the
+    -- host has neither (native/web), so nothing to tap and nothing to break.
     pro_btn = nil
-    if game.iap_supported and game.iap_supported() then
-      pro_btn = { x = 0, y = -322, w = 300, h = 46 }
-      local owned = owns_pro()
-      if owned then
+    local ad_ok = game.ad_ready and game.ad_ready("skin")
+    local iap_ok = game.iap_supported and game.iap_supported()
+    if ad_ok or iap_ok then
+      pro_btn = { x = 0, y = -322, w = 300, h = 46, mode = ad_ok and "ad" or "iap" }
+      if owns_pro() then
         sci_panel(pro_btn, 0.20, 0.50, 0.32)
         T.text(pro_btn.x, pro_btn.y, 19, 1, 1, 1, 1, "PRO SKIN - OWNED")
+      elseif ad_ok then
+        sci_panel(pro_btn, 0.28, 0.55, 0.75)
+        T.text(pro_btn.x, pro_btn.y, 18, 1, 1, 1, 1, "WATCH AD - GOLD SKIN")
       else
         sci_panel(pro_btn, 0.85, 0.62, 0.15)
         T.text(pro_btn.x, pro_btn.y, 19, 1, 1, 1, 1, "UNLOCK PRO GOLD SKIN")
@@ -898,19 +904,26 @@ function make_timedodge()
     hud()
   end
 
-  -- Run the IAP purchase for the pro skin; on success persist ownership and
-  -- refresh the mode select so the button flips to "OWNED".
+  -- Grant the pro skin, persist it, and refresh the mode select so the button
+  -- flips to "OWNED". Shared by the ad-unlock and IAP-purchase paths.
+  local function grant_pro(ok)
+    if ok then
+      game.save("td_pro", true)
+      game.play_sound("ui_confirm"); game.haptic("success"); game.emit("confetti", 0, -322)
+      if mode == "select" then wipe(); build_select(SW, SH) end
+    else
+      game.play_sound("ui_back")
+    end
+  end
+  -- IAA path: watch a rewarded video to unlock the skin (always-on ad entry).
+  local function unlock_pro_via_ad()
+    if not game.ad_reward then return end
+    game.ad_reward("skin", function(granted) grant_pro(granted) end)
+  end
+  -- IAP path: buy the skin (used only where there are no ads).
   local function buy_pro()
     if not game.iap_buy then return end
-    game.iap_buy(PRO_PRODUCT, function(ok)
-      if ok then
-        game.save("td_pro", true)
-        game.play_sound("ui_confirm"); game.haptic("success"); game.emit("confetti", 0, -322)
-        if mode == "select" then wipe(); build_select(SW, SH) end
-      else
-        game.play_sound("ui_back")
-      end
-    end)
+    game.iap_buy(PRO_PRODUCT, function(ok) grant_pro(ok) end)
   end
 
   ------------------------------------------------------------------
@@ -964,7 +977,9 @@ function make_timedodge()
       if mode == "select" then
         if pro_btn and K.in_rect(pro_btn, x, y) then
           game.play_sound("ui_tap")
-          if not owns_pro() then buy_pro() end
+          if not owns_pro() then
+            if pro_btn.mode == "ad" then unlock_pro_via_ad() else buy_pro() end
+          end
         elseif btn_endless and K.in_rect(btn_endless, x, y) then game.play_sound("ui_confirm"); start_run(nil)
         elseif btn_trials and K.in_rect(btn_trials, x, y) then game.play_sound("ui_tap"); to_levels()
         elseif btn_absorb and K.in_rect(btn_absorb, x, y) then game.play_sound("ui_confirm"); start_run(nil, true) end

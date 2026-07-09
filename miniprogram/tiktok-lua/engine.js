@@ -241,11 +241,11 @@
   // docs: createRewardedVideoAd({adUnitId}) -> show() (Promise; no load()) +
   // onClose(res => res.isEnded) for reward-earned. Instances are single-use.
   // Register each adUnitId in the TikTok Developer Portal and paste it here.
-  var AD_UNITS = {
-    revive: 'YOUR_REVIVE_AD_UNIT_ID',
-    cancel_hit: 'YOUR_CANCEL_HIT_AD_UNIT_ID',
-    default: 'YOUR_AD_UNIT_ID',
-  };
+  // Rewarded-video placement ids (from the TikTok Developer Portal). One placement
+  // serves all reward moments here; split into distinct ids if you want per-moment
+  // reporting. A per-build override can also be set via window.__AD_UNIT_ID.
+  var AD_UNIT = (typeof window !== 'undefined' && window.__AD_UNIT_ID) || 'ad7660402788282714128';
+  var AD_UNITS = { revive: AD_UNIT, cancel_hit: AD_UNIT, skin: AD_UNIT, default: AD_UNIT };
   // Where ads have NO fill for a user's region (e.g. you hold rewarded-ad rights
   // in some countries but not the US), still grant the reward so REVIVE / cancel-
   // hit never become dead buttons. Only a genuine SKIP (the user opened an ad and
