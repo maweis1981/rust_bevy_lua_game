@@ -147,6 +147,28 @@
     return tex[name];
   }
 
+  // Texture TINTING — the native/wasm path multiplies each Sprite by its color
+  // (foe kind-colours, ABSORB green/red danger, freeze blue, gate pulse, player
+  // tint). Canvas drawImage can't tint, so multiply the texture on a scratch
+  // canvas then clip to its alpha (destination-in). Only tinted when the colour
+  // is meaningfully non-white, so white sprites stay a plain fast blit.
+  var _tc = document.createElement('canvas'), _tcx = _tc.getContext('2d');
+  function drawTinted(im, sx, sy, sw, sh, w, h, r, g, b) {
+    var iw = Math.max(1, Math.ceil(w)), ih = Math.max(1, Math.ceil(h));
+    if (_tc.width < iw) _tc.width = iw;
+    if (_tc.height < ih) _tc.height = ih;
+    _tcx.clearRect(0, 0, iw, ih);
+    _tcx.globalCompositeOperation = 'source-over';
+    _tcx.drawImage(im, sx, sy, sw, sh, 0, 0, iw, ih);
+    _tcx.globalCompositeOperation = 'multiply';
+    _tcx.fillStyle = 'rgb(' + (r * 255 | 0) + ',' + (g * 255 | 0) + ',' + (b * 255 | 0) + ')';
+    _tcx.fillRect(0, 0, iw, ih);
+    _tcx.globalCompositeOperation = 'destination-in';   // clip the fill to the sprite's alpha
+    _tcx.drawImage(im, sx, sy, sw, sh, 0, 0, iw, ih);
+    _tcx.globalCompositeOperation = 'source-over';
+    ctx.drawImage(_tc, 0, 0, iw, ih, -w / 2, -h / 2, w, h);
+  }
+
   // ---- typed KV over localStorage (matches native s:/n:/b: codec) -----------
   function save(k, v) {
     var p = typeof v === 'number' ? 'n:' + v : typeof v === 'boolean' ? 'b:' + (v ? 1 : 0) : 's:' + v;
@@ -158,6 +180,34 @@
     if (p.slice(0, 2) === 'n:') return Number(p.slice(2));
     if (p.slice(0, 2) === 'b:') return p.slice(2) === '1';
     return p.slice(2);
+  }
+
+  // ---- TikTok rewarded video ads (TTMinis) ----------------------------------
+  // game.ad_ready(kind) -> can we show an ad? game.ad_reward(kind, cb) shows a
+  // rewarded video; cb(granted, reason) fires EXACTLY once. Per the TTMinis IAA
+  // docs: createRewardedVideoAd({adUnitId}) -> show() (Promise; no load()) +
+  // onClose(res => res.isEnded) for reward-earned. Instances are single-use.
+  // Register each adUnitId in the TikTok Developer Portal and paste it here.
+  var AD_UNITS = {
+    revive: 'YOUR_REVIVE_AD_UNIT_ID',
+    cancel_hit: 'YOUR_CANCEL_HIT_AD_UNIT_ID',
+    default: 'YOUR_AD_UNIT_ID',
+  };
+  function adsAvailable() {
+    return !!(window.TTMinis && window.TTMinis.game && window.TTMinis.game.createRewardedVideoAd);
+  }
+  function requestRewarded(kind, done) {
+    var fired = false;
+    function finish(g, r) { if (fired) return; fired = true; done(g, r); }
+    if (!adsAvailable()) return finish(false, 'unsupported');
+    var adUnitId = AD_UNITS[kind] || AD_UNITS.default;
+    var ad;
+    try { ad = window.TTMinis.game.createRewardedVideoAd({ adUnitId: adUnitId }); }
+    catch (e) { return finish(false, 'create_failed'); }
+    try { ad.onClose(function (res) { finish(!!(res && res.isEnded), (res && res.isEnded) ? 'earned' : 'closed_early'); }); } catch (e) {}
+    try { ad.onError(function (err) { finish(false, 'error:' + ((err && err.errCode) || 'unknown')); }); } catch (e) {}
+    try { var pr = ad.show(); if (pr && pr.catch) pr.catch(function () { finish(false, 'show_failed'); }); }
+    catch (e) { finish(false, 'show_failed'); }
   }
 
   // ---- the game.* bridge (each is a fengari lua_CFunction) -------------------
@@ -259,6 +309,25 @@
     track: function (L) { return 0; },   // analytics sink lives in the native bridge; no-op here
     log: function (L) { if (lua.lua_gettop(L) >= 1) console.log('[lua]', str(L, 1)); return 0; },
     open_url: function (L) { try { window.open(str(L, 1), '_blank'); } catch (e) {} return 0; },
+
+    // ---- ads: TikTok rewarded video (see requestRewarded above) ----
+    ad_moment: function (L) { return 0; },              // opportunity hint; no-op on this runtime
+    ad_ready: function (L) { lua.lua_pushboolean(L, adsAvailable() ? 1 : 0); return 1; },
+    ad_reward: function (L) {
+      var kind = str(L, 1);
+      lua.lua_pushvalue(L, 2);                          // stash the Lua callback in the registry
+      var ref = lauxlib.luaL_ref(L, lua.LUA_REGISTRYINDEX);
+      requestRewarded(kind, function (granted, reason) {
+        lua.lua_rawgeti(L, lua.LUA_REGISTRYINDEX, ref); // fetch + fire cb(granted, reason) exactly once
+        if (lua.lua_isfunction(L, -1)) {
+          lua.lua_pushboolean(L, granted ? 1 : 0);
+          lua.lua_pushstring(L, LS(reason || ''));
+          if (lua.lua_pcall(L, 2, 0, 0) !== lua.LUA_OK) { console.error('[ad_reward cb]', JS(lua.lua_tostring(L, -1))); lua.lua_pop(L, 1); }
+        } else { lua.lua_pop(L, 1); }
+        lauxlib.luaL_unref(L, lua.LUA_REGISTRYINDEX, ref);
+      });
+      return 0;
+    },
 
     // ---- skeletal rigs / tilemap: showcase-only, not in the ship bundle. Kept
     //      as safe stubs so nothing errors if a pack references them. ----
@@ -424,13 +493,19 @@
         var im = texture(r.tex);
         var ready = im && im.complete && im.naturalWidth;
         if (r.a !== undefined && r.a < 1) ctx.globalAlpha = r.a;
+        // Tint when the sprite colour is meaningfully non-white (foe kind-colours,
+        // ABSORB danger, freeze, gate pulse, player). White sprites blit plainly.
+        var tint = r.r < 0.96 || r.g < 0.96 || r.b < 0.96;
         if (ready) {
+          var sw2 = im.naturalWidth, sh2 = im.naturalHeight, sx2 = 0, sy2 = 0;
           if (r.cols) {
-            var fw = im.naturalWidth / r.cols, fh = im.naturalHeight / r.rows;
-            var fx = (r.frame % r.cols) * fw, fy = ((r.frame / r.cols) | 0) * fh;
-            ctx.drawImage(im, fx, fy, fw, fh, -r.w / 2, -r.h / 2, r.w, r.h);
+            sw2 = im.naturalWidth / r.cols; sh2 = im.naturalHeight / r.rows;
+            sx2 = (r.frame % r.cols) * sw2; sy2 = ((r.frame / r.cols) | 0) * sh2;
+          }
+          if (tint) {
+            drawTinted(im, sx2, sy2, sw2, sh2, r.w, r.h, r.r, r.g, r.b);
           } else {
-            ctx.drawImage(im, -r.w / 2, -r.h / 2, r.w, r.h);
+            ctx.drawImage(im, sx2, sy2, sw2, sh2, -r.w / 2, -r.h / 2, r.w, r.h);
           }
         } else {
           ctx.fillStyle = col(r.r * 0.6 + 0.2, r.g * 0.6 + 0.25, r.b * 0.6 + 0.35, r.a);

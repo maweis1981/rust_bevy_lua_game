@@ -65,20 +65,20 @@ for p in $PACKS; do
 done
 
 rm -rf "$HERE/textures"; mkdir -p "$HERE/textures"
+# Always copy everything, then (LEAN) prune only the big visual-novel/backdrop
+# families the arcade ship doesn't use. This is robust: textures referenced via
+# the KIT `T.sprite("name")` wrapper or via a variable icon (which a literal grep
+# would miss, e.g. timedodge's "rockball"/"gem"/icon_*) are never dropped.
+cp "$A"/textures/*.png "$HERE/textures/" 2>/dev/null || true
 if [ "$LEAN" = "1" ]; then
-  echo ">> textures (lean: referenced + UI/icon families)"
-  # names referenced as literals in the shipped Lua
-  REF="$(grep -rhoE '(spawn_sprite|spawn_sheet|set_sprite_image)\([^)]*"[a-z_0-9]+"|icon *= *"[a-z_0-9]+"' $SHIP_LUA 2>/dev/null | grep -oE '"[a-z_0-9]+"' | tr -d '"' | sort -u)"
-  for name in $REF; do
-    [ -f "$A/textures/$name.png" ] && cp "$A/textures/$name.png" "$HERE/textures/" || true
-  done
-  # families used via constructed names (forge_up_core, icon_*, r* UI tiles, g* pickups)
-  for pat in 'forge_*' 'icon_*' 'rtile' 'rpill' 'rcard' 'rxmark' 'orb' 'brick' 'paddle' 'snakehead' 'snakebody' 'food' 'sparkle' 'meteor' 'gberry' 'gbell' 'gdaisy' 'gleaf' 'gviola' 'gmush' 'btn_back'; do
-    cp $A/textures/$pat.png "$HERE/textures/" 2>/dev/null || true
+  echo ">> textures (lean: all minus the big VN/backdrop families the arcade set never uses)"
+  # Only the visual-novel packs (gallery/ponies — excluded from the arcade ship)
+  # reference these; the arcade games do not. Verified against the shipped Lua.
+  for pat in 'bg_*' 'arena_*' 'vg_*' 'decor_*' 'ground_*'; do
+    rm -f $HERE/textures/$pat.png 2>/dev/null || true
   done
 else
   echo ">> textures (all — full collection)"
-  cp "$A"/textures/*.png "$HERE/textures/" 2>/dev/null || true
 fi
 
 rm -rf "$HERE/audio"; mkdir -p "$HERE/audio"

@@ -205,7 +205,9 @@ function make_timedodge()
     rect(0, 0, SW * 2, SH * 2, 0, 0, 0, 0.8)             -- dim the whole arena
     rect(0, 0, 360, 250, 0.10, 0.12, 0.18, 1)            -- panel
     label(0, 75, 26, 1, 1, 1, 1, "CANCEL THIS HIT?")
-    label(0, 40, 14, 0.75, 0.85, 1.0, 1, "a sponsor will absorb it for you")
+    local sub = (game.ad_ready and game.ad_ready("cancel_hit"))
+      and "watch a short video to absorb it" or "a sponsor will absorb it for you"
+    label(0, 40, 14, 0.75, 0.85, 1.0, 1, sub)
     local yes = { x = -85, y = -35, w = 140, h = 66 }
     local no = { x = 85, y = -35, w = 140, h = 66 }
     rect(yes.x, yes.y, yes.w, yes.h, 0.20, 0.62, 0.35, 1)
@@ -358,7 +360,8 @@ function make_timedodge()
           next_unlock = 2, ann = "", ann_t = 0,
           volley_due = lv and LEVELS[lv].volley or 0,
           mass = PLAYER, peak = PLAYER, eaten = 0,
-          hit_dialog = nil, dialog_used = false }   -- a new run re-arms the offer
+          hit_dialog = nil, dialog_used = false,     -- a new run re-arms the offer
+          revived = false }                          -- one rewarded revive per run
     if lv then S.rng = new_lcg(LEVELS[lv].seed) end
     build_run(SW, SH)
   end
@@ -460,7 +463,8 @@ function make_timedodge()
       hud_add(game.spawn_text(0, 24, 16, 0.80, 0.88, 1.0, 1, sub))
     end
     local n = #btns
-    local bw, gap = 150, 14
+    local bw, gap = (n >= 3) and 108 or 150, 14   -- shrink to fit a 3rd (REVIVE) button
+    local fs = (n >= 3) and 17 or 20
     local x0 = -(n - 1) * (bw + gap) * 0.5
     S.card = {}
     for i, b in ipairs(btns) do
@@ -468,7 +472,7 @@ function make_timedodge()
       local r = { x = x, y = -52, w = bw, h = 54 }
       local c = b.primary and { 0.20, 0.62, 0.35 } or { 0.24, 0.30, 0.42 }
       hud_add(game.spawn(r.x, r.y, r.w, r.h, c[1], c[2], c[3], 1))
-      hud_add(game.spawn_text(r.x, r.y, 20, 1, 1, 1, 1, b.label))
+      hud_add(game.spawn_text(r.x, r.y, fs, 1, 1, 1, 1, b.label))
       S.card[#S.card + 1] = { rect = r, act = b.act }
     end
   end
@@ -559,12 +563,20 @@ function make_timedodge()
     game.emit("spark", S.px, S.py)
     local retry = { label = "RETRY", act = "retry", primary = true }
     local modes = { label = "MODES", act = "modes" }
+    -- A one-per-run rewarded revive: watch a video, resume where you fell. Only
+    -- offered when the host actually has ads (TikTok build) — on native/web
+    -- game.ad_ready is false, so the button never appears there. Trials are
+    -- excluded (their star clock makes a revive meaningless).
+    local can_revive = (not S.revived) and (not S.trial)
+      and game.ad_ready and game.ad_ready("revive")
+    local revive = { label = "REVIVE", act = "revive", primary = true }
     if S.absorb then
       local best = tonumber(game.load("td_absorb_best")) or 0
       if S.peak > best then best = S.peak; game.save("td_absorb_best", best) end
+      local btns = can_revive and { revive, retry, modes } or { retry, modes }
       hud_card("YOU FADED AWAY",
         string.format("PEAK %d   EATEN %d   BEST %d", math.floor(S.peak), S.eaten, math.floor(best)),
-        { retry, modes })
+        btns)
     elseif S.trial then
       hud_card("CAUGHT BY THE FREEZE",
         string.format("MOMENT %d   GATE %d/%d", S.trial, S.gate_i, LEVELS[S.trial].gates),
@@ -572,10 +584,30 @@ function make_timedodge()
     else
       local best = tonumber(game.load("timedodge_best")) or 0
       if S.score > best then best = S.score; game.save("timedodge_best", best) end
+      local btns = can_revive and { revive, retry, modes } or { retry, modes }
       hud_card("TIME RECLAIMED YOU",
-        string.format("STOLEN %.1fs   BEST %.1fs", S.score, best), { retry, modes })
+        string.format("STOLEN %.1fs   BEST %.1fs", S.score, best), btns)
     end
     game.log("lose")
+  end
+
+  -- Rewarded-ad revive: resume the run in clear space. Called from the card's
+  -- REVIVE button after game.ad_reward grants (TikTok build only).
+  local function do_revive()
+    if not S then return end
+    S.revived = true
+    S.playing = true
+    S.card = nil
+    hud_clear()
+    clear_foes()
+    S.px, S.py, S.drag = 0, 0, nil          -- respawn centred in cleared space
+    if S.absorb and S.mass < PLAYER then
+      S.mass = PLAYER; player_size(S.mass)
+    end
+    if HAS3D then game.move3d(player, 0, 0, 0) else game.move_to(player, 0, 0) end
+    game.play_sound("score"); game.haptic("success"); game.shake(0.4); game.zoom(0.4)
+    game.emit("confetti", 0, 0)
+    hud()
   end
 
   -- The normal big-rock penalty (ABSORB): chip 25% off, with the full impact
@@ -838,9 +870,17 @@ function make_timedodge()
       if S and S.hit_dialog then             -- the sponsor dialog swallows every
         local hd = S.hit_dialog              -- tap: only its two buttons act
         if K.in_rect(hd.yes, x, y) then
-          -- Sponsor absorbs the hit: no chip, the rock already shattered.
+          -- Absorb the hit for free. On the TikTok build that means a rewarded
+          -- video (watch it -> no chip; skip it -> take the normal chip). Where
+          -- there are no ads (native/web) it falls back to the sponsor link.
           close_hit_dialog()
-          if game.open_url then game.open_url("https://google.com") end
+          if game.ad_ready and game.ad_ready("cancel_hit") then
+            game.ad_reward("cancel_hit", function(granted)
+              if not granted then apply_chip() end   -- didn't watch: take the chip
+            end)
+          elseif game.open_url then
+            game.open_url("https://google.com")
+          end
           game.play_sound("score"); game.haptic("success")
         elseif K.in_rect(hd.no, x, y) then
           -- Decline: take the chip exactly as an ordinary big-rock hit.
@@ -870,6 +910,8 @@ function make_timedodge()
           if K.in_rect(b.rect, x, y) then
             if b.act == "retry" then start_run(S.trial, S.absorb)
             elseif b.act == "levels" then to_levels()
+            elseif b.act == "revive" then        -- watch a rewarded video, then resume
+              game.ad_reward("revive", function(granted) if granted then do_revive() end end)
             else to_select() end                 -- "modes"
             return
           end
