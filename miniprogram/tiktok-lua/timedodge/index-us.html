@@ -9,6 +9,9 @@
     // simpler path is two apps — this US app ships ads-off. The flag makes the
     // engine report no ads, so REVIVE never appears and no ad object is created.
     window.__ADS_ENABLED = false;
+    // IAP is the US app's revenue feature (no ads). Point this at your deployed
+    // backend (see server/README.md) — the "UNLOCK PRO" store button uses it.
+    window.__IAP_ENDPOINT = 'https://YOUR-BACKEND-DOMAIN/iap';
     if (typeof TTMinis !== 'undefined' && TTMinis.game && TTMinis.game.init) {
       try { TTMinis.game.init({ clientKey: 'YOUR_US_TIKTOK_CLIENT_KEY' }); } catch (e) {}
     }

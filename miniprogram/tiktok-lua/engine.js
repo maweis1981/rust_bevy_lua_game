@@ -274,6 +274,45 @@
     catch (e) { finish(AD_GRANT_ON_NOFILL, 'show_failed'); }
   }
 
+  // ---- TikTok In-App Purchase (IAP) -----------------------------------------
+  // game.iap_supported() -> can we purchase? game.iap_buy(productId, cb) runs the
+  // TTMinis purchase flow; cb(success, reason) fires once. Per the Mini Games
+  // payment docs the flow is server-mediated: login() -> YOUR backend mints a
+  // trade_order_id via /v2/minis/trade_order/create/ -> TTMinis.game.pay(order).
+  // Set window.__IAP_ENDPOINT to your backend base URL (see server/ reference).
+  function iapEndpoint() { return window.__IAP_ENDPOINT || '/api/iap'; }
+  function iapSupported() {
+    return !!(window.TTMinis && window.TTMinis.game &&
+      window.TTMinis.game.pay && window.TTMinis.game.login);
+  }
+  function iapBuy(productId, done) {
+    var fired = false;
+    function finish(ok, r) { if (fired) return; fired = true; done(ok, r); }
+    if (!iapSupported()) return finish(false, 'unsupported');
+    window.TTMinis.game.login({
+      success: function (r) {
+        fetch(iapEndpoint() + '/create-order', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ product_id: productId, login_code: r && r.code }),
+        }).then(function (resp) { return resp.json(); })
+          .then(function (data) {
+            var toid = data && data.trade_order_id;
+            if (!toid) return finish(false, 'order_failed');
+            window.TTMinis.game.pay({
+              trade_order_id: toid,
+              // success = the sheet completed; real fulfillment is confirmed by
+              // the server webhook (minis.trade_order.redeem.success).
+              success: function () { finish(true, 'paid'); },
+              fail: function (e) { finish(false, 'pay_failed'); },
+              complete: function () { finish(false, 'pay_incomplete'); },
+            });
+          })
+          .catch(function () { finish(false, 'order_fetch_failed'); });
+      },
+      fail: function () { finish(false, 'login_failed'); },
+    });
+  }
+
   // ---- the game.* bridge (each is a fengari lua_CFunction) -------------------
   function num(L, i) { return lua.lua_tonumber(L, i); }
   function opt(L, i, d) { return lua.lua_gettop(L) >= i && !lua.lua_isnoneornil(L, i) ? lua.lua_tonumber(L, i) : d; }
@@ -396,6 +435,24 @@
           lua.lua_pushboolean(L, granted ? 1 : 0);
           lua.lua_pushstring(L, LS(reason || ''));
           if (lua.lua_pcall(L, 2, 0, 0) !== lua.LUA_OK) { console.error('[ad_reward cb]', JS(lua.lua_tostring(L, -1))); lua.lua_pop(L, 1); }
+        } else { lua.lua_pop(L, 1); }
+        lauxlib.luaL_unref(L, lua.LUA_REGISTRYINDEX, ref);
+      });
+      return 0;
+    },
+
+    // ---- IAP: TikTok in-app purchase (see iapBuy above) ----
+    iap_supported: function (L) { lua.lua_pushboolean(L, iapSupported() ? 1 : 0); return 1; },
+    iap_buy: function (L) {
+      var productId = str(L, 1);
+      lua.lua_pushvalue(L, 2);                          // stash the Lua callback
+      var ref = lauxlib.luaL_ref(L, lua.LUA_REGISTRYINDEX);
+      iapBuy(productId, function (ok, reason) {
+        lua.lua_rawgeti(L, lua.LUA_REGISTRYINDEX, ref); // fire cb(success, reason) exactly once
+        if (lua.lua_isfunction(L, -1)) {
+          lua.lua_pushboolean(L, ok ? 1 : 0);
+          lua.lua_pushstring(L, LS(reason || ''));
+          if (lua.lua_pcall(L, 2, 0, 0) !== lua.LUA_OK) { console.error('[iap_buy cb]', JS(lua.lua_tostring(L, -1))); lua.lua_pop(L, 1); }
         } else { lua.lua_pop(L, 1); }
         lauxlib.luaL_unref(L, lua.LUA_REGISTRYINDEX, ref);
       });

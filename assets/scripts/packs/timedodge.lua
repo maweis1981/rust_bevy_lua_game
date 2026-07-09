@@ -108,6 +108,10 @@ function make_timedodge()
   local SW, SH = 0, 0
   local back = nil
   local btn_endless, btn_trials, btn_absorb, lv_rects = nil, nil, nil, {}
+  local pro_btn = nil                    -- IAP "unlock pro skin" button (mode select)
+  -- One-time non-consumable IAP: a cosmetic gold player skin. Ownership persists.
+  local function owns_pro() return game.load("td_pro") == true end
+  local PRO_PRODUCT = "timedodge_pro"
   local S = nil                          -- the live run (endless or trial)
   local trail, tcur = {}, 0
   local player, gate_id = nil, nil
@@ -282,7 +286,22 @@ function make_timedodge()
     -- is nowhere to "return to base" — hide the icon. In the collection it steps
     -- back out to the lobby as usual.
     if STANDALONE then base_btn = nil else place_base() end
-    set_debug({ btn_endless = btn_endless, btn_trials = btn_trials, btn_absorb = btn_absorb })
+    -- Store entry: a one-time IAP for a cosmetic gold skin. Shown only where the
+    -- host supports purchases (TikTok build); nil elsewhere so nothing to tap.
+    pro_btn = nil
+    if game.iap_supported and game.iap_supported() then
+      pro_btn = { x = 0, y = -322, w = 300, h = 46 }
+      local owned = owns_pro()
+      if owned then
+        sci_panel(pro_btn, 0.20, 0.50, 0.32)
+        T.text(pro_btn.x, pro_btn.y, 19, 1, 1, 1, 1, "PRO SKIN - OWNED")
+      else
+        sci_panel(pro_btn, 0.85, 0.62, 0.15)
+        T.text(pro_btn.x, pro_btn.y, 19, 1, 1, 1, 1, "UNLOCK PRO GOLD SKIN")
+      end
+    end
+    set_debug({ btn_endless = btn_endless, btn_trials = btn_trials, btn_absorb = btn_absorb,
+      pro_btn = function() return pro_btn end, owns_pro = owns_pro })
   end
 
   local function build_levels(hw, hh)
@@ -384,7 +403,8 @@ function make_timedodge()
           volley_due = lv and LEVELS[lv].volley or 0,
           mass = PLAYER, peak = PLAYER, eaten = 0,
           hit_dialog = nil, dialog_used = false,     -- a new run re-arms the offer
-          revived = false }                          -- one rewarded revive per run
+          revived = false,                           -- one rewarded revive per run
+          pro = owns_pro() }                         -- gold skin if the IAP is owned
     if lv then S.rng = new_lcg(LEVELS[lv].seed) end
     build_run(SW, SH)
   end
@@ -867,13 +887,30 @@ function make_timedodge()
       -- runs on REAL dt, faster while dashing. White pulled icy as time stops.
       S.prot = S.prot + (0.6 + pspeed / REF_SPEED) * dt
       game.rot3d(player, S.prot * 0.5, S.prot, S.prot * 0.25)
-      game.color3d(player, (1 - (1 - S.ts) * 0.3) * 0.88, 0.95, 1.0)
+      if S.pro then game.color3d(player, 1.0, 0.82 - (1 - S.ts) * 0.15, 0.32)
+      else game.color3d(player, (1 - (1 - S.ts) * 0.3) * 0.88, 0.95, 1.0) end
       game.move3d(player, S.px, S.py, 0)
     else
-      game.set_color(player, 1 - (1 - S.ts) * 0.3, 1, 1, 1)
+      if S.pro then game.set_color(player, 1, 0.82 - (1 - S.ts) * 0.15, 0.35, 1)
+      else game.set_color(player, 1 - (1 - S.ts) * 0.3, 1, 1, 1) end
       game.move_to(player, S.px, S.py)
     end
     hud()
+  end
+
+  -- Run the IAP purchase for the pro skin; on success persist ownership and
+  -- refresh the mode select so the button flips to "OWNED".
+  local function buy_pro()
+    if not game.iap_buy then return end
+    game.iap_buy(PRO_PRODUCT, function(ok)
+      if ok then
+        game.save("td_pro", true)
+        game.play_sound("ui_confirm"); game.haptic("success"); game.emit("confetti", 0, -322)
+        if mode == "select" then wipe(); build_select(SW, SH) end
+      else
+        game.play_sound("ui_back")
+      end
+    end)
   end
 
   ------------------------------------------------------------------
@@ -925,7 +962,10 @@ function make_timedodge()
         return
       end
       if mode == "select" then
-        if btn_endless and K.in_rect(btn_endless, x, y) then game.play_sound("ui_confirm"); start_run(nil)
+        if pro_btn and K.in_rect(pro_btn, x, y) then
+          game.play_sound("ui_tap")
+          if not owns_pro() then buy_pro() end
+        elseif btn_endless and K.in_rect(btn_endless, x, y) then game.play_sound("ui_confirm"); start_run(nil)
         elseif btn_trials and K.in_rect(btn_trials, x, y) then game.play_sound("ui_tap"); to_levels()
         elseif btn_absorb and K.in_rect(btn_absorb, x, y) then game.play_sound("ui_confirm"); start_run(nil, true) end
       elseif mode == "levels" then
