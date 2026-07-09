@@ -53,6 +53,31 @@ def rounded(x, y, w, h, radius):
     return dx * dx + dy * dy <= radius * radius
 
 
+# --- value-noise helpers (deterministic, no deps) — used for rocky surfaces ---
+def _hash2(ix, iy, s):
+    n = (ix * 374761393 + iy * 668265263 + s * 2147483647) & 0xFFFFFFFF
+    n = (n ^ (n >> 13)) * 1274126177 & 0xFFFFFFFF
+    return ((n ^ (n >> 16)) & 0xFFFF) / 65535.0
+
+
+def _vnoise(fx, fy, s):
+    ix, iy = int(math.floor(fx)), int(math.floor(fy))
+    tx, ty = fx - ix, fy - iy
+    a = _hash2(ix, iy, s); b = _hash2(ix + 1, iy, s)
+    c = _hash2(ix, iy + 1, s); d = _hash2(ix + 1, iy + 1, s)
+    ux = tx * tx * (3 - 2 * tx); uy = ty * ty * (3 - 2 * ty)
+    return (a * (1 - ux) + b * ux) * (1 - uy) + (c * (1 - ux) + d * ux) * uy
+
+
+def _fbm(fx, fy, s):
+    """Fractal Brownian motion: 4 octaves of value noise -> [0,1)-ish."""
+    v, amp, freq = 0.0, 0.5, 1.0
+    for o in range(4):
+        v += amp * _vnoise(fx * freq, fy * freq, s + o)
+        freq *= 2.0; amp *= 0.5
+    return v
+
+
 # --- grayscale, tintable ------------------------------------------------------
 def orb(x, y):
     cx, cy, rad = 15.5, 15.5, 15.0
@@ -66,23 +91,44 @@ def orb(x, y):
 
 
 def meteor(x, y):
-    """Lumpy cratered rock, grayscale (tinted per foe kind at runtime)."""
-    cx, cy = 15.5, 15.5
-    dx, dy = x - cx, y - cy
+    """A lit, cratered asteroid — grayscale (tinted per foe kind / ABSORB
+    danger at runtime). 64x64 so it stays crisp even as a big ABSORB rock.
+    Spherical lambert shading (light from the upper-left) + a fractal-noise
+    rocky surface + several craters that are dark in the bowl, bright on the
+    sun-facing rim and shadowed on the far rim, so it reads as a real 3D body."""
+    N = 64
+    c = (N - 1) / 2.0                      # 31.5
+    dx, dy = x - c, y - c
     r = math.hypot(dx, dy)
     ang = math.atan2(dy, dx)
-    edge = 13.8 + 1.6 * math.sin(ang * 3 + 1.3) + 1.1 * math.sin(ang * 5 - 0.7)
+    # irregular rocky silhouette (a few angular harmonics)
+    edge = (28.0 + 2.4 * math.sin(ang * 3 + 1.3) + 1.5 * math.sin(ang * 5 - 0.7)
+            + 0.8 * math.sin(ang * 8 + 2.1))
     if r > edge:
         return (0, 0, 0, 0)
     d = r / edge
-    lum = 200 - 90 * d * d
-    lum += 45 * max(0.0, -(dx * -0.6 + dy * -0.6) / max(edge, 1))  # upper-left light
-    for (px_, py_, pr) in ((10, 12, 3.4), (21, 9, 2.5), (18, 21, 3.9), (8, 22, 2.3)):
-        dd = math.hypot(x - px_, y - py_)
+    # sphere normal -> lambert against a light in the upper-left, toward viewer
+    nx, ny = dx / edge, dy / edge
+    nz = math.sqrt(max(0.0, 1.0 - nx * nx - ny * ny))
+    lx, ly, lz = -0.5, -0.55, 0.67
+    lam = max(0.0, nx * lx + ny * ly + nz * lz)
+    lum = 42 + 168 * lam                                       # ambient + diffuse
+    # rocky surface: fine fbm (stronger on the lit side) + coarse mottling
+    lum += (_fbm(x / 8.0, y / 8.0, 7) - 0.5) * 58 * (0.4 + 0.6 * lam)
+    lum += (_vnoise(x / 16.0, y / 16.0, 23) - 0.5) * 30
+    # craters (x, y, radius): bowl shadow + directional rim light
+    for (px_, py_, pr) in ((19, 21, 6.6), (41, 17, 4.8), (36, 40, 7.4),
+                           (16, 43, 4.2), (45, 36, 3.4)):
+        ddx, ddy = x - px_, y - py_
+        dd = math.hypot(ddx, ddy)
         if dd < pr:
-            lum -= 60 * (1 - dd / pr)
-        elif dd < pr + 1.3:
-            lum += 20
+            f = dd / pr
+            lum -= 52 * (1.0 - f) ** 1.5                       # dark bowl floor
+            if f > 0.68:                                       # rim: lit vs shadowed
+                lum += (ddx * lx + ddy * ly) / pr * 48 * ((f - 0.68) / 0.32)
+        elif dd < pr + 2.0:
+            lum += 12 * (1.0 - (dd - pr) / 2.0)                # raised ejecta ring
+    lum *= (1.0 - 0.32 * d * d)                                # edge/terminator falloff
     v = clampb(lum)
     return (v, v, v, 255)
 
@@ -321,7 +367,7 @@ def tile(x, y):
 
 SPRITES = {
     "orb": (32, 32, orb),
-    "meteor": (32, 32, meteor),
+    "meteor": (64, 64, meteor),
     "rockball": (48, 48, rockball),
     "starfield": (256, 256, starfield),
     "icon_base": (32, 32, icon_base),

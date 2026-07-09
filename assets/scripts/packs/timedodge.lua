@@ -68,7 +68,10 @@ function make_timedodge()
   -- chip you down; below MIN_MASS you fade away. Rock sizes track yours, so
   -- something bigger always exists — growth is power, never safety.
   local MIN_MASS, MAX_MASS = 13, 120
-  local EAT_GAIN, CHIP = 1.0, 0.75       -- area fraction kept / size kept on hit
+  -- EAT_GAIN = area fraction kept per meal. Lower = you grow more gradually, so
+  -- the "eat and grow" arc lasts longer and the rocks don't balloon to danger
+  -- size in a handful of bites. CHIP = size kept on a big-rock hit.
+  local EAT_GAIN, CHIP = 0.5, 0.75
   local SAFE_C, DANGER_C = { 0.35, 0.90, 0.50 }, { 1.0, 0.25, 0.20 }
   local FROZEN_C = { 0.55, 0.85, 1.0 }
 
@@ -593,7 +596,7 @@ function make_timedodge()
     if S.absorb then                       -- wandering rocks sized around you:
       -- mostly edible at first; the danger share grows with every meal
       local lo = clamp(S.mass * 0.40, 10, 80)
-      local hi = clamp(S.mass * math.min(1.1 + 0.06 * S.eaten, 1.7), 24, 160)
+      local hi = clamp(S.mass * math.min(1.05 + 0.045 * S.eaten, 1.6), 24, 160)
       local size = lo + rnd() * (hi - lo)
       local a = math.atan(S.py - y, S.px - x) + (rnd() * 1.2 - 0.6)
       local sp = 140 + rnd() * 120
