@@ -7,3 +7,11 @@ audio/
 manifest.json
 # TikTok submission staging (built on demand)
 dist/
+# Scratch verification captures (only verify_*.png are committed as evidence)
+ad_*.png
+pol_*.png
+std_*.png
+td_*.png
+rev_*.png
+particles_*.png
+death_*.png
