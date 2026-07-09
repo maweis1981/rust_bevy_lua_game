@@ -1,16 +1,16 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <!-- TikTok Mini Games JSSDK — MUST be the first tag after <head>, from this
-       exact host (the DevTools validates this). Rewarded video ads, loading
-       progress, and storage hang off TTMinis.game.* -->
+  <!-- TikTok Mini Games JSSDK — first tag after <head>, exact host (validated). -->
   <script src="https://connect.tiktok-minis.com/game/sdk.js"></script>
   <script>
-    // ROW build: In-App Ads ENABLED (rewarded video revive + cancel-hit). Ships
-    // to regions where you hold rewarded-ad rights. The US app is a separate,
-    // ads-off build (index-us.html) — see package-timedodge.sh's two-app split.
+    // US build: NO In-App Ads (IAA). Per TikTok's monetization docs, running IAA
+    // in both US and ROW from one app requires upgrading US data scope; the
+    // simpler path is two apps — this US app ships ads-off. The flag makes the
+    // engine report no ads, so REVIVE never appears and no ad object is created.
+    window.__ADS_ENABLED = false;
     if (typeof TTMinis !== 'undefined' && TTMinis.game && TTMinis.game.init) {
-      try { TTMinis.game.init({ clientKey: 'YOUR_ROW_TIKTOK_CLIENT_KEY' }); } catch (e) {}
+      try { TTMinis.game.init({ clientKey: 'YOUR_US_TIKTOK_CLIENT_KEY' }); } catch (e) {}
     }
     function __ttProgress(p) {
       if (typeof TTMinis !== 'undefined' && TTMinis.game && TTMinis.game.setLoadingProgress) {
@@ -27,17 +27,8 @@
     #game { display: block; touch-action: none; max-width: 100vw; max-height: 100vh; }
   </style>
 </head>
-<!--
-  timedodge/index.html — STANDALONE Time Dodge for TikTok (TTMinis HTML runtime).
-
-  Ships ONLY the Time Dodge game (its own native Lua, unmodified) via fengari +
-  engine.js: boots straight into it (AUTOBOOT), single-game mode (STANDALONE, no
-  collection lobby). The rewarded-video revive + cancel-hit hang off the TTMinis
-  ad API wired in engine.js. Assembled by ../package-timedodge.sh.
--->
 <body>
   <div id="wrap"><canvas id="game" width="450" height="800"></canvas></div>
-
   <script src="vendor/fengari-web.js"></script>
   <script src="engine.js"></script>
   <script>
@@ -53,8 +44,7 @@
         return Promise.all(jobs).then(function (packs) {
           __ttProgress(0.8);
           return text(m.main).then(function (mainSrc) {
-            // AUTOBOOT into timedodge; STANDALONE = single-game (no lobby).
-            window.__hlBoot(packs, mainSrc, 'timedodge', true);
+            window.__hlBoot(packs, mainSrc, 'timedodge', true);   // AUTOBOOT, standalone
             __ttProgress(1);
           });
         });

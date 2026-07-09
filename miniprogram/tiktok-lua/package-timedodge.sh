@@ -1,53 +1,57 @@
 #!/bin/sh
-# package-timedodge.sh — assemble a STANDALONE Time Dodge TikTok Mini Game
-# (TTMinis HTML runtime). Ships ONLY Time Dodge: the same engine.js + fengari +
-# its unmodified native Lua, the TTMinis SDK entry (boots straight into the game,
-# single-game mode), rewarded-video ads, and the validator-required config trio.
-# Output: miniprogram/tiktok-lua/dist/timedodge/.
+# package-timedodge.sh — assemble the STANDALONE Time Dodge TikTok Mini Game
+# (TTMinis HTML runtime) as TWO builds, per TikTok's monetization rule that
+# running In-App Ads in both US and ROW from one app needs a US data-scope
+# upgrade — the simpler path is two apps:
+#
+#   dist/timedodge-us/   NO ads (ships to the US; __ADS_ENABLED=false, REVIVE hidden)
+#   dist/timedodge-row/  rewarded video ON (ships to regions where you hold IAA rights)
+#
+# Both share the same engine.js + fengari + unmodified Time Dodge Lua + assets;
+# only index.html (and the project name) differ. Each is a separate TikTok app
+# (its own appid + clientKey). Zip a dist dir and upload via the DevTools.
 #
 #   sh miniprogram/tiktok-lua/package-timedodge.sh
 set -e
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
-OUT="$HERE/dist/timedodge"
 
-# Only the timedodge pack, no top-level games, lean assets.
 echo ">> refreshing Lua + assets (Time Dodge only)"
 EXTRA="" PACKS="timedodge" LEAN=1 sh "$HERE/prepare.sh" >/dev/null
 
-echo ">> staging $OUT"
-rm -rf "$OUT"; mkdir -p "$OUT/vendor"
-cp "$HERE/engine.js"              "$OUT/engine.js"
-cp "$HERE/vendor/fengari-web.js"  "$OUT/vendor/fengari-web.js"
-cp "$HERE/manifest.json"          "$OUT/manifest.json"
-cp "$HERE/main.lua"               "$OUT/main.lua"
-cp -r "$HERE/packs"               "$OUT/packs"
-# Only the textures + audio Time Dodge actually uses (keeps the bundle small —
-# well under TikTok's 4MB main-package limit). Player=rockball, foes=meteor,
-# gate=gem, HUD icons; SFX hit/score/wall + one looping music track.
-mkdir -p "$OUT/textures" "$OUT/audio"
-for t in rockball meteor gem icon_base icon_mass icon_time icon_clock; do
-  [ -f "$HERE/textures/$t.png" ] && cp "$HERE/textures/$t.png" "$OUT/textures/" || true
-done
-for w in hit score wall music; do
-  [ -f "$HERE/audio/$w.wav" ] && cp "$HERE/audio/$w.wav" "$OUT/audio/" || true
-done
-# standalone entry + the validator-required trio + TTMinis SDK
-cp "$HERE/timedodge/index.html"          "$OUT/index.html"
-cp "$HERE/tiktok/game.json"              "$OUT/game.json"
-cp "$HERE/tiktok/minigame.config.json"   "$OUT/minigame.config.json"
-cp "$HERE/tiktok/project.config.json"    "$OUT/project.config.json"
+# Stage one variant: $1=dir suffix, $2=entry html, $3=project name.
+stage() {
+  OUT="$HERE/dist/timedodge-$1"
+  echo ">> staging $OUT"
+  rm -rf "$OUT"; mkdir -p "$OUT/vendor" "$OUT/textures" "$OUT/audio"
+  cp "$HERE/engine.js"              "$OUT/engine.js"
+  cp "$HERE/vendor/fengari-web.js"  "$OUT/vendor/fengari-web.js"
+  cp "$HERE/manifest.json"          "$OUT/manifest.json"
+  cp "$HERE/main.lua"               "$OUT/main.lua"
+  cp -r "$HERE/packs"               "$OUT/packs"
+  # Only the textures + audio Time Dodge uses (tiny; well under the 4MB limit).
+  for t in rockball meteor gem icon_base icon_mass icon_time icon_clock; do
+    [ -f "$HERE/textures/$t.png" ] && cp "$HERE/textures/$t.png" "$OUT/textures/" || true
+  done
+  for w in hit score wall music; do
+    [ -f "$HERE/audio/$w.wav" ] && cp "$HERE/audio/$w.wav" "$OUT/audio/" || true
+  done
+  cp "$HERE/timedodge/$2"                 "$OUT/index.html"
+  cp "$HERE/tiktok/game.json"             "$OUT/game.json"
+  cp "$HERE/tiktok/minigame.config.json"  "$OUT/minigame.config.json"
+  sed "s/\"time-dodge\"/\"$3\"/" "$HERE/tiktok/project.config.json" > "$OUT/project.config.json"
+}
+
+stage us  index-us.html time-dodge-us
+stage row index.html     time-dodge-row
 
 echo ""
-echo "Standalone Time Dodge bundle: $OUT"
-echo "  entry:  index.html  (TTMinis SDK -> boots straight into Time Dodge)"
-echo "  ads:    rewarded video (revive + cancel-hit) via TTMinis.game.createRewardedVideoAd"
-echo "  config: game.json · minigame.config.json · project.config.json"
-echo "  size:   $(du -sh "$OUT" | cut -f1) total"
+echo "Two Time Dodge builds ready:"
+echo "  US  (no ads): $HERE/dist/timedodge-us   ($(du -sh "$HERE/dist/timedodge-us" | cut -f1))"
+echo "  ROW (ads on): $HERE/dist/timedodge-row  ($(du -sh "$HERE/dist/timedodge-row" | cut -f1))"
 echo ""
-echo "Before upload, in $OUT:"
-echo "  1. index.html      -> set clientKey ('YOUR_TIKTOK_CLIENT_KEY')"
-echo "  2. project.config.json -> set appid"
-echo "  3. engine.js       -> set the two rewarded-ad adUnitIds (revive, cancel_hit)"
-echo "                        from the TikTok Developer Portal (AD_UNITS map)"
-echo "Then zip \$OUT and upload via the TikTok Mini Games DevTools (compileType: game)."
+echo "Before upload (each dir is a SEPARATE TikTok app):"
+echo "  US  -> index.html: set clientKey (US app)      · project.config.json: US appid"
+echo "  ROW -> index.html: set clientKey (ROW app)     · project.config.json: ROW appid"
+echo "         engine.js:  set AD_UNITS.revive + .cancel_hit adUnitIds (Developer Portal)"
+echo "Then zip each dir and upload via the TikTok Mini Games DevTools (compileType: game)."

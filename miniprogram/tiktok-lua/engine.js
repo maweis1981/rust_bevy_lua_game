@@ -246,21 +246,32 @@
     cancel_hit: 'YOUR_CANCEL_HIT_AD_UNIT_ID',
     default: 'YOUR_AD_UNIT_ID',
   };
+  // Where ads have NO fill for a user's region (e.g. you hold rewarded-ad rights
+  // in some countries but not the US), still grant the reward so REVIVE / cancel-
+  // hit never become dead buttons. Only a genuine SKIP (the user opened an ad and
+  // closed it early) is denied. Set false to withhold the reward on no-fill.
+  var AD_GRANT_ON_NOFILL = true;
   function adsAvailable() {
+    // Ads-off build (e.g. the US app, which ships without IAA — see the two-app
+    // split in package-timedodge.sh). No ad object is ever created or shown.
+    if (window.__ADS_ENABLED === false) return false;
     return !!(window.TTMinis && window.TTMinis.game && window.TTMinis.game.createRewardedVideoAd);
   }
   function requestRewarded(kind, done) {
     var fired = false;
     function finish(g, r) { if (fired) return; fired = true; done(g, r); }
-    if (!adsAvailable()) return finish(false, 'unsupported');
+    if (!adsAvailable()) return finish(false, 'unsupported');   // no SDK (native/web/preview)
     var adUnitId = AD_UNITS[kind] || AD_UNITS.default;
     var ad;
     try { ad = window.TTMinis.game.createRewardedVideoAd({ adUnitId: adUnitId }); }
-    catch (e) { return finish(false, 'create_failed'); }
+    catch (e) { return finish(AD_GRANT_ON_NOFILL, 'create_failed'); }
+    // Watched to completion -> reward. Closed early -> denied (a real skip).
     try { ad.onClose(function (res) { finish(!!(res && res.isEnded), (res && res.isEnded) ? 'earned' : 'closed_early'); }); } catch (e) {}
-    try { ad.onError(function (err) { finish(false, 'error:' + ((err && err.errCode) || 'unknown')); }); } catch (e) {}
-    try { var pr = ad.show(); if (pr && pr.catch) pr.catch(function () { finish(false, 'show_failed'); }); }
-    catch (e) { finish(false, 'show_failed'); }
+    // No inventory / network / not-ready (e.g. an unpermitted region) -> treat as
+    // "no ad to watch" and grant, so the feature still works everywhere.
+    try { ad.onError(function (err) { finish(AD_GRANT_ON_NOFILL, 'nofill:' + ((err && err.errCode) || 'unknown')); }); } catch (e) {}
+    try { var pr = ad.show(); if (pr && pr.catch) pr.catch(function () { finish(AD_GRANT_ON_NOFILL, 'show_failed'); }); }
+    catch (e) { finish(AD_GRANT_ON_NOFILL, 'show_failed'); }
   }
 
   // ---- the game.* bridge (each is a fengari lua_CFunction) -------------------
