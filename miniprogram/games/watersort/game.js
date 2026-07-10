@@ -117,11 +117,14 @@ function createGame(platform) {
     if (i < 0) { G.lv.state.selected = -1; return; }
     var st = G.lv.state;
     var wasSel = st.selected;
-    // will this be a committing pour? capture before select mutates state
-    var willPour = (wasSel !== -1 && wasSel !== i && LOGIC.canPour(st.tubes, wasSel, i, st.cap));
-    if (willPour) beginPourAnim(wasSel, i);
-    var ev = G.lv.select(i);
-    if (ev === 'win') { G.banner = 'win'; }
+    // committing pour? animate first, commit the state when the pour lands.
+    if (wasSel !== -1 && wasSel !== i && LOGIC.canPour(st.tubes, wasSel, i, st.cap)) {
+      beginPourAnim(wasSel, i);
+      G.pending = { from: wasSel, to: i };
+      st.selected = -1;          // source is "pouring", no longer selected
+      return;
+    }
+    G.lv.select(i);
   }
 
   // --- reward-driven actions --------------------------------------------------
@@ -149,15 +152,29 @@ function createGame(platform) {
   function setPointer() {}                  // tap game: no drag state needed
   function update() {
     var t = (platform.now ? platform.now() : Date.now());
-    if (G.anim && t - G.anim.t0 >= G.anim.ms) G.anim = null;
+    if (G.anim && t - G.anim.t0 >= G.anim.ms) {
+      G.anim = null;
+      if (G.pending) {                      // commit the animated pour now
+        var p = G.pending; G.pending = null;
+        G.lv.select(p.from);                // pick source (still legal — input was blocked)
+        var ev = G.lv.select(p.to);         // pour
+        if (ev === 'win') G.banner = 'win';
+      }
+    }
     if (G.toast && t > G.toast.until) G.toast = null;
     if (G.hintMove && t > G.hintUntil) { G.hintMove = null; }
   }
 
   function view() {
+    var t = (platform.now ? platform.now() : Date.now());
+    var anim = null;
+    if (G.anim) {
+      anim = { from: G.anim.from, to: G.anim.to, col: G.anim.col, units: G.anim.units,
+               p: Math.max(0, Math.min(1, (t - G.anim.t0) / G.anim.ms)) };
+    }
     return {
       W: G.W, H: G.H, level: G.level, wins: G.stats.wins,
-      lv: G.lv, layout: G.layout, anim: G.anim, toast: G.toast,
+      lv: G.lv, layout: G.layout, anim: anim, toast: G.toast,
       banner: G.banner, hintMove: G.hintMove || null,
       palette: C.PALETTE,
     };

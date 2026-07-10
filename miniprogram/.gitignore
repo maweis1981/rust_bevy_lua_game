@@ -9,3 +9,9 @@ tiktok/engine.bundle.js
 
 # generated water-sort browser bundle
 games/watersort/bundle.js
+
+# generated suika browser bundle
+games/suika/bundle.js
+
+# generated shell collection bundle
+games/shell/bundle.js

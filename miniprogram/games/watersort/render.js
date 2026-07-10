@@ -39,6 +39,25 @@ function createRenderer(ctx, W, H) {
     ctx.restore();
   }
 
+  // a liquid stream arcing from the source tube mouth to the destination mouth
+  function drawStream(a, b, color, p) {
+    var ax = a.x + a.w / 2, ay = a.y + 2;
+    var bx = b.x + b.w / 2, by = b.y + 2;
+    var peak = Math.min(ay, by) - Math.max(a.h, b.h) * 0.18;
+    var cx = (ax + bx) / 2, cy = peak;
+    ctx.save();
+    ctx.strokeStyle = color; ctx.globalAlpha = 0.85;
+    ctx.lineWidth = Math.max(3, a.w * 0.28); ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(ax, ay); ctx.quadraticCurveTo(cx, cy, bx, by); ctx.stroke();
+    // a brighter droplet travelling along the arc
+    var t = p, mt = 1 - t;
+    var dx = mt * mt * ax + 2 * mt * t * cx + t * t * bx;
+    var dy = mt * mt * ay + 2 * mt * t * cy + t * t * by;
+    ctx.globalAlpha = 1; ctx.fillStyle = color;
+    ctx.beginPath(); ctx.arc(dx, dy, a.w * 0.22, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+
   function drawButton(b, enabled) {
     ctx.save();
     roundRect(b.x, b.y, b.w, b.h, b.h * 0.28);
@@ -71,17 +90,27 @@ function createRenderer(ctx, W, H) {
     ctx.textAlign = 'right';
     ctx.fillText('moves ' + st.moves, W * 0.94, H * 0.115);
 
-    // tubes
+    // tubes (with pour animation: source loses its top run, dest fills in,
+    // and a stream arcs between them)
+    var an = v.anim;
     var liftUnits = st.selected >= 0 ? LOGIC_runLen(st.tubes[st.selected]) : 0;
     for (var i = 0; i < st.tubes.length; i++) {
       var isSel = (i === st.selected);
-      drawTube(v.layout.tubes[i], st.tubes[i], st.cap, palette, isSel, liftUnits);
-      // tube index label
+      var arr = st.tubes[i];
+      if (an && i === an.from) {
+        arr = arr.slice(0, arr.length - an.units);                 // top run leaving
+      } else if (an && i === an.to) {
+        var revealed = Math.round(an.units * an.p);
+        arr = arr.slice();
+        for (var u = 0; u < revealed; u++) arr.push(an.col);       // fills in
+      }
+      drawTube(v.layout.tubes[i], arr, st.cap, palette, isSel, liftUnits);
       var r = v.layout.tubes[i];
       ctx.fillStyle = C.SUBTEXT; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
       ctx.font = Math.floor(r.w * 0.34) + 'px system-ui, sans-serif';
       ctx.fillText(String(i + 1), r.x + r.w / 2, r.y + r.h + 4);
     }
+    if (an) drawStream(v.layout.tubes[an.from], v.layout.tubes[an.to], palette[an.col % palette.length], an.p);
 
     // hint arrow (rewarded)
     if (v.hintMove) {

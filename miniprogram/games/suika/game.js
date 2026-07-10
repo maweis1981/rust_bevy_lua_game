@@ -1,0 +1,195 @@
+// game.js — Suika game core: owns the sim (logic.js), the pixel LAYOUT (bin rect
+// + danger line + on-screen buttons), tap hit-testing, the drop/aim input, the
+// reward-driven actions, best-score persistence, and its OWN full-frame draw.
+//
+// TWO integration surfaces, one object:
+//   * Standalone: main.js calls createGame(platform), setSize, tap, update, draw.
+//   * Collection router: createGame(platform) -> { setSize(W,H,topInset), tap,
+//     pointer, update(dt,tSec), draw(ctx), view, DEBUG }. draw(ctx) renders the
+//     ENTIRE frame itself (delegating to render.js). topInset reserves the top
+//     slice of the canvas empty for a router-drawn back button (default 0).
+//
+// Works in raw CANVAS PIXELS (top-left origin) — no world-coord conversion.
+'use strict';
+
+var C = require('./config.js');
+var LOGIC = require('./logic.js');
+var createRenderer = require('./render.js').createRenderer;
+
+function createGame(platform) {
+  var store = platform && platform.storage
+    ? platform.storage
+    : { get: function () { return null; }, set: function () {} };
+  var rewardAd = (platform && platform.rewardAd) || function (cb) { cb(true); };
+  function now() { return platform && platform.now ? platform.now() : Date.now(); }
+
+  var G = {
+    W: 0, H: 0, topInset: 0,
+    sim: null,
+    bin: { x: 0, y: 0, w: 0, h: 0 },
+    aimX: 0,
+    best: 0,
+    lastDrop: -999,          // seconds (sim clock) of the last drop
+    clock: 0,                // accumulated seconds
+    toast: null,             // { text, until }
+    reviveUsed: false,       // once-per-run revive spent?
+    doubled: false,          // ×2 already applied on this game-over screen?
+    buttons: {},             // game-over overlay buttons (built in relayout)
+    flash: 0,                // merge flash 0..1 (decays), for juice
+  };
+
+  function loadBest() { var b = store.get('suika_best'); G.best = b ? Number(b) || 0 : 0; }
+  function saveBest() {
+    if (G.sim && G.sim.state.score > G.best) {
+      G.best = G.sim.state.score; store.set('suika_best', String(G.best));
+    }
+  }
+
+  // --- layout ----------------------------------------------------------------
+  function relayout() {
+    var W = G.W, H = G.H, inset = G.topInset;
+    // usable area sits below the reserved top inset (router back button).
+    var top = inset + H * 0.11;                 // HUD band under the inset
+    var bottomPad = H * 0.04;
+    var binW = Math.min(W * 0.9, (H - top - bottomPad) * 0.62);
+    var binH = H - top - bottomPad;
+    var binX = (W - binW) / 2;
+    var binY = top;
+    G.bin = { x: binX, y: binY, w: binW, h: binH };
+    if (G.sim) G.sim.setBin(G.bin);
+    if (!G.aimX) G.aimX = binX + binW / 2;
+    G.aimX = Math.max(binX, Math.min(binX + binW, G.aimX));
+
+    // game-over overlay buttons (three stacked, centered)
+    var bw = W * 0.62, bh = H * 0.07, bx = (W - bw) / 2, cy = H * 0.5;
+    G.buttons = {
+      revive: { x: bx, y: cy, w: bw, h: bh, label: 'REVIVE ▶' },
+      dbl: { x: bx, y: cy + bh * 1.25, w: bw, h: bh, label: '×2 SCORE ▶' },
+      restart: { x: bx, y: cy + bh * 2.5, w: bw, h: bh, label: 'RESTART' },
+    };
+  }
+
+  function newRun() {
+    var seed = ((now() >>> 0) ^ 0x9e3779b9) >>> 0;
+    G.sim = LOGIC.createSim(seed, G.bin);
+    G.reviveUsed = false; G.doubled = false; G.flash = 0;
+    G.lastDrop = -999;
+  }
+
+  function toast(text) { G.toast = { text: text, until: now() + 1300 }; }
+
+  // --- input -----------------------------------------------------------------
+  function inRect(px, py, r) { return r && px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h; }
+
+  // drag / hover: move the aim column (only meaningful while playing).
+  function pointer(px, py, down) {
+    if (!G.sim || G.sim.state.over) return;
+    G.aimX = Math.max(G.bin.x, Math.min(G.bin.x + G.bin.w, px));
+  }
+
+  function tap(px, py) {
+    if (!G.sim) return;
+    if (G.sim.state.over) {
+      if (inRect(px, py, G.buttons.revive)) { doRevive(); return; }
+      if (inRect(px, py, G.buttons.dbl)) { doDouble(); return; }
+      if (inRect(px, py, G.buttons.restart)) { saveBest(); newRun(); return; }
+      return;
+    }
+    // playing: aim to the tapped column and drop (respecting cooldown)
+    G.aimX = Math.max(G.bin.x, Math.min(G.bin.x + G.bin.w, px));
+    tryDrop();
+  }
+
+  function tryDrop() {
+    if (!G.sim || G.sim.state.over) return;
+    if (G.clock - G.lastDrop < C.DROP_COOLDOWN) return;
+    var f = G.sim.drop(G.aimX);
+    if (f) { G.lastDrop = G.clock; }
+  }
+
+  // --- reward-driven actions -------------------------------------------------
+  function doRevive() {
+    if (G.reviveUsed) { toast('revive already used'); return; }
+    rewardAd(function (rewarded) {
+      if (!rewarded) { toast('ad skipped'); return; }
+      G.reviveUsed = true;
+      G.sim.revive(C.REVIVE_CLEAR);
+      toast('revived! keep going');
+    });
+  }
+  function doDouble() {
+    if (G.doubled) { toast('already doubled'); return; }
+    rewardAd(function (rewarded) {
+      if (!rewarded) { toast('ad skipped'); return; }
+      G.doubled = true;
+      G.sim.state.score *= 2;
+      saveBest();
+      toast('score doubled!');
+    });
+  }
+
+  // --- lifecycle -------------------------------------------------------------
+  // setSize(W,H,topInset) — topInset (pixels) reserves the top of the canvas
+  // empty for a router-drawn back button. Default 0 for standalone.
+  function setSize(W, H, topInset) {
+    G.W = W; G.H = H; G.topInset = topInset || 0;
+    relayout();
+    if (!G.sim) newRun();
+  }
+
+  function update(dt, tSec) {
+    if (!G.sim) return;
+    if (!(dt > 0) || dt > 0.1) dt = dt > 0 ? 0.1 : 0; // clamp big hitches
+    G.clock += dt;
+    var ev = G.sim.step(dt);
+    if (ev.merges || ev.pops) G.flash = Math.min(1, G.flash + 0.5 * (ev.merges + ev.pops));
+    G.flash *= 0.9;
+    var wasOver = G._over;
+    if (G.sim.state.over && !wasOver) { saveBest(); }
+    G._over = G.sim.state.over;
+    if (G.toast && now() > G.toast.until) G.toast = null;
+  }
+
+  function view() {
+    return {
+      W: G.W, H: G.H, topInset: G.topInset,
+      bin: G.bin, sim: G.sim, aimX: G.aimX,
+      best: G.best, buttons: G.buttons, toast: G.toast,
+      flash: G.flash, dangerY: G.sim ? G.sim.dangerY() : 0,
+      reviveUsed: G.reviveUsed, doubled: G.doubled,
+      config: C,
+    };
+  }
+
+  // draw(ctx) — renders the ENTIRE frame. Renderer is cached & rebound if the
+  // ctx changes (router may hand us a different context).
+  var _renderer = null, _ctx = null;
+  function draw(ctx) {
+    if (!ctx) return;
+    if (_ctx !== ctx) { _ctx = ctx; _renderer = createRenderer(ctx); }
+    _renderer.draw(this);
+  }
+
+  loadBest();
+
+  return {
+    setSize: setSize,
+    tap: tap,
+    pointer: pointer,
+    setPointer: pointer,     // alias to match the watersort/shell surface
+    update: update,
+    draw: draw,
+    view: view,
+    // DEBUG surface for headless tests / autoplay
+    DEBUG: {
+      sim: function () { return G.sim; },
+      state: function () { return G.sim.state; },
+      drop: function (x) { G.aimX = x; return G.sim.drop(x); },
+      forceDrop: function (x) { return G.sim.drop(x); },
+      bin: function () { return G.bin; },
+      newRun: newRun,
+    },
+  };
+}
+
+module.exports = { createGame: createGame };
