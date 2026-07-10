@@ -142,31 +142,56 @@ local function all_empties_reachable(g)
 end
 
 ----------------------------------------------------------------------
--- drive to completion, checking pathfinding + no-teleport every frame
+-- shared driver: runs the scene to a terminal state, checking pathfinding +
+-- no-teleport every frame. `policy` (optional) is the "player" — called each
+-- frame before update to load tray colours into free slots.
 ----------------------------------------------------------------------
 local BOUND = 460 * (1 / 30) * 2 + 2   -- ANT_SPEED * MAX_DT * (2x) + slack
-local prev = D.ant_xy()
-local buried_ok, teleport_ok, ever_dead = true, true, false
-local frames, MAXF = 0, 30000
-while not D.won() and not D.dead() and frames < MAXF do
-  scene.update(DT, HW, HH)
-  frames = frames + 1
-  local ok = all_empties_reachable(D.grid())
-  if not ok then buried_ok = false end
-  local cur = D.ant_xy()
-  for i = 1, math.min(#cur, #prev) do
-    local dx, dy = cur[i][1] - prev[i][1], cur[i][2] - prev[i][2]
-    if math.sqrt(dx * dx + dy * dy) > BOUND then teleport_ok = false end
+local function drive(Dh, policy)
+  local prev = Dh.ant_xy()
+  local buried_ok, teleport_ok = true, true
+  local frames, MAXF = 0, 30000
+  while not Dh.won() and not Dh.dead() and frames < MAXF do
+    if policy then policy(Dh) end
+    scene.update(DT, HW, HH)
+    frames = frames + 1
+    if not all_empties_reachable(Dh.grid()) then buried_ok = false end
+    local cur = Dh.ant_xy()
+    for i = 1, math.min(#cur, #prev) do
+      local dx, dy = cur[i][1] - prev[i][1], cur[i][2] - prev[i][2]
+      if math.sqrt(dx * dx + dy * dy) > BOUND then teleport_ok = false end
+    end
+    prev = cur
   end
-  prev = cur
-  if D.dead() then ever_dead = true end
+  return frames, buried_ok, teleport_ok
 end
 
-check(buried_ok, "PATHFINDING: no buried pixel ever removed (cleared region stays edge-connected)")
-check(teleport_ok, "NO TELEPORT: every ant moves <= " .. string.format("%.1f", BOUND) .. " units/frame")
-check(D.won(), "SOLVABLE: board fully cleared -> win (in " .. frames .. " frames)")
+local function rebuild()   -- fresh play; DEBUG is reassigned on build
+  scene.enter(); scene.update(DT, HW, HH); return DEBUG
+end
+
+----------------------------------------------------------------------
+-- Scenario A: AUTO — autoplay clears the board (solvability + pathfinding)
+----------------------------------------------------------------------
+D.set_mode("auto")
+local fa, buried_a, tele_a = drive(D)
+check(buried_a, "PATHFINDING: no buried pixel ever removed (cleared region stays edge-connected)")
+check(tele_a, "NO TELEPORT: every ant moves <= " .. string.format("%.1f", BOUND) .. " units/frame")
+check(D.won(), "SOLVABLE (auto): board fully cleared -> win (in " .. fa .. " frames)")
 check(D.painted() == 0, "all pixels carried away (painted == 0)")
-check(not ever_dead, "never falsely deadlocked on a solvable level")
+
+----------------------------------------------------------------------
+-- Scenario B: MANUAL, good play — the strategy load path. A "player" that loads
+-- the tray front into any free slot must also clear the board and never stall.
+----------------------------------------------------------------------
+D.set_mode("manual")   -- flip the shared mode before the fresh build auto-fills
+D = rebuild()
+check(D.free_slots() == 2 and D.painted() == total0, "manual: starts with empty slots, nothing auto-loads")
+local function front_policy(Dh) while Dh.free_slots() > 0 and Dh.tray_len() > 0 do Dh.load(1) end end
+local fb, buried_b = drive(D, front_policy)
+check(buried_b, "PATHFINDING holds under manual play too")
+check(D.won(), "STRATEGY: manual front-to-front loading clears the board (in " .. fb .. " frames)")
+check(not D.dead(), "manual good play never deadlocks")
 
 ----------------------------------------------------------------------
 print(string.rep("-", 48))

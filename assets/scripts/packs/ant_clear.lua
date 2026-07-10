@@ -50,11 +50,17 @@ local function make_ant_clear()
   }
 
   -- ---- tunables ------------------------------------------------------------
-  local SLOTS = 3            -- active colour slots
-  local ANTS_PER_SLOT = 3
+  -- SLOTS < number of palette colours is what makes this a STRATEGY game: you
+  -- cannot keep every colour active, so you must choose which colour to commit a
+  -- scarce slot to — and loading a buried colour can strand you (a lose).
+  local SLOTS = 2            -- active colour slots (< 3 palette colours on purpose)
+  local ANTS_PER_SLOT = 4
   local ANT_SPEED = 460      -- world units / sec
   local MAX_DT = 1 / 30      -- clamp hitches (no teleport — the feel contract)
   local CELL_CAP = 28
+  -- "manual": player taps a tray tile to load a colour into a free slot (the
+  -- strategy layer). "auto": free slots pull the tray front (autoplay / tests).
+  local mode = "manual"
 
   local W, H = LEVEL.w, LEVEL.h
   local grid = {}            -- grid[r][c], 1-based rows/cols, 0 = cleared
@@ -147,12 +153,24 @@ local function make_ant_clear()
     return n
   end
 
+  local function free_slot()
+    for i = 1, SLOTS do if slots[i] == nil then return i end end
+    return nil
+  end
+
+  -- Load tray batch `ti` into the leftmost free slot (the player's move, and the
+  -- auto-player's too). Returns true on success.
+  local function load_tray(ti)
+    local i = free_slot()
+    if not i or not tray[ti] then return false end
+    slots[i] = table.remove(tray, ti)
+    return true
+  end
+
+  -- Auto mode only: keep free slots topped up from the tray front.
   local function fill_slots()
-    for i = 1, SLOTS do
-      if slots[i] == nil and #tray > 0 then
-        slots[i] = table.remove(tray, 1)
-      end
-    end
+    if mode ~= "auto" then return end
+    while free_slot() and #tray > 0 do load_tray(1) end
   end
 
   -- Deadlock: nothing is being carried, no active slot colour has a reachable
@@ -202,7 +220,8 @@ local function make_ant_clear()
 
   local function status()
     if not SETTINGS.hud then return end
-    game.set_text(string.format("PIXELS %d   TRAY %d", painted, #tray))
+    local hint = (mode == "manual" and free_slot() and #tray > 0) and "  — TAP A COLOUR" or ""
+    game.set_text(string.format("PIXELS %d   TRAY %d%s", painted, #tray, hint))
   end
 
   local SLOT_Y, TRAY_Y = 0, 0
@@ -352,6 +371,12 @@ local function make_ant_clear()
       ant_xy = function() local o = {} for _, a in ipairs(ants) do o[#o + 1] = { a.x, a.y } end return o end,
       grid = function() return grid end,
       toggle_speed = function() speed2 = not speed2 end,
+      -- strategy-layer hooks for the headless harness / autoplay
+      set_mode = function(m) mode = m; fill_slots() end,
+      free_slots = function() local n = 0 for i = 1, SLOTS do if slots[i] == nil then n = n + 1 end end return n end,
+      load = function(ti) return load_tray(ti) end,
+      tray_colors = function() local o = {} for _, b in ipairs(tray) do o[#o + 1] = b.color end return o end,
+      slot_colors = function() local o = {} for i = 1, SLOTS do o[i] = slots[i] and slots[i].color or 0 end return o end,
     }
   end
 
@@ -374,7 +399,17 @@ local function make_ant_clear()
       if not playing then T.clear(); build(HW, HH); return end
       -- tap the nest to toggle 2x speed (the "speed x2" affordance)
       if math.abs(x - NESTX) < CELL and math.abs(y - NESTY) < CELL then
-        speed2 = not speed2; game.play_sound("wall"); game.haptic("light")
+        speed2 = not speed2; game.play_sound("wall"); game.haptic("light"); return
+      end
+      -- manual: tap a tray tile to commit that colour to a free slot
+      if mode == "manual" and free_slot() then
+        for i = 1, 6 do
+          if tray[i] and math.abs(x - tray_x(i)) <= CELL * 0.63
+             and math.abs(y - TRAY_Y) <= CELL * 0.55 then
+            if load_tray(i) then game.play_sound("hit"); game.haptic("light") end
+            return
+          end
+        end
       end
     end,
     update = function(dt, hw, hh)
