@@ -37,6 +37,7 @@ function createSim(seed, bin) {
     next: pickDropTier(),    // tier after that (preview)
     lastMerges: 0,           // merges applied in the most recent step (juice)
     lastPops: 0,             // max-tier pops in the most recent step (juice)
+    mergeEvents: [],         // {x,y,tier,pop} per merge — drained by the renderer for particle FX
     dropped: 0,              // total fruit dropped
   };
 
@@ -177,11 +178,14 @@ function createSim(seed, bin) {
         var dist = Math.hypot(dx, dy);
         if (dist > a.r + bb.r) continue;         // must actually be touching
         a.merged = true; bb.merged = true;
+        var mx = (a.x + bb.x) / 2, my = (a.y + bb.y) / 2;
         if (a.tier >= C.TIER_COUNT - 1) {
           S.score += C.MAX_POP_BONUS; pops++;
+          S.mergeEvents.push({ x: mx, y: my, tier: a.tier, pop: true });
         } else {
           var nt = a.tier + 1;
           S.score += C.POINTS[Math.min(a.tier, C.POINTS.length - 1)];
+          S.mergeEvents.push({ x: mx, y: my, tier: nt, pop: false });
           newFruit.push({
             id: S.nextId++, tier: nt, r: C.radiusOf(nt, S.bin.w),
             x: (a.x + bb.x) / 2, y: (a.y + bb.y) / 2,
@@ -196,6 +200,7 @@ function createSim(seed, bin) {
     if (merges || pops) {
       S.fruit = fs.filter(function (f) { return !f.merged; }).concat(newFruit);
     }
+    if (S.mergeEvents.length > 120) S.mergeEvents.splice(0, S.mergeEvents.length - 120);
     S.lastMerges = merges; S.lastPops = pops;
   }
 
@@ -249,6 +254,7 @@ function createSim(seed, bin) {
   function reset() {
     S.fruit = []; S.score = 0; S.over = false; S.dangerTimer = 0;
     S.nextId = 1; S.dropped = 0; S.lastMerges = 0; S.lastPops = 0;
+    S.mergeEvents = [];
     S.current = pickDropTier(); S.next = pickDropTier();
   }
 

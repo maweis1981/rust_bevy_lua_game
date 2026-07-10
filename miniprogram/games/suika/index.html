@@ -67,6 +67,7 @@
         },
         raf: function (cb) { requestAnimationFrame(cb); },
         now: function () { return performance.now(); },
+        getImage: (function () { var cache = {}; return function (name) { var im = cache[name]; if (im) return im; im = new Image(); cache[name] = im; im.src = './assets/' + name; return im; }; })(),
       };
 
       function bind(el) {

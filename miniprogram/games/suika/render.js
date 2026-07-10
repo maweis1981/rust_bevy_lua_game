@@ -5,7 +5,51 @@
 'use strict';
 var C = require('./config.js');
 
+// Optional art assets: set by game.js from platform.getImage. Returns an
+// HTMLImageElement (maybe not yet loaded) or null; rendering falls back to
+// procedural drawing when an image is absent (headless/tests).
+var _imgGetter = null;
+function setImageGetter(fn) { _imgGetter = fn; }
+function img(name) {
+  if (!_imgGetter) return null;
+  var im = _imgGetter(name);
+  return (im && im.complete && im.naturalWidth) ? im : null;
+}
+
 function createRenderer(ctx) {
+
+  // ambient stardust: a seeded flow-field drift behind play (algorithmic-art).
+  var _motes = null, _mt = 0;
+  function ambient(W, H) {
+    if (!_motes) {
+      _motes = [];
+      for (var i = 0; i < 36; i++) _motes.push({ x: Math.random() * W, y: Math.random() * H, s: 0.3 + Math.random() * 0.8, ph: Math.random() * 6.28 });
+    }
+    _mt += 0.016;
+    ctx.save(); ctx.globalCompositeOperation = 'lighter';
+    for (var j = 0; j < _motes.length; j++) {
+      var m = _motes[j];
+      var ang = Math.sin(m.x * 0.004 + _mt * 0.2) + Math.cos(m.y * 0.005 - _mt * 0.15);
+      m.x += Math.cos(ang) * 0.28 * m.s; m.y += Math.sin(ang) * 0.22 * m.s - 0.05;
+      if (m.y < 0) m.y = H; if (m.y > H) m.y = 0; if (m.x < 0) m.x = W; if (m.x > W) m.x = 0;
+      var tw = 0.4 + 0.6 * Math.abs(Math.sin(_mt * 1.4 + m.ph));
+      ctx.globalAlpha = 0.14 * tw * m.s;
+      ctx.beginPath(); ctx.arc(m.x, m.y, 1.3 * m.s, 0, 6.283); ctx.fillStyle = '#bfe0ff'; ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function drawParticles(parts) {
+    if (!parts || !parts.length) return;
+    ctx.save(); ctx.globalCompositeOperation = 'lighter';
+    for (var i = 0; i < parts.length; i++) {
+      var p = parts[i], t = 1 - p.life / p.max;
+      ctx.globalAlpha = Math.max(0, t);
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.r0 * (0.45 + 0.55 * t), 0, 6.283);
+      ctx.fillStyle = p.col; ctx.fill();
+    }
+    ctx.restore();
+  }
 
   function roundRect(x, y, w, h, r) {
     ctx.beginPath();
@@ -17,25 +61,32 @@ function createRenderer(ctx) {
     ctx.closePath();
   }
 
+  // draw a fruit of `tier` centred at (x,y) with radius r; uses the sprite sheet
+  // when available (cells are square, side = sheet height), else procedural.
+  function sprite(tier, x, y, r, alpha) {
+    var sheet = img('fruits.png');
+    if (sheet) {
+      var cell = sheet.naturalHeight;
+      var sx = Math.min(tier, C.TIER_COUNT - 1) * cell;
+      var d = r * 2.14;
+      if (alpha != null) { ctx.save(); ctx.globalAlpha = alpha; }
+      ctx.drawImage(sheet, sx, 0, cell, cell, x - d / 2, y - d / 2, d, d);
+      if (alpha != null) ctx.restore();
+      return true;
+    }
+    return false;
+  }
+
   function drawFruit(f) {
+    if (sprite(f.tier, f.x, f.y, f.r, null)) return;
     var col = C.colorOf(f.tier);
-    ctx.beginPath();
-    ctx.arc(f.x, f.y, f.r, 0, Math.PI * 2);
-    ctx.fillStyle = col;
-    ctx.fill();
-    // rim shade for volume
-    ctx.lineWidth = Math.max(1, f.r * 0.08);
-    ctx.strokeStyle = 'rgba(0,0,0,0.18)';
-    ctx.stroke();
-    // top-left gloss highlight
-    ctx.beginPath();
-    ctx.arc(f.x - f.r * 0.32, f.y - f.r * 0.32, f.r * 0.30, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(255,255,255,0.28)';
-    ctx.fill();
-    // tier pip for readability at small sizes
+    ctx.beginPath(); ctx.arc(f.x, f.y, f.r, 0, Math.PI * 2);
+    ctx.fillStyle = col; ctx.fill();
+    ctx.lineWidth = Math.max(1, f.r * 0.08); ctx.strokeStyle = 'rgba(0,0,0,0.18)'; ctx.stroke();
+    ctx.beginPath(); ctx.arc(f.x - f.r * 0.32, f.y - f.r * 0.32, f.r * 0.30, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255,255,255,0.28)'; ctx.fill();
     if (f.r > 10) {
-      ctx.fillStyle = 'rgba(0,0,0,0.45)';
-      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillStyle = 'rgba(0,0,0,0.45)'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.font = Math.floor(f.r * 0.8) + 'px system-ui, -apple-system, sans-serif';
       ctx.fillText(String(f.tier + 1), f.x, f.y + f.r * 0.04);
     }
@@ -57,7 +108,10 @@ function createRenderer(ctx) {
   function draw(game) {
     var v = game.view();
     var W = v.W, H = v.H;
-    ctx.fillStyle = C.BG; ctx.fillRect(0, 0, W, H);
+    var bg = img('bg.png');
+    if (bg) ctx.drawImage(bg, 0, 0, W, H);
+    else { ctx.fillStyle = C.BG; ctx.fillRect(0, 0, W, H); }
+    ambient(W, H);
     if (!v.sim) return;
     var S = v.sim.state, b = v.bin;
 
@@ -80,9 +134,11 @@ function createRenderer(ctx) {
       ctx.fillStyle = C.SUBTEXT; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
       ctx.font = Math.floor(H * 0.02) + 'px system-ui, sans-serif';
       ctx.fillText('next', W * 0.06, hudY + H * 0.028);
-      ctx.beginPath();
-      ctx.arc(W * 0.20, hudY + H * 0.028, nr, 0, Math.PI * 2);
-      ctx.fillStyle = C.colorOf(S.next); ctx.fill();
+      var npr = Math.max(nr, H * 0.022);
+      if (!sprite(S.next, W * 0.20, hudY + H * 0.028, npr, null)) {
+        ctx.beginPath(); ctx.arc(W * 0.20, hudY + H * 0.028, npr, 0, Math.PI * 2);
+        ctx.fillStyle = C.colorOf(S.next); ctx.fill();
+      }
     }
 
     // --- bin ------------------------------------------------------------------
@@ -117,11 +173,16 @@ function createRenderer(ctx) {
       ctx.setLineDash([]);
       var cr = C.radiusOf(S.current, b.w);
       var cgx = Math.max(b.x + cr, Math.min(b.x + b.w - cr, gx));
-      ctx.globalAlpha = 0.55;
-      ctx.beginPath(); ctx.arc(cgx, b.y + cr + 1, cr, 0, Math.PI * 2);
-      ctx.fillStyle = C.colorOf(S.current); ctx.fill();
+      if (!sprite(S.current, cgx, b.y + cr + 1, cr, 0.65)) {
+        ctx.globalAlpha = 0.55;
+        ctx.beginPath(); ctx.arc(cgx, b.y + cr + 1, cr, 0, Math.PI * 2);
+        ctx.fillStyle = C.colorOf(S.current); ctx.fill();
+      }
       ctx.restore();
     }
+
+    // merge burst particles (over the field)
+    drawParticles(v.parts);
 
     // merge flash bloom
     if (v.flash > 0.02) {
@@ -161,4 +222,4 @@ function createRenderer(ctx) {
   return { draw: draw };
 }
 
-module.exports = { createRenderer: createRenderer };
+module.exports = { createRenderer: createRenderer, setImageGetter: setImageGetter };

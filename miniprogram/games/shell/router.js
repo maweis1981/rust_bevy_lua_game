@@ -16,7 +16,7 @@ function createRouter(platform, registry, ad) {
   var now = platform.now || function () { return Date.now(); };
 
   var games = registry.map(function (g) { return { id: g.id, title: g.title, subtitle: g.subtitle, color: g.color }; });
-  var menu = createMenu(games, { ad: ad, now: now, onPick: launch });
+  var menu = createMenu(games, { ad: ad, now: now, onPick: launch, getImage: platform.getImage });
   menu.setSize(W, H);
 
   var screen = 'menu';   // 'menu' | 'game'

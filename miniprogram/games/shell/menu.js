@@ -8,6 +8,8 @@ function createMenu(games, opts) {
   var ad = opts.ad;
   var onPick = opts.onPick || function () {};
   var W = 0, H = 0, cards = [], spinRect = null, toast = null, now = opts.now || function () { return Date.now(); };
+  var getImage = opts.getImage || function () { return null; };
+  function bgImg() { var im = getImage('bg.png'); return (im && im.complete && im.naturalWidth) ? im : null; }
 
   function setSize(w, h) {
     W = w; H = h;
@@ -42,14 +44,24 @@ function createMenu(games, opts) {
     ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
     ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
   }
+  function shade(hex, f) {  // f<0 darken, f>0 lighten
+    var h = hex.replace('#', '');
+    var r = parseInt(h.substr(0, 2), 16), g = parseInt(h.substr(2, 2), 16), b = parseInt(h.substr(4, 2), 16);
+    var m = f < 0 ? 0 : 255, t = Math.abs(f);
+    r = Math.round(r + (m - r) * t); g = Math.round(g + (m - g) * t); b = Math.round(b + (m - b) * t);
+    return 'rgb(' + r + ',' + g + ',' + b + ')';
+  }
 
   function draw(ctx) {
-    ctx.fillStyle = '#0b1020'; ctx.fillRect(0, 0, W, H);
-    // starfield-ish dots (cheap, deterministic)
-    ctx.fillStyle = 'rgba(255,255,255,0.10)';
-    for (var s = 0; s < 40; s++) {
-      var sx = (s * 9301 + 49297) % W, sy = (s * 233280 + 12345) % H;
-      ctx.fillRect(sx, sy, 2, 2);
+    var bg = bgImg();
+    if (bg) { ctx.drawImage(bg, 0, 0, W, H); }
+    else {
+      ctx.fillStyle = '#0b1020'; ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = 'rgba(255,255,255,0.10)';
+      for (var s = 0; s < 40; s++) {
+        var sx = (s * 9301 + 49297) % W, sy = (s * 233280 + 12345) % H;
+        ctx.fillRect(sx, sy, 2, 2);
+      }
     }
     // coins (own line, top-right, above the title so they never collide)
     if (ad) {
@@ -67,9 +79,22 @@ function createMenu(games, opts) {
 
     // game cards
     for (var i = 0; i < cards.length; i++) {
-      var c = cards[i], g = c.game;
+      var c = cards[i], g = c.game, base = g.color || '#2ea3f2';
+      // drop shadow + vertical gradient body for depth
+      ctx.save();
+      ctx.shadowColor = 'rgba(0,0,0,0.38)'; ctx.shadowBlur = c.h * 0.14; ctx.shadowOffsetY = c.h * 0.06;
       roundRect(ctx, c.x, c.y, c.w, c.h, c.h * 0.22);
-      ctx.fillStyle = g.color || '#2ea3f2'; ctx.globalAlpha = 0.92; ctx.fill(); ctx.globalAlpha = 1;
+      var grad = ctx.createLinearGradient(0, c.y, 0, c.y + c.h);
+      grad.addColorStop(0, shade(base, 0.12)); grad.addColorStop(1, shade(base, -0.28));
+      ctx.fillStyle = grad; ctx.fill();
+      ctx.restore();
+      // top gloss sweep
+      ctx.save();
+      roundRect(ctx, c.x, c.y, c.w, c.h, c.h * 0.22); ctx.clip();
+      var gl = ctx.createLinearGradient(0, c.y, 0, c.y + c.h * 0.55);
+      gl.addColorStop(0, 'rgba(255,255,255,0.22)'); gl.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = gl; ctx.fillRect(c.x, c.y, c.w, c.h * 0.55);
+      ctx.restore();
       // clip text to the card so long titles/subtitles never bleed past the edge
       ctx.save();
       roundRect(ctx, c.x, c.y, c.w * 0.86, c.h, c.h * 0.22); ctx.clip();

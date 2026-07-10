@@ -59,6 +59,15 @@
         },
         raf: function (cb) { requestAnimationFrame(cb); },
         now: function () { return performance.now(); },
+        getImage: (function () {
+          var cache = {};
+          return function (name) {
+            var im = cache[name];
+            if (im) return im;
+            im = new Image(); cache[name] = im; im.src = './assets/' + name;
+            return im;
+          };
+        })(),
       };
       canvas.addEventListener('mousedown', function (e) { var p = toCanvas(e); startCb(p.x, p.y); });
       canvas.addEventListener('mousemove', function (e) { var p = toCanvas(e); moveCb(p.x, p.y); });

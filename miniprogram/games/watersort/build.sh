@@ -23,3 +23,7 @@ BUNDLE="$HERE/bundle.js"
   echo "})();"
 } > "$BUNDLE"
 echo "wrote $BUNDLE"
+
+# copy shared art assets into this root for the standalone preview (gitignored)
+rm -rf "$HERE/assets"
+[ -d "$HERE/../assets" ] && cp -R "$HERE/../assets" "$HERE/assets" && echo "copied assets/"

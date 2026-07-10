@@ -3,6 +3,14 @@
 'use strict';
 var C = require('./config.js');
 
+var _imgGetter = null;
+function setImageGetter(fn) { _imgGetter = fn; }
+function img(name) {
+  if (!_imgGetter) return null;
+  var im = _imgGetter(name);
+  return (im && im.complete && im.naturalWidth) ? im : null;
+}
+
 function createRenderer(ctx, W, H) {
 
   function roundRect(x, y, w, h, r) {
@@ -74,7 +82,9 @@ function createRenderer(ctx, W, H) {
 
   function draw(game) {
     var v = game.view();
-    ctx.fillStyle = C.BG; ctx.fillRect(0, 0, W, H);
+    var bg = img('bg.png');
+    if (bg) ctx.drawImage(bg, 0, 0, W, H);
+    else { ctx.fillStyle = C.BG; ctx.fillRect(0, 0, W, H); }
     if (!v.lv) return;
     var st = v.lv.state, palette = v.palette;
 
@@ -111,6 +121,18 @@ function createRenderer(ctx, W, H) {
       ctx.fillText(String(i + 1), r.x + r.w / 2, r.y + r.h + 4);
     }
     if (an) drawStream(v.layout.tubes[an.from], v.layout.tubes[an.to], palette[an.col % palette.length], an.p);
+
+    // splash particles from a landed pour
+    if (v.parts && v.parts.length) {
+      ctx.save();
+      for (var pk = 0; pk < v.parts.length; pk++) {
+        var p = v.parts[pk], tt = 1 - p.life / p.max;
+        ctx.globalAlpha = Math.max(0, tt);
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.r0 * (0.5 + 0.5 * tt), 0, 6.283);
+        ctx.fillStyle = p.col; ctx.fill();
+      }
+      ctx.restore();
+    }
 
     // hint arrow (rewarded)
     if (v.hintMove) {
@@ -160,4 +182,4 @@ function createRenderer(ctx, W, H) {
   return { draw: draw };
 }
 
-module.exports = { createRenderer: createRenderer };
+module.exports = { createRenderer: createRenderer, setImageGetter: setImageGetter };

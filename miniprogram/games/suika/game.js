@@ -14,7 +14,8 @@
 
 var C = require('./config.js');
 var LOGIC = require('./logic.js');
-var createRenderer = require('./render.js').createRenderer;
+var RENDER = require('./render.js');
+var createRenderer = RENDER.createRenderer;
 
 function createGame(platform) {
   var store = platform && platform.storage
@@ -22,6 +23,8 @@ function createGame(platform) {
     : { get: function () { return null; }, set: function () {} };
   var rewardAd = (platform && platform.rewardAd) || function (cb) { cb(true); };
   function now() { return platform && platform.now ? platform.now() : Date.now(); }
+  // wire optional art assets (fruit sheet + background) into the renderer
+  if (platform && platform.getImage && RENDER.setImageGetter) RENDER.setImageGetter(platform.getImage);
 
   var G = {
     W: 0, H: 0, topInset: 0,
@@ -137,6 +140,18 @@ function createGame(platform) {
     if (!G.sim) newRun();
   }
 
+  // --- generative particle layer (merge bursts) — the algorithmic-art juice ---
+  function spawnBurst(x, y, tier, pop) {
+    var binW = G.sim.state.bin.w, r = C.radiusOf(tier, binW), col = C.colorOf(tier);
+    var n = pop ? 22 : 14;
+    for (var i = 0; i < n; i++) {
+      var a = (i / n) * Math.PI * 2 + Math.random() * 0.6;
+      var sp = r * (2.2 + Math.random() * 2.8);
+      G.parts.push({ x: x, y: y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - r * 1.1,
+                     life: 0, max: 0.40 + Math.random() * 0.4, r0: r * (0.15 + Math.random() * 0.12), col: col });
+    }
+  }
+
   function update(dt, tSec) {
     if (!G.sim) return;
     if (!(dt > 0) || dt > 0.1) dt = dt > 0 ? 0.1 : 0; // clamp big hitches
@@ -144,6 +159,15 @@ function createGame(platform) {
     var ev = G.sim.step(dt);
     if (ev.merges || ev.pops) G.flash = Math.min(1, G.flash + 0.5 * (ev.merges + ev.pops));
     G.flash *= 0.9;
+    if (!G.parts) G.parts = [];
+    var evs = G.sim.state.mergeEvents;
+    if (evs && evs.length) { for (var k = 0; k < evs.length; k++) spawnBurst(evs[k].x, evs[k].y, evs[k].tier, evs[k].pop); evs.length = 0; }
+    var grav = G.sim.state.bin.w * 2.2;
+    for (var pi = G.parts.length - 1; pi >= 0; pi--) {
+      var p = G.parts[pi]; p.life += dt;
+      if (p.life >= p.max) { G.parts.splice(pi, 1); continue; }
+      p.vy += grav * dt; p.vx *= 0.985; p.x += p.vx * dt; p.y += p.vy * dt;
+    }
     var wasOver = G._over;
     if (G.sim.state.over && !wasOver) { saveBest(); }
     G._over = G.sim.state.over;
@@ -155,7 +179,7 @@ function createGame(platform) {
       W: G.W, H: G.H, topInset: G.topInset,
       bin: G.bin, sim: G.sim, aimX: G.aimX,
       best: G.best, buttons: G.buttons, toast: G.toast,
-      flash: G.flash, dangerY: G.sim ? G.sim.dangerY() : 0,
+      flash: G.flash, dangerY: G.sim ? G.sim.dangerY() : 0, parts: G.parts || [],
       reviveUsed: G.reviveUsed, doubled: G.doubled,
       config: C,
     };

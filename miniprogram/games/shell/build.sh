@@ -57,3 +57,8 @@ emit_game() {   # $1=id  $2=dir  $3..=files (basenames without .js)
   echo "})();"
 } > "$BUNDLE"
 echo "wrote $BUNDLE"
+
+# copy the shared art assets into this root so index.html can load ./assets/*
+# (DevTools/zip package only files under the opened root; gitignored copy).
+rm -rf "$HERE/assets"
+[ -d "$GAMES/assets" ] && cp -R "$GAMES/assets" "$HERE/assets" && echo "copied assets/ -> shell/assets"

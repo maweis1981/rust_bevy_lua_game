@@ -11,12 +11,14 @@
 
 var C = require('./config.js');
 var LOGIC = require('./logic.js');
+var RENDER = require('./render.js');
 
 function createGame(platform) {
   var store = platform && platform.storage
     ? platform.storage
     : { get: function () { return null; }, set: function () {} };
   var rewardAd = (platform && platform.rewardAd) || function (cb) { cb(true); };
+  if (platform && platform.getImage && RENDER.setImageGetter) RENDER.setImageGetter(platform.getImage);
 
   var G = {
     W: 0, H: 0, level: 1, lv: null,
@@ -147,20 +149,49 @@ function createGame(platform) {
     });
   }
 
+  // --- splash particles when a pour lands (algorithmic-art juice) ------------
+  function spawnSplash(tubeIdx, colorId) {
+    if (!G.parts) G.parts = [];
+    var r = G.layout.tubes[tubeIdx]; if (!r) return;
+    var col = C.PALETTE[colorId % C.PALETTE.length];
+    var cx = r.x + r.w / 2, cy = r.y + r.h * 0.14, spread = r.w * 0.5;
+    for (var i = 0; i < 12; i++) {
+      var a = -Math.PI / 2 + (Math.random() - 0.5) * 2.2;
+      var sp = r.w * (1.6 + Math.random() * 2.2);
+      G.parts.push({ x: cx + (Math.random() - 0.5) * spread, y: cy,
+                     vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+                     life: 0, max: 0.32 + Math.random() * 0.3, r0: r.w * (0.06 + Math.random() * 0.06), col: col });
+    }
+  }
+  function stepParts(dt) {
+    if (!G.parts || !G.parts.length) return;
+    var grav = G.H * 1.6;
+    for (var i = G.parts.length - 1; i >= 0; i--) {
+      var p = G.parts[i]; p.life += dt;
+      if (p.life >= p.max) { G.parts.splice(i, 1); continue; }
+      p.vy += grav * dt; p.x += p.vx * dt; p.y += p.vy * dt;
+    }
+  }
+
   // --- lifecycle --------------------------------------------------------------
   function setSize(w, h) { G.W = w; G.H = h; relayout(); }
   function setPointer() {}                  // tap game: no drag state needed
   function update() {
     var t = (platform.now ? platform.now() : Date.now());
+    var dt = G._lastT ? Math.min(0.05, Math.max(0, (t - G._lastT) / 1000)) : 0;
+    G._lastT = t;
     if (G.anim && t - G.anim.t0 >= G.anim.ms) {
+      var acol = G.anim.col, ato = G.anim.to;
       G.anim = null;
       if (G.pending) {                      // commit the animated pour now
         var p = G.pending; G.pending = null;
         G.lv.select(p.from);                // pick source (still legal — input was blocked)
         var ev = G.lv.select(p.to);         // pour
         if (ev === 'win') G.banner = 'win';
+        spawnSplash(ato, acol);
       }
     }
+    stepParts(dt);
     if (G.toast && t > G.toast.until) G.toast = null;
     if (G.hintMove && t > G.hintUntil) { G.hintMove = null; }
   }
@@ -173,7 +204,7 @@ function createGame(platform) {
                p: Math.max(0, Math.min(1, (t - G.anim.t0) / G.anim.ms)) };
     }
     return {
-      W: G.W, H: G.H, level: G.level, wins: G.stats.wins,
+      W: G.W, H: G.H, level: G.level, wins: G.stats.wins, parts: G.parts || [],
       lv: G.lv, layout: G.layout, anim: anim, toast: G.toast,
       banner: G.banner, hintMove: G.hintMove || null,
       palette: C.PALETTE,
