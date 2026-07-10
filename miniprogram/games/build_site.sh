@@ -15,7 +15,10 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"          # miniprogram/games
 MP="$(cd "$HERE/.." && pwd)"                    # miniprogram
 ROOT="$(cd "$MP/.." && pwd)"                    # repo root
-OUT="$ROOT/build/pages"
+# Output dir: defaults to build/pages, or set PAGES_OUT to embed elsewhere
+# (e.g. web/build.sh points it at build/web/games so the engine-site deploy
+# ships the games under /games/).
+OUT="${PAGES_OUT:-$ROOT/build/pages}"
 
 echo ">> building game bundles + asset copies"
 sh "$MP/prepare.sh" >/dev/null                  # builds tiktok/engine.bundle.js (Time Dodge)
