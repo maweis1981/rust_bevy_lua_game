@@ -1,0 +1,49 @@
+name: Deploy mini-games to GitHub Pages
+
+# Publishes the dependency-free JS mini-games (miniprogram/games/build_site.sh)
+# to GitHub Pages. Pure JS — no Rust/wasm — so it's fast. Each game ships as its
+# own self-contained package (/suika/, /watersort/, /timedodge/) alongside the
+# combined /arcade/ shell and a landing hub at /.
+#
+# One-time: Settings → Pages → Source: "GitHub Actions". The github-pages
+# environment may restrict deploys to the default branch; if so, this publishes
+# once merged to main (or dispatch it after allowing this branch).
+on:
+  push:
+    branches: [claude/tiktok-game-playtest-xhi2yr, main]
+    paths:
+      - 'miniprogram/**'
+      - '.github/workflows/deploy-games.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the games site (no Rust needed)
+        run: bash miniprogram/games/build_site.sh
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: build/pages
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
