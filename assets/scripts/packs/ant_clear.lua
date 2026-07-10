@@ -223,7 +223,10 @@ local function make_ant_clear()
 
   -- ---- ants (spritesheet walk + facing + carry) ---------------------------
   local function spawn_ant(slot_i)
-    local id = game.spawn_sheet(NESTX, NESTY, CELL * 1.6, CELL * 1.6, "ant_sheet", 8, 8)
+    -- ant_sheet is 8 frames of 48x48 (see tools/gen_ant_sheet.py). spawn_sheet
+    -- needs (x,y,w,h,name, frame_w, frame_h, cols, frames) — all nine, or the
+    -- host binding errors (which stalled the web build).
+    local id = game.spawn_sheet(NESTX, NESTY, CELL * 1.6, CELL * 1.6, "ant_sheet", 48, 48, 8, 8)
     ants[#ants + 1] = { id = id, slot = slot_i, state = "idle", x = NESTX, y = NESTY,
                         pi = 1, path = nil, tr = 0, tc = 0, anim = 0, carry = nil, cc = 0, tintc = -1,
                         phase = (#ants % 8) * 0.8, dust = 0 }
@@ -347,7 +350,7 @@ local function make_ant_clear()
         if slot_txt[i] then game.despawn(slot_txt[i]); slot_txt[i] = nil end
         if slot_bug[i] then game.despawn(slot_bug[i]); slot_bug[i] = nil end
         if lbl ~= "" then
-          slot_bug[i] = T.sprite(slot_x(i) - SLOT_W * 0.24, SLOT_Y + SLOT_W * 0.22, SLOT_W * 0.34, SLOT_W * 0.34, "ant_sheet")
+          slot_bug[i] = T.sprite(slot_x(i) - SLOT_W * 0.24, SLOT_Y + SLOT_W * 0.22, SLOT_W * 0.34, SLOT_W * 0.34, "ant_icon")
           game.set_color(slot_bug[i], 0.20, 0.16, 0.14, 1)
           slot_txt[i] = T.text(slot_x(i) + SLOT_W * 0.1, SLOT_Y - SLOT_W * 0.05, 22, 1, 1, 1, 1, lbl)
         end
@@ -362,7 +365,7 @@ local function make_ant_clear()
         if tray_txt[i] then game.despawn(tray_txt[i]); tray_txt[i] = nil end
         if tray_bug[i] then game.despawn(tray_bug[i]); tray_bug[i] = nil end
         if lbl ~= "" then
-          tray_bug[i] = T.sprite(tray_x(i) - TRAY_W * 0.24, tray_yy(i) + TRAY_W * 0.22, TRAY_W * 0.3, TRAY_W * 0.3, "ant_sheet")
+          tray_bug[i] = T.sprite(tray_x(i) - TRAY_W * 0.24, tray_yy(i) + TRAY_W * 0.22, TRAY_W * 0.3, TRAY_W * 0.3, "ant_icon")
           game.set_color(tray_bug[i], 0.20, 0.16, 0.14, 1)
           tray_txt[i] = T.text(tray_x(i) + TRAY_W * 0.08, tray_yy(i) - TRAY_W * 0.05, 22, 1, 1, 1, 1, lbl)
         end

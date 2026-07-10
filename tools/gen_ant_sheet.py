@@ -105,6 +105,13 @@ def main():
     sheet.save(OUT)
     print(f"wrote {OUT}  ({CELL*FRAMES}x{CELL}, {FRAMES} frames)")
 
+    # single-frame icon (frame 0) for the slot/queue bug marks — spawned as a
+    # plain sprite so tiles don't try to show the whole atlas strip.
+    icon = Image.new("RGBA", (CELL, CELL), (0, 0, 0, 0))
+    draw_ant(icon, 0.0)
+    icon.save("assets/textures/ant_icon.png")
+    print("wrote assets/textures/ant_icon.png")
+
     # zoomed preview strip on a light card for review
     z = 5
     prev = Image.new("RGB", (CELL * FRAMES * z, CELL * z), (238, 230, 216))
