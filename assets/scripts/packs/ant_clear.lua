@@ -212,6 +212,28 @@ local function make_ant_clear()
     local col = palette[ci]; game.set_color(id, col[1], col[2], col[3], a or 1)
   end
 
+  -- ---- bitmap number font (num_font.png: 10 candy digits, 52x68) -----------
+  local NUMA = 52 / 68
+  local function num_make(str, h, alpha)
+    local dw = h * NUMA; local step = dw * 0.82
+    local ids, offs = {}, {}
+    local x0 = -(#str - 1) * step / 2
+    for i = 1, #str do
+      local d = tonumber(str:sub(i, i)) or 0
+      local id = game.spawn_sheet(0, 0, dw, h, "num_font", 52, 68, 10, 10)
+      game.set_frame(id, d); game.set_color(id, 1, 1, 1, alpha or 1)
+      ids[i] = id; offs[i] = x0 + (i - 1) * step
+    end
+    return { ids = ids, offs = offs }
+  end
+  local function num_place(num, cx, cy)
+    if not num then return end
+    for i, id in ipairs(num.ids) do game.move_to(id, cx + num.offs[i], cy) end
+  end
+  local function num_free(num)
+    if num then for _, id in ipairs(num.ids) do game.despawn(id) end end
+  end
+
   -- ---- rendering: board ----------------------------------------------------
   local function draw_board()
     cell_id, painted = {}, 0
@@ -336,7 +358,7 @@ local function make_ant_clear()
           a.carry = game.spawn(a.x, a.y - CELL * 0.5, 1, 1, 1, 1, 1, 1)
           a.carry_t = 0                 -- pop the picked pixel up from nothing
           tint(a.carry, a.cc)
-          game.play_sound("hit"); game.shake(0.02); game.haptic("light")
+          game.shake(0.02); game.haptic("light")   -- grab: subtle (deposit is the sound)
         end
         reserved[(a.tr-1)*W+a.tc] = nil
         local rev = {}
@@ -345,7 +367,7 @@ local function make_ant_clear()
       end
     elseif a.state == "back" then
       if move_along(a, dt) then
-        if a.carry then game.despawn(a.carry); a.carry = nil; game.play_sound("wall") end
+        if a.carry then game.despawn(a.carry); a.carry = nil; game.play_sound("ac_deposit") end
         a.state = "idle"
       end
     end
@@ -354,6 +376,87 @@ local function make_ant_clear()
   -- ---- HUD tiles (slots + tray) -------------------------------------------
   local slot_bg, slot_txt, slot_bug, tray_bg, tray_txt, tray_bug = {}, {}, {}, {}, {}, {}
   local slot_shown, tray_shown = {}, {}
+  local coin_num                       -- bitmap-digit coin counter
+  local drifters = {}                  -- ambient floating leaves/motes (bg motion)
+  local buttons = {}                   -- tappable UI buttons with press-state feedback
+
+  -- Register a pill button for press feedback + hit-testing. `sel` (optional) is
+  -- a predicate → the button shows a lit "selected" state while it returns true
+  -- (e.g. speed x2 while active); `on_tap` runs when it's pressed.
+  local function add_button(id, rect, base, on_tap, sel)
+    buttons[#buttons + 1] = { id = id, rect = rect, base = base, pulse = 0, on_tap = on_tap, sel = sel }
+  end
+  -- Ease each button back from its last press; pressed = darker (pushed in),
+  -- selected = brighter (lit). Runs every frame so it animates on the win card too.
+  local function update_buttons(dt)
+    for _, b in ipairs(buttons) do
+      b.pulse = math.max(0, b.pulse - dt * 6)
+      local k = 1 - 0.28 * b.pulse                       -- press darkens
+      local lift = (b.sel and b.sel()) and 0.16 or 0     -- selected brightens toward white
+      game.set_color(b.id, b.base[1] * k + lift, b.base[2] * k + lift, b.base[3] * k + lift, 1)
+    end
+  end
+  -- Hit-test the buttons; on a press, pulse + fire on_tap. Returns true if consumed.
+  local function press_button(x, y)
+    for _, b in ipairs(buttons) do
+      if K.in_rect(b.rect, x, y) then
+        b.pulse = 1; game.play_sound("ac_load"); game.haptic("light")
+        if b.on_tap then b.on_tap() end
+        return true
+      end
+    end
+    return false
+  end
+
+  -- Ambient background motion: a handful of soft leaves + light motes that drift
+  -- slowly upward-diagonally and wrap, so the scene never feels static. Spawned
+  -- behind the board; cheap (just move_to + set_rotation per frame).
+  local function spawn_drifters()
+    drifters = {}
+    for i = 1, 11 do
+      local leaf = (i % 3 ~= 0)                       -- 2/3 leaves, 1/3 glowing motes
+      local sz = leaf and (16 + math.random() * 14) or (7 + math.random() * 7)
+      local id = game.spawn_sprite(0, 0, sz, sz, leaf and "leaf" or "petal")
+      if leaf then
+        local g = 0.35 + math.random() * 0.3
+        game.set_color(id, 0.55 * g + 0.3, 0.62 * g + 0.28, 0.30 * g + 0.18, 0.5)
+      else
+        game.set_color(id, 1, 0.98, 0.9, 0.5)
+      end
+      drifters[i] = {
+        id = id, leaf = leaf,
+        x = (math.random() * 2 - 1) * HW, y = (math.random() * 2 - 1) * HH,
+        vx = (math.random() * 2 - 1) * 10, vy = 6 + math.random() * 12,
+        rot = math.random() * 6.28, spin = (math.random() * 2 - 1) * 0.6,
+      }
+    end
+  end
+  local function update_drifters(dt)
+    for _, d in ipairs(drifters) do
+      d.x = d.x + d.vx * dt; d.y = d.y + d.vy * dt; d.rot = d.rot + d.spin * dt
+      if d.y > HH + 30 then d.y = -HH - 30; d.x = (math.random() * 2 - 1) * HW end
+      if d.x > HW + 30 then d.x = -HW - 30 elseif d.x < -HW - 30 then d.x = HW + 30 end
+      game.move_to(d.id, d.x, d.y)
+      if d.leaf then game.set_rotation(d.id, d.rot) end
+    end
+  end
+
+  -- Despawn every dynamically-spawned (untracked) sprite: ants + their shadows/
+  -- carried pixels, and all bitmap-number digits. Called on rebuild and leave so
+  -- nothing leaks (T.clear only covers tracker-owned sprites).
+  local function despawn_dynamic()
+    for _, a in ipairs(ants) do
+      game.despawn(a.id)
+      if a.shadow then game.despawn(a.shadow) end
+      if a.carry then game.despawn(a.carry) end
+    end
+    for i = 1, SLOTS do num_free(slot_txt[i]); slot_txt[i] = nil end
+    for c = 1, NCOL do for row = 0, QROWS - 1 do num_free(tray_txt[qi and qi(c, row) or ((c-1)*QROWS+row+1)]); end end
+    tray_txt = {}
+    num_free(coin_num); coin_num = nil
+    for _, d in ipairs(drifters) do game.despawn(d.id) end; drifters = {}
+    buttons = {}   -- pill sprites are tracker-owned (T.clear despawns them); drop stale refs
+  end
   local QYGAP = 6
   local function slot_x(i) return (i - (SLOTS + 1) / 2) * (SLOT_W + 8) end
   local function col_x(c) return (c - (NCOL + 1) / 2) * (TRAY_W + 8) end
@@ -387,15 +490,16 @@ local function make_ant_clear()
       end
       local lbl = s and tostring(s.n) or ""
       if lbl ~= slot_shown[i] then
-        if slot_txt[i] then game.despawn(slot_txt[i]); slot_txt[i] = nil end
+        num_free(slot_txt[i]); slot_txt[i] = nil
         if slot_bug[i] then game.despawn(slot_bug[i]); slot_bug[i] = nil end
         if lbl ~= "" then
-          slot_bug[i] = T.sprite(slot_x(i) - SLOT_W * 0.24, SLOT_Y + SLOT_W * 0.22, SLOT_W * 0.34, SLOT_W * 0.34, "ant_icon")
+          slot_bug[i] = T.sprite(slot_x(i) - SLOT_W * 0.26, SLOT_Y + SLOT_W * 0.26, SLOT_W * 0.3, SLOT_W * 0.3, "ant_icon")
           game.set_color(slot_bug[i], 0.20, 0.16, 0.14, 1)
-          slot_txt[i] = T.text(slot_x(i) + SLOT_W * 0.1, SLOT_Y - SLOT_W * 0.05, 22, 1, 1, 1, 1, lbl)
+          slot_txt[i] = num_make(lbl, SLOT_W * 0.52, 1)
         end
         slot_shown[i] = lbl
       end
+      num_place(slot_txt[i], slot_x(i) + SLOT_W * 0.12, SLOT_Y - SLOT_W * 0.02)
     end
     for c = 1, NCOL do
       local slide = (col_adv[c] or 0)
@@ -411,18 +515,17 @@ local function make_ant_clear()
         if b then tint(tray_bg[i], b.color, a) else game.set_color(tray_bg[i], 0.80, 0.76, 0.70, 0) end
         local lbl = b and tostring(b.n) or ""
         if lbl ~= tray_shown[i] then
-          if tray_txt[i] then game.despawn(tray_txt[i]); tray_txt[i] = nil end
+          num_free(tray_txt[i]); tray_txt[i] = nil
           if tray_bug[i] then game.despawn(tray_bug[i]); tray_bug[i] = nil end
           if lbl ~= "" then
-            tray_bug[i] = T.sprite(xx - TRAY_W * 0.24, yy + TRAY_W * 0.22, TRAY_W * 0.3, TRAY_W * 0.3, "ant_icon")
+            tray_bug[i] = T.sprite(xx - TRAY_W * 0.26, yy + TRAY_W * 0.24, TRAY_W * 0.28, TRAY_W * 0.28, "ant_icon")
             game.set_color(tray_bug[i], 0.20, 0.16, 0.14, a)
-            tray_txt[i] = T.text(xx + TRAY_W * 0.08, yy - TRAY_W * 0.05, 22, 1, 1, 1, a, lbl)
+            tray_txt[i] = num_make(lbl, TRAY_W * 0.5, a)
           end
           tray_shown[i] = lbl
-        elseif lbl ~= "" then
-          if tray_bug[i] then game.move_to(tray_bug[i], xx - TRAY_W * 0.24, yy + TRAY_W * 0.22) end
-          if tray_txt[i] then game.move_to(tray_txt[i], xx + TRAY_W * 0.08, yy - TRAY_W * 0.05) end
         end
+        if tray_bug[i] then game.move_to(tray_bug[i], xx - TRAY_W * 0.26, yy + TRAY_W * 0.24) end
+        num_place(tray_txt[i], xx + TRAY_W * 0.06, yy - TRAY_W * 0.04)
       end
     end
   end
@@ -436,6 +539,7 @@ local function make_ant_clear()
   -- ---- build ---------------------------------------------------------------
   local function build(hw, hh)
     HW, HH = hw, hh
+    despawn_dynamic()   -- clear any leftover ants / bitmap digits before a rebuild
 
     -- ---- deterministic layout, stacked BOTTOM-UP so nothing ever overlaps ----
     local M, BAR_H = 30, 46
@@ -472,12 +576,13 @@ local function make_ant_clear()
 
     -- full-screen cozy background (generated art), behind everything
     T.sprite(0, 0, math.max(2 * hw, 2 * hh * 512 / 768) + 4, 2 * hh + 4, "game_bg")
+    spawn_drifters()   -- ambient floating leaves/motes over the background
     -- top status bar: settings (left) · 关卡 N (centre) · coins (right)
     local bar = T.sprite(0, hh - 34, 2 * hw - 20, 48, "tile_sq")
     game.set_color(bar, 0.99, 0.94, 0.84, 1)
     T.text(0, hh - 34, 22, 0.30, 0.22, 0.16, 1, "关卡 " .. (LEVEL.id or 1))
     T.sprite(hw - 96, hh - 34, 26, 26, "icon_coin")
-    T.text(hw - 58, hh - 34, 20, 0.36, 0.28, 0.14, 1, "1240")
+    coin_num = num_make("1240", 22, 1); num_place(coin_num, hw - 54, hh - 34)
     -- board panel (white picture frame) behind the cells
     local panel = T.sprite(0, TOPY - 0.5 * CELL * H, W * CELL + 20, H * CELL + 20, "tile_sq")
     game.set_color(panel, 0.99, 0.97, 0.93, 1)
@@ -485,7 +590,8 @@ local function make_ant_clear()
     T.sprite(NESTX, NESTY, HOLE_R * 2.5, HOLE_R * 2.4, "hole")
     for _, sx in ipairs({ -1, 1 }) do
       local bx = sx * (hw - 44)
-      local ub = T.sprite(bx, NESTY, 80, 54, "btn_pill"); game.set_color(ub, 0.93, 0.80, 0.55, 1)
+      local ub = T.sprite(bx, NESTY, 80, 54, "btn_pill")
+      add_button(ub, { x = bx, y = NESTY, w = 80, h = 54 }, { 0.93, 0.80, 0.55 })
       T.sprite(bx, NESTY + 8, 26, 20, "ad_play")
       T.text(bx, NESTY - 14, 17, 0.42, 0.32, 0.18, 1, "解锁")
     end
@@ -501,7 +607,10 @@ local function make_ant_clear()
     for i, b in ipairs(btns) do
       local bxc = -hw + BM + bw / 2 + (i - 1) * (bw + BG)
       local id = T.sprite(bxc, BAR_CY, bw, BAR_H + 6, "btn_pill")
-      game.set_color(id, b[2][1], b[2][2], b[2][3], 1)
+      -- the speed x2 button toggles the demo double-speed and lights up while on
+      local on_tap = (b[3] == "icon_x2") and function() speed2 = not speed2 end or nil
+      local sel = (b[3] == "icon_x2") and function() return speed2 end or nil
+      add_button(id, { x = bxc, y = BAR_CY, w = bw, h = BAR_H + 6 }, b[2], on_tap, sel)
       local ic = T.sprite(bxc - bw * 0.32, BAR_CY, BAR_H * 0.62, BAR_H * 0.62, b[3])
       if b[3] == "icon_x2" then game.set_color(ic, 0.22, 0.15, 0.10, 1) end
       local dark = b[2][1] > 0.9
@@ -543,29 +652,27 @@ local function make_ant_clear()
   local function win()
     playing, won = false, true
     game.set_text("恭喜完成！\n点击再玩一次")
-    game.play_sound("score"); game.haptic("success"); game.shake(0.5); game.log("ant_clear win")
+    game.play_sound("ac_win"); game.haptic("success"); game.shake(0.5); game.log("ant_clear win")
   end
 
   return {
-    enter = function() built = false end,
-    leave = function() T.clear(); ants = {}; built = false end,
+    enter = function() built = false; game.play_music("ac_bgm") end,
+    leave = function() T.clear(); despawn_dynamic(); ants = {}; built = false; game.stop_music() end,
     tap = function(x, y)
       if back and K.in_rect(back, x, y) then K.switch("menu"); return end
       if not playing then T.clear(); build(HW, HH); return end
-      if math.abs(x - NESTX) < CELL and math.abs(y - NESTY) < CELL then
-        speed2 = not speed2; game.play_sound("wall"); game.haptic("light"); return
-      end
+      if press_button(x, y) then return end   -- bottom bar + unlock buttons (press feedback)
       if mode == "manual" then
         for i = 1, SLOTS do
           if slots[i] and math.abs(x - slot_x(i)) <= SLOT_W * 0.6 and math.abs(y - SLOT_Y) <= SLOT_W * 0.6 then
-            if cancel_slot_ad(i) then game.play_sound("wall"); game.haptic("medium") end
+            if cancel_slot_ad(i) then game.play_sound("ac_load"); game.haptic("medium") end
             return
           end
         end
         if free_slot() then
           for c = 1, NCOL do   -- only the top row (column heads) can be loaded
             if col_head(c) and math.abs(x - col_x(c)) <= TRAY_W * 0.55 and math.abs(y - row_y(0)) <= TRAY_W * 0.6 then
-              if load_head(c) then game.play_sound("hit"); game.haptic("light") end
+              if load_head(c) then game.play_sound("ac_place"); game.haptic("light") end
               return
             end
           end
@@ -574,6 +681,8 @@ local function make_ant_clear()
     end,
     update = function(dt, hw, hh)
       if not built then build(hw, hh) end
+      update_drifters(math.min(dt, MAX_DT))   -- ambient motion, even on the win card
+      update_buttons(math.min(dt, MAX_DT))    -- ease button press/selected states
       if not playing then return end
       dt = math.min(dt, MAX_DT)
       if dirty then recompute_field() end
@@ -581,7 +690,7 @@ local function make_ant_clear()
       for _, a in ipairs(ants) do update_ant(a, dt) end
       for i = 1, SLOTS do if slots[i] and slots[i].n <= 0 then slots[i] = nil end end
       stuck = check_stuck()
-      if stuck and not was_stuck then game.play_sound("wall"); game.haptic("medium") end
+      if stuck and not was_stuck then game.play_sound("ac_stuck"); game.haptic("medium") end
       was_stuck = stuck
       refresh_hud(); status()
       if painted <= 0 then win() end

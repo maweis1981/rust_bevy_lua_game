@@ -49,6 +49,7 @@ game = {
   emit = function() end,
   play_sound = function() end,
   play_music = function() end,
+  stop_music = function() end,
   haptic = function() end,
   track = function() end,
   set_bg_theme = function() end,
