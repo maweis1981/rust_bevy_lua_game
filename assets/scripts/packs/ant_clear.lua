@@ -8,16 +8,20 @@
 -- buried in the middle is unreachable until the colours around it are gone. That
 -- spatial coupling is the puzzle.
 --
--- What this slice proves out (the hard parts of the pitch):
+-- The full loop, modelled on Ants Flow (com.ants.box):
 --   * flow-field pathfinding on a DYNAMIC grid, shared by the whole swarm and
 --     recomputed only when a pixel is removed (BFS from the nest through the open
 --     ring + cleared channels) — so ants weave around walls, cheaply, in Lua;
 --   * a tray (ordered colour-batch queue) whose colours + counts MATCH the
 --     picture's colour distribution and is GUARANTEED solvable (tools/gen_level.py
 --     emits it by peeling the frontier; see that file);
---   * slot scheduling with a real deadlock/lose state for the strategy layer.
+--   * STRATEGY: fewer slots than colours + buried colours (concentric bands), so
+--     committing a scarce slot to a buried colour strands it. There is no fail
+--     state (relaxing genre) — you get "stuck", and the escape valve is to CANCEL
+--     a slot (gated behind a rewarded video: the core monetisation) and re-pick,
+--     or restart. `game.track("rewarded_ad")` marks the ad; wire a real SDK later.
 --
--- The embedded LEVEL is produced by:  python3 tools/gen_level.py --pattern heart
+-- The embedded LEVEL is produced by:  python3 tools/gen_level.py --pattern heart --bands 5
 -- Regenerate + paste to change the picture. The Rust flow-field port (src/ants.rs)
 -- is the scale follow-up; at slice size the Lua BFS is trivially cheap.
 
@@ -26,34 +30,38 @@ local function make_ant_clear()
   local T = K.tracker()
 
   -- ---- level data (generated; keep in sync with tools/gen_level.py) --------
+  -- python3 tools/gen_level.py --pattern heart --bands 5
+  -- 5 concentric colour bands: 1 = outer ring, 5 = buried core. Committing a
+  -- slot to an inner (buried) colour strands it — that's what the cancel /
+  -- rewarded-ad recovery is for.
   local LEVEL = {
     w = 15, h = 14,
-    palette = { {0.920,0.240,0.340}, {0.720,0.140,0.260}, {1.000,0.720,0.780} },
+    palette = { {0.700,0.100,0.180}, {0.775,0.280,0.350}, {0.850,0.460,0.520}, {0.925,0.640,0.690}, {1.000,0.820,0.860} },
     grid = {
       {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
       {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
-      {0,0,1,3,3,3,1,0,1,1,1,1,1,0,0},
-      {0,1,3,3,3,3,3,1,1,1,1,1,1,1,0},
-      {0,3,3,3,3,3,3,1,1,1,1,1,1,1,0},
-      {1,3,3,3,3,3,3,1,1,1,1,1,1,1,1},
-      {1,1,3,3,3,3,3,1,1,1,1,1,1,1,1},
+      {0,0,1,1,1,1,1,0,1,1,1,1,1,0,0},
       {0,1,1,1,1,1,1,1,1,1,1,1,1,1,0},
-      {0,1,1,1,1,1,1,1,1,1,1,1,1,1,0},
-      {0,1,1,1,1,1,1,1,1,1,1,1,1,1,0},
-      {0,0,1,1,1,1,1,1,1,1,1,1,1,0,0},
-      {0,0,0,2,2,2,2,2,2,2,2,2,0,0,0},
-      {0,0,0,0,2,2,2,2,2,2,2,0,0,0,0},
-      {0,0,0,0,0,0,2,2,2,0,0,0,0,0,0},
+      {0,1,1,2,2,2,2,1,2,2,2,2,1,1,0},
+      {1,1,2,3,3,3,3,2,3,3,3,3,2,1,1},
+      {1,1,2,3,4,4,4,3,4,4,4,3,2,1,1},
+      {0,1,1,2,3,4,5,4,5,4,3,2,1,1,0},
+      {0,1,1,2,3,4,5,5,5,4,3,2,1,1,0},
+      {0,1,1,2,3,3,4,4,4,3,3,2,1,1,0},
+      {0,0,1,1,2,2,3,3,3,2,2,1,1,0,0},
+      {0,0,0,1,1,1,2,2,2,1,1,1,0,0,0},
+      {0,0,0,0,1,1,1,1,1,1,1,0,0,0,0},
+      {0,0,0,0,0,0,1,1,1,0,0,0,0,0,0},
     },
-    tray = { {1,6},{1,6},{1,6},{1,6},{1,6},{1,6},{1,6},{1,6},{1,6},{1,6},{1,6},{1,6},
-             {3,6},{3,6},{1,6},{1,6},{3,6},{2,6},{2,6},{1,6},{2,6},{3,6},{1,1},{2,1},{3,1} },
+    tray = { {1,6},{1,6},{1,6},{1,6},{1,6},{1,6},{1,6},{1,6},{2,6},{2,6},{1,6},{3,6},{1,6},
+             {2,6},{3,6},{4,6},{2,6},{3,6},{4,6},{1,6},{5,5},{3,4},{1,2},{2,2},{4,2} },
   }
 
   -- ---- tunables ------------------------------------------------------------
   -- SLOTS < number of palette colours is what makes this a STRATEGY game: you
   -- cannot keep every colour active, so you must choose which colour to commit a
   -- scarce slot to — and loading a buried colour can strand you (a lose).
-  local SLOTS = 2            -- active colour slots (< 3 palette colours on purpose)
+  local SLOTS = 3            -- active colour slots (< 5 palette colours on purpose)
   local ANTS_PER_SLOT = 4
   local ANT_SPEED = 460      -- world units / sec
   local MAX_DT = 1 / 30      -- clamp hitches (no teleport — the feel contract)
@@ -131,7 +139,7 @@ local function make_ant_clear()
   local slots = {}                -- [i] = {color, n} or nil
   local reserved = {}             -- reserved[r*W+c] = true (ant en route)
   local ants = {}
-  local playing, won, dead = true, false, false
+  local playing, won, stuck = true, false, false
   local HW, HH, built = 0, 0, false
   local back, nest_id, speed2 = nil, nil, false
 
@@ -173,11 +181,43 @@ local function make_ant_clear()
     while free_slot() and #tray > 0 do load_tray(1) end
   end
 
-  -- Deadlock: nothing is being carried, no active slot colour has a reachable
-  -- frontier cell, and no free slot can pull a workable colour from the tray,
-  -- yet pixels remain. (Auto-fill front never hits this with a gen_level tray;
-  -- bad manual reordering can — that's the strategy layer's lose state.)
-  local function check_dead()
+  -- Cancel a slot: abort any ants mid-carry for it (so their in-flight pixel is
+  -- not double-counted), return the unfinished colour batch to the tray FRONT so
+  -- it can be re-picked, and free the slot. Counts stay conserved.
+  local function cancel_slot(i)
+    local s = slots[i]
+    if not s then return false end
+    for _, a in ipairs(ants) do
+      if a.slot == i and a.state == "out" then
+        reserved[(a.tr - 1) * W + a.tc] = nil
+        local rev = { { a.x, a.y } }              -- retrace the way it came
+        for k = a.pi, 1, -1 do rev[#rev + 1] = a.path[k] end
+        a.path, a.pi, a.state = rev, 1, "back"
+      end
+    end
+    table.insert(tray, 1, s)
+    slots[i] = nil
+    return true
+  end
+
+  -- Rewarded-video hook (the genre's core monetisation): watching frees a stuck
+  -- slot so you can re-pick — this is the escape valve from a wrong commit.
+  -- Stubbed to grant instantly on desktop/web; bridge a real SDK on device.
+  local function rewarded_ad(reward)
+    game.track("rewarded_ad")            -- TODO: real rewarded-video SDK on device
+    if reward then reward() end
+  end
+  local function cancel_slot_ad(i)
+    if slots[i] then rewarded_ad(function() cancel_slot(i) end); return true end
+    return false
+  end
+
+  -- Stuck (NOT a loss — this genre has no fail state): nothing is being carried,
+  -- no active slot colour has a reachable frontier cell, and no free slot can pull
+  -- a workable colour from the tray, yet pixels remain. Reached by committing
+  -- slots to buried colours; the way out is to cancel a slot (rewarded video) and
+  -- re-pick, or restart. Good play never gets here.
+  local function check_stuck()
     if painted <= 0 then return false end
     for _, a in ipairs(ants) do if a.state ~= "idle" then return false end end
     for i = 1, SLOTS do
@@ -220,6 +260,7 @@ local function make_ant_clear()
 
   local function status()
     if not SETTINGS.hud then return end
+    if stuck then game.set_text("STUCK — TAP A SLOT TO CANCEL (watch ad), or BACK to restart"); return end
     local hint = (mode == "manual" and free_slot() and #tray > 0) and "  — TAP A COLOUR" or ""
     game.set_text(string.format("PIXELS %d   TRAY %d%s", painted, #tray, hint))
   end
@@ -350,7 +391,7 @@ local function make_ant_clear()
     tray = {}
     for i, b in ipairs(LEVEL.tray) do tray[i] = { color = b[1], n = b[2] } end
     slots, reserved, ants, dirty = {}, {}, {}, true
-    playing, won, dead, speed2 = true, false, false, false
+    playing, won, stuck, speed2 = true, false, false, false
 
     draw_board()
     nest_id = T.sprite(NESTX, NESTY, CELL * 0.9, CELL * 0.9, "rock")
@@ -366,7 +407,7 @@ local function make_ant_clear()
       painted = function() return painted end,
       tray_len = function() return #tray end,
       won = function() return won end,
-      dead = function() return dead end,
+      stuck = function() return stuck end,
       reachable = function(col) return reachable_count(col) end,
       ant_xy = function() local o = {} for _, a in ipairs(ants) do o[#o + 1] = { a.x, a.y } end return o end,
       grid = function() return grid end,
@@ -375,6 +416,12 @@ local function make_ant_clear()
       set_mode = function(m) mode = m; fill_slots() end,
       free_slots = function() local n = 0 for i = 1, SLOTS do if slots[i] == nil then n = n + 1 end end return n end,
       load = function(ti) return load_tray(ti) end,
+      load_unreachable = function()   -- commit a currently-buried colour (a wrong move)
+        if not free_slot() then return false end
+        for ti, b in ipairs(tray) do if reachable_count(b.color) == 0 then return load_tray(ti) end end
+        return false
+      end,
+      cancel = function(i) return cancel_slot_ad(i) end,   -- goes through the rewarded-ad path
       tray_colors = function() local o = {} for _, b in ipairs(tray) do o[#o + 1] = b.color end return o end,
       slot_colors = function() local o = {} for i = 1, SLOTS do o[i] = slots[i] and slots[i].color or 0 end return o end,
     }
@@ -385,11 +432,7 @@ local function make_ant_clear()
     game.set_text("CLEARED!\nTap to replay")
     game.play_sound("score"); game.haptic("success"); game.shake(0.6); game.log("ant_clear win")
   end
-  local function lose()
-    playing, dead = false, true
-    game.set_text("STUCK!\nTap to retry")
-    game.play_sound("hit"); game.haptic("heavy"); game.shake(0.4); game.log("ant_clear stuck")
-  end
+  local was_stuck = false
 
   return {
     enter = function() built = false end,
@@ -401,13 +444,22 @@ local function make_ant_clear()
       if math.abs(x - NESTX) < CELL and math.abs(y - NESTY) < CELL then
         speed2 = not speed2; game.play_sound("wall"); game.haptic("light"); return
       end
-      -- manual: tap a tray tile to commit that colour to a free slot
-      if mode == "manual" and free_slot() then
-        for i = 1, 6 do
-          if tray[i] and math.abs(x - tray_x(i)) <= CELL * 0.63
-             and math.abs(y - TRAY_Y) <= CELL * 0.55 then
-            if load_tray(i) then game.play_sound("hit"); game.haptic("light") end
+      if mode == "manual" then
+        -- tap a FILLED slot to cancel it (watch a rewarded video to free it)
+        for i = 1, SLOTS do
+          if slots[i] and math.abs(x - slot_x(i)) <= CELL and math.abs(y - SLOT_Y) <= CELL * 0.7 then
+            if cancel_slot_ad(i) then game.play_sound("wall"); game.haptic("medium") end
             return
+          end
+        end
+        -- tap a tray tile to commit that colour to a free slot
+        if free_slot() then
+          for i = 1, 6 do
+            if tray[i] and math.abs(x - tray_x(i)) <= CELL * 0.63
+               and math.abs(y - TRAY_Y) <= CELL * 0.55 then
+              if load_tray(i) then game.play_sound("hit"); game.haptic("light") end
+              return
+            end
           end
         end
       end
@@ -421,10 +473,13 @@ local function make_ant_clear()
       for _, a in ipairs(ants) do update_ant(a, dt) end
       -- clear empty slots so they can refill next frame
       for i = 1, SLOTS do if slots[i] and slots[i].n <= 0 then slots[i] = nil end end
+      -- stuck is a non-terminal prompt (cancel a slot / restart), not a loss
+      stuck = check_stuck()
+      if stuck and not was_stuck then game.play_sound("wall"); game.haptic("medium"); game.log("ant_clear stuck") end
+      was_stuck = stuck
       refresh_hud()
       status()
-      if painted <= 0 then win()
-      elseif check_dead() then lose() end
+      if painted <= 0 then win() end
     end,
   }
 end
