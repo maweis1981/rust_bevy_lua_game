@@ -377,6 +377,40 @@ local function make_ant_clear()
   local slot_bg, slot_txt, slot_bug, tray_bg, tray_txt, tray_bug = {}, {}, {}, {}, {}, {}
   local slot_shown, tray_shown = {}, {}
   local coin_num                       -- bitmap-digit coin counter
+  local drifters = {}                  -- ambient floating leaves/motes (bg motion)
+
+  -- Ambient background motion: a handful of soft leaves + light motes that drift
+  -- slowly upward-diagonally and wrap, so the scene never feels static. Spawned
+  -- behind the board; cheap (just move_to + set_rotation per frame).
+  local function spawn_drifters()
+    drifters = {}
+    for i = 1, 11 do
+      local leaf = (i % 3 ~= 0)                       -- 2/3 leaves, 1/3 glowing motes
+      local sz = leaf and (16 + math.random() * 14) or (7 + math.random() * 7)
+      local id = game.spawn_sprite(0, 0, sz, sz, leaf and "leaf" or "petal")
+      if leaf then
+        local g = 0.35 + math.random() * 0.3
+        game.set_color(id, 0.55 * g + 0.3, 0.62 * g + 0.28, 0.30 * g + 0.18, 0.5)
+      else
+        game.set_color(id, 1, 0.98, 0.9, 0.5)
+      end
+      drifters[i] = {
+        id = id, leaf = leaf,
+        x = (math.random() * 2 - 1) * HW, y = (math.random() * 2 - 1) * HH,
+        vx = (math.random() * 2 - 1) * 10, vy = 6 + math.random() * 12,
+        rot = math.random() * 6.28, spin = (math.random() * 2 - 1) * 0.6,
+      }
+    end
+  end
+  local function update_drifters(dt)
+    for _, d in ipairs(drifters) do
+      d.x = d.x + d.vx * dt; d.y = d.y + d.vy * dt; d.rot = d.rot + d.spin * dt
+      if d.y > HH + 30 then d.y = -HH - 30; d.x = (math.random() * 2 - 1) * HW end
+      if d.x > HW + 30 then d.x = -HW - 30 elseif d.x < -HW - 30 then d.x = HW + 30 end
+      game.move_to(d.id, d.x, d.y)
+      if d.leaf then game.set_rotation(d.id, d.rot) end
+    end
+  end
 
   -- Despawn every dynamically-spawned (untracked) sprite: ants + their shadows/
   -- carried pixels, and all bitmap-number digits. Called on rebuild and leave so
@@ -391,6 +425,7 @@ local function make_ant_clear()
     for c = 1, NCOL do for row = 0, QROWS - 1 do num_free(tray_txt[qi and qi(c, row) or ((c-1)*QROWS+row+1)]); end end
     tray_txt = {}
     num_free(coin_num); coin_num = nil
+    for _, d in ipairs(drifters) do game.despawn(d.id) end; drifters = {}
   end
   local QYGAP = 6
   local function slot_x(i) return (i - (SLOTS + 1) / 2) * (SLOT_W + 8) end
@@ -511,6 +546,7 @@ local function make_ant_clear()
 
     -- full-screen cozy background (generated art), behind everything
     T.sprite(0, 0, math.max(2 * hw, 2 * hh * 512 / 768) + 4, 2 * hh + 4, "game_bg")
+    spawn_drifters()   -- ambient floating leaves/motes over the background
     -- top status bar: settings (left) · 关卡 N (centre) · coins (right)
     local bar = T.sprite(0, hh - 34, 2 * hw - 20, 48, "tile_sq")
     game.set_color(bar, 0.99, 0.94, 0.84, 1)
@@ -613,6 +649,7 @@ local function make_ant_clear()
     end,
     update = function(dt, hw, hh)
       if not built then build(hw, hh) end
+      update_drifters(math.min(dt, MAX_DT))   -- ambient motion, even on the win card
       if not playing then return end
       dt = math.min(dt, MAX_DT)
       if dirty then recompute_field() end

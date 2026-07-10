@@ -30,7 +30,8 @@ CAP = {"stuck": ("卡住了 · 取消一个槽位", (196, 72, 72)),
 
 TEX = {}
 for n in ("ant_sheet", "cat_face", "hole", "ad_play", "ant_shadow", "ant_icon",
-          "icon_speed", "icon_x2", "icon_gift", "game_bg", "btn_pill", "num_font"):
+          "icon_speed", "icon_x2", "icon_gift", "game_bg", "btn_pill", "num_font",
+          "leaf", "petal"):
     p = f"assets/textures/{n}.png"
     TEX[n] = Image.open(p).convert("RGBA") if os.path.exists(p) else None
 AF = TEX["ant_sheet"].width // 8 if TEX["ant_sheet"] else 48
@@ -77,6 +78,19 @@ def draw_frame(bg, rec):
     im = bg.copy(); dr = ImageDraw.Draw(im, "RGBA")
     E = rec["ents"]
     def bytex(t): return [e for e in E if e[8] == t and e[7] > 0.02]
+    # ambient drifters (behind everything else): tinted leaves + glowing motes
+    for nm in ("leaf", "petal"):
+        t = TEX.get(nm)
+        if t is None: continue
+        for e in bytex(nm):
+            w = max(1, int(e[2] * SCALE)); h = max(1, int(e[3] * SCALE))
+            s = t.resize((w, h), Image.LANCZOS)
+            rr, gg, bb, aa = s.split()
+            s = Image.merge("RGBA", (rr.point(lambda v: int(v*e[4])), gg.point(lambda v: int(v*e[5])),
+                                     bb.point(lambda v: int(v*e[6])), aa.point(lambda v: int(v*e[7]))))
+            if nm == "leaf" and abs(e[10]) > 1e-3:
+                s = s.rotate(-math.degrees(e[10]), expand=True, resample=Image.BICUBIC)
+            im.paste(s, (int(wx(e[0]) - s.width/2), int(wy(e[1]) - s.height/2)), s)
     # decor
     for e in bytex("cat_face"):
         t = TEX["cat_face"]; w = int(e[2] * SCALE); h = int(t.height * w / t.width)

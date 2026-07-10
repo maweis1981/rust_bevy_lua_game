@@ -127,5 +127,35 @@ def ant_shadow():
     save(im.resize((N, N), Image.LANCZOS), "ant_shadow")
 
 
+def leaf():
+    """A small soft leaf that drifts across the background (grayscale so the pack
+    can tint it warm-green/amber; a lighter midrib keeps it readable)."""
+    N = 48
+    im = Image.new("RGBA", (N * SS, N * SS), (0, 0, 0, 0))
+    d = ImageDraw.Draw(im)
+    cx, cy = N * SS / 2, N * SS / 2
+    w, h = N * SS * 0.30, N * SS * 0.46
+    d.ellipse([cx - w, cy - h, cx + w, cy + h], fill=(190, 190, 190, 255))     # blade
+    d.polygon([(cx, cy - h), (cx - w * 0.5, cy), (cx, cy + h), (cx + w * 0.5, cy)],
+              fill=(215, 215, 215, 255))                                        # pointed tip
+    d.line([(cx, cy - h * 0.82), (cx, cy + h * 0.82)], fill=(245, 245, 245, 230),
+           width=max(1, int(SS * 1.2)))                                         # midrib
+    save(im.resize((N, N), Image.LANCZOS), "leaf")
+
+
+def petal():
+    """A soft glowing bokeh dot — feathered, near-white, for gentle floating motes."""
+    N = 40
+    im = Image.new("RGBA", (N * SS, N * SS), (0, 0, 0, 0))
+    d = ImageDraw.Draw(im)
+    cx, cy = N * SS / 2, N * SS / 2
+    for k in range(16, 0, -1):
+        rr = (N * SS / 2) * (k / 16)
+        a = int(150 * (1 - k / 16) ** 1.6)
+        d.ellipse([cx - rr, cy - rr, cx + rr, cy + rr], fill=(255, 252, 240, a))
+    save(im.resize((N, N), Image.LANCZOS), "petal")
+
+
 candy_tile(); hole(); ad_play(); cat_face(); ant_shadow()
 icon_speed(); icon_x2(); icon_gift()
+leaf(); petal()
