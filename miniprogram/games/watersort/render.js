@@ -24,27 +24,59 @@ function createRenderer(ctx, W, H) {
   }
 
   function drawTube(rect, tube, cap, palette, selected, liftUnits) {
-    var x = rect.x, y = rect.y, w = rect.w, h = rect.h;
-    var r = w * 0.5;
-    var segH = (h - r * 0.4) / cap;
-    // glass body
+    var x = rect.x, y = rect.y, w = rect.w, h = rect.h, r = w * 0.5;
+    var n = tube.length;
+
+    // --- glass body: cross gradient for a rounded, translucent look ----------
     ctx.save();
     roundRect(x, y, w, h, r);
-    ctx.fillStyle = C.TUBE_GLASS; ctx.fill();
-    ctx.lineWidth = Math.max(2, w * 0.05); ctx.strokeStyle = C.TUBE_EDGE; ctx.stroke();
-    // clip liquids to the tube shape
-    roundRect(x + 2, y + 2, w - 4, h - 4, r); ctx.clip();
-    for (var i = 0; i < tube.length; i++) {
-      var col = palette[tube[i] % palette.length];
-      var segY = y + h - (i + 1) * segH;
-      var lift = (selected && i >= tube.length - liftUnits) ? -h * 0.10 : 0;
-      ctx.fillStyle = col;
-      ctx.fillRect(x + 3, segY + lift, w - 6, segH + 1);
-      // subtle top gloss on the topmost unit of a run
-      ctx.fillStyle = 'rgba(255,255,255,0.12)';
-      ctx.fillRect(x + 3, segY + lift, w - 6, Math.max(2, segH * 0.16));
+    var bodyG = ctx.createLinearGradient(x, 0, x + w, 0);
+    bodyG.addColorStop(0, 'rgba(255,255,255,0.16)');
+    bodyG.addColorStop(0.45, 'rgba(255,255,255,0.05)');
+    bodyG.addColorStop(1, 'rgba(255,255,255,0.13)');
+    ctx.fillStyle = bodyG; ctx.fill();
+    ctx.restore();
+
+    // --- liquid: contiguous same-colour runs, no seams/gaps ------------------
+    var ix = x + 2.5, iy = y + 2.5, iw = w - 5, ih = h - 5, ir = iw * 0.5;
+    var unitH = ih / cap, lift = -h * 0.09;
+    ctx.save();
+    roundRect(ix, iy, iw, ih, ir); ctx.clip();
+    var i = 0;
+    while (i < n) {
+      var c = tube[i], j = i;
+      while (j < n && tube[j] === c) j++;                 // extend same-colour run
+      var isTop = (j === n);
+      var off = (selected && isTop && (n - i) <= (liftUnits || n)) ? lift : 0;
+      var yTop = iy + ih - j * unitH + off, yBot = iy + ih - i * unitH + off;
+      ctx.fillStyle = palette[c % palette.length];
+      ctx.fillRect(ix, yTop, iw, (yBot - yTop) + 0.75);   // overlap => zero gaps
+      if (i === 0) {                                       // floor shade for depth
+        var fl = ctx.createLinearGradient(0, yBot - unitH * 0.5, 0, yBot);
+        fl.addColorStop(0, 'rgba(0,0,0,0)'); fl.addColorStop(1, 'rgba(0,0,0,0.18)');
+        ctx.fillStyle = fl; ctx.fillRect(ix, yBot - unitH * 0.5, iw, unitH * 0.5);
+      }
+      i = j;
+    }
+    if (n > 0) {                                           // meniscus surface band
+      var topY = iy + ih - n * unitH + (selected ? lift : 0);
+      var men = ctx.createLinearGradient(0, topY, 0, topY + unitH * 0.55);
+      men.addColorStop(0, 'rgba(255,255,255,0.30)'); men.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = men; ctx.fillRect(ix, topY, iw, unitH * 0.55);
     }
     ctx.restore();
+
+    // --- glass sheen: a vertical gloss streak + bright rim -------------------
+    ctx.save();
+    roundRect(x, y, w, h, r); ctx.clip();
+    var streak = ctx.createLinearGradient(x, 0, x + w * 0.55, 0);
+    streak.addColorStop(0, 'rgba(255,255,255,0)');
+    streak.addColorStop(0.5, 'rgba(255,255,255,0.26)');
+    streak.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = streak; ctx.fillRect(x + w * 0.13, y + r * 0.5, w * 0.16, h - r);
+    ctx.restore();
+    roundRect(x, y, w, h, r);
+    ctx.lineWidth = Math.max(2, w * 0.055); ctx.strokeStyle = 'rgba(255,255,255,0.34)'; ctx.stroke();
   }
 
   // a liquid stream arcing from the source tube mouth to the destination mouth
@@ -74,7 +106,7 @@ function createRenderer(ctx, W, H) {
     ctx.lineWidth = 2; ctx.strokeStyle = enabled ? 'rgba(46,163,242,0.7)' : 'rgba(255,255,255,0.18)';
     ctx.stroke();
     ctx.fillStyle = enabled ? C.TEXT : C.SUBTEXT;
-    ctx.font = Math.floor(b.h * 0.34) + 'px system-ui, -apple-system, sans-serif';
+    ctx.font = Math.floor(b.h * 0.34) + 'px "Baloo2", system-ui, sans-serif';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillText(b.label, b.x + b.w / 2, b.y + b.h / 2);
     ctx.restore();
@@ -90,11 +122,11 @@ function createRenderer(ctx, W, H) {
 
     // HUD — title on its own line, stats on a second line, so they never collide
     ctx.fillStyle = C.TEXT;
-    ctx.font = '600 ' + Math.floor(H * 0.038) + 'px system-ui, -apple-system, sans-serif';
+    ctx.font = '600 ' + Math.floor(H * 0.038) + 'px "Baloo2", system-ui, sans-serif';
     ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
     ctx.fillText('WATER SORT', W * 0.06, H * 0.072);
     ctx.fillStyle = C.SUBTEXT;
-    ctx.font = Math.floor(H * 0.026) + 'px system-ui, -apple-system, sans-serif';
+    ctx.font = Math.floor(H * 0.026) + 'px "Baloo2", system-ui, sans-serif';
     ctx.textAlign = 'left';
     ctx.fillText('LEVEL ' + v.level, W * 0.06, H * 0.115);
     ctx.textAlign = 'right';
@@ -117,7 +149,7 @@ function createRenderer(ctx, W, H) {
       drawTube(v.layout.tubes[i], arr, st.cap, palette, isSel, liftUnits);
       var r = v.layout.tubes[i];
       ctx.fillStyle = C.SUBTEXT; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-      ctx.font = Math.floor(r.w * 0.34) + 'px system-ui, sans-serif';
+      ctx.font = Math.floor(r.w * 0.34) + 'px "Baloo2", system-ui, sans-serif';
       ctx.fillText(String(i + 1), r.x + r.w / 2, r.y + r.h + 4);
     }
     if (an) drawStream(v.layout.tubes[an.from], v.layout.tubes[an.to], palette[an.col % palette.length], an.p);
@@ -155,7 +187,7 @@ function createRenderer(ctx, W, H) {
       var tw = W * 0.5, tx = (W - tw) / 2, ty = H * 0.72;
       roundRect(tx, ty, tw, H * 0.06, H * 0.02); ctx.fill();
       ctx.fillStyle = C.TEXT; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.font = Math.floor(H * 0.03) + 'px system-ui, sans-serif';
+      ctx.font = Math.floor(H * 0.03) + 'px "Baloo2", system-ui, sans-serif';
       ctx.fillText(v.toast.text, W / 2, ty + H * 0.03);
     }
 
@@ -163,10 +195,10 @@ function createRenderer(ctx, W, H) {
     if (v.banner === 'win') {
       ctx.fillStyle = 'rgba(6,10,26,0.78)'; ctx.fillRect(0, 0, W, H);
       ctx.fillStyle = '#37c871'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.font = 'bold ' + Math.floor(H * 0.08) + 'px system-ui, sans-serif';
+      ctx.font = 'bold ' + Math.floor(H * 0.08) + 'px "Baloo2", system-ui, sans-serif';
       ctx.fillText('SOLVED!', W / 2, H * 0.42);
       ctx.fillStyle = C.TEXT;
-      ctx.font = Math.floor(H * 0.035) + 'px system-ui, sans-serif';
+      ctx.font = Math.floor(H * 0.035) + 'px "Baloo2", system-ui, sans-serif';
       ctx.fillText('tap to continue → LV ' + (v.level + 1), W / 2, H * 0.52);
     }
   }

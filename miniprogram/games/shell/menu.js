@@ -66,15 +66,15 @@ function createMenu(games, opts) {
     // coins (own line, top-right, above the title so they never collide)
     if (ad) {
       ctx.fillStyle = '#f5b301'; ctx.textAlign = 'right'; ctx.textBaseline = 'alphabetic';
-      ctx.font = '600 ' + Math.floor(H * 0.026) + 'px system-ui, sans-serif';
+      ctx.font = '600 ' + Math.floor(H * 0.026) + 'px "Baloo2", system-ui, sans-serif';
       ctx.fillText('◎ ' + ad.coins(), W * 0.94, H * 0.075);
     }
     // title + subtitle (centered)
     ctx.fillStyle = '#eaf0ff'; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
-    ctx.font = '700 ' + Math.floor(H * 0.046) + 'px system-ui, -apple-system, sans-serif';
+    ctx.font = '700 ' + Math.floor(H * 0.046) + 'px "Baloo2", system-ui, sans-serif';
     ctx.fillText('MINI ARCADE', W / 2, H * 0.155);
     ctx.fillStyle = '#9fb0d0';
-    ctx.font = Math.floor(H * 0.024) + 'px system-ui, sans-serif';
+    ctx.font = Math.floor(H * 0.024) + 'px "Baloo2", system-ui, sans-serif';
     ctx.fillText('tap a game', W / 2, H * 0.195);
 
     // game cards
@@ -99,15 +99,15 @@ function createMenu(games, opts) {
       ctx.save();
       roundRect(ctx, c.x, c.y, c.w * 0.86, c.h, c.h * 0.22); ctx.clip();
       ctx.fillStyle = '#ffffff'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-      ctx.font = '700 ' + Math.floor(c.h * 0.30) + 'px system-ui, sans-serif';
+      ctx.font = '700 ' + Math.floor(c.h * 0.30) + 'px "Baloo2", system-ui, sans-serif';
       ctx.fillText(g.title, c.x + c.w * 0.07, c.y + c.h * 0.38);
       ctx.globalAlpha = 0.9;
-      ctx.font = Math.floor(c.h * 0.16) + 'px system-ui, sans-serif';
+      ctx.font = Math.floor(c.h * 0.16) + 'px "Baloo2", system-ui, sans-serif';
       ctx.fillText(g.subtitle || '', c.x + c.w * 0.07, c.y + c.h * 0.70);
       ctx.globalAlpha = 1;
       ctx.restore();
       ctx.fillStyle = '#ffffff'; ctx.globalAlpha = 0.95; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
-      ctx.font = '700 ' + Math.floor(c.h * 0.36) + 'px system-ui, sans-serif';
+      ctx.font = '700 ' + Math.floor(c.h * 0.36) + 'px "Baloo2", system-ui, sans-serif';
       ctx.fillText('▶', c.x + c.w * 0.94, c.y + c.h * 0.5);
       ctx.globalAlpha = 1;
     }
@@ -120,7 +120,7 @@ function createMenu(games, opts) {
       ctx.fill();
       ctx.lineWidth = 2; ctx.strokeStyle = ready ? 'rgba(245,179,1,0.8)' : 'rgba(255,255,255,0.16)'; ctx.stroke();
       ctx.fillStyle = ready ? '#f5b301' : '#9fb0d0'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.font = '600 ' + Math.floor(spinRect.h * 0.4) + 'px system-ui, sans-serif';
+      ctx.font = '600 ' + Math.floor(spinRect.h * 0.4) + 'px "Baloo2", system-ui, sans-serif';
       ctx.fillText(ready ? '🎁 DAILY SPIN ▶' : 'DAILY SPIN — claimed', spinRect.x + spinRect.w / 2, spinRect.y + spinRect.h / 2);
     }
 
@@ -129,7 +129,7 @@ function createMenu(games, opts) {
       var tw = W * 0.6, tx = (W - tw) / 2, ty = H * 0.9;
       roundRect(ctx, tx, ty, tw, H * 0.05, H * 0.018); ctx.fill();
       ctx.fillStyle = '#eaf0ff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.font = Math.floor(H * 0.028) + 'px system-ui, sans-serif';
+      ctx.font = Math.floor(H * 0.028) + 'px "Baloo2", system-ui, sans-serif';
       ctx.fillText(toast.t, W / 2, ty + H * 0.025);
     }
   }

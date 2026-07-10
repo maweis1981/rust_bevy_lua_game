@@ -87,7 +87,7 @@ function createRenderer(ctx) {
     ctx.fillStyle = 'rgba(255,255,255,0.28)'; ctx.fill();
     if (f.r > 10) {
       ctx.fillStyle = 'rgba(0,0,0,0.45)'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.font = Math.floor(f.r * 0.8) + 'px system-ui, -apple-system, sans-serif';
+      ctx.font = Math.floor(f.r * 0.8) + 'px "Baloo2", system-ui, sans-serif';
       ctx.fillText(String(f.tier + 1), f.x, f.y + f.r * 0.04);
     }
   }
@@ -101,7 +101,7 @@ function createRenderer(ctx) {
     ctx.stroke();
     ctx.fillStyle = C.TEXT;
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.font = '600 ' + Math.floor(b.h * 0.4) + 'px system-ui, -apple-system, sans-serif';
+    ctx.font = '600 ' + Math.floor(b.h * 0.4) + 'px "Baloo2", system-ui, sans-serif';
     ctx.fillText(b.label, b.x + b.w / 2, b.y + b.h / 2);
   }
 
@@ -119,20 +119,20 @@ function createRenderer(ctx) {
     var hudY = v.topInset + H * 0.045;
     ctx.fillStyle = C.TEXT;
     ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
-    ctx.font = '700 ' + Math.floor(H * 0.034) + 'px system-ui, -apple-system, sans-serif';
+    ctx.font = '700 ' + Math.floor(H * 0.034) + 'px "Baloo2", system-ui, sans-serif';
     ctx.fillText('SUIKA', W * 0.06, hudY);
-    ctx.font = '700 ' + Math.floor(H * 0.03) + 'px system-ui, -apple-system, sans-serif';
+    ctx.font = '700 ' + Math.floor(H * 0.03) + 'px "Baloo2", system-ui, sans-serif';
     ctx.textAlign = 'right';
     ctx.fillText(String(S.score), W * 0.94, hudY);
     ctx.fillStyle = C.SUBTEXT;
-    ctx.font = Math.floor(H * 0.02) + 'px system-ui, -apple-system, sans-serif';
+    ctx.font = Math.floor(H * 0.02) + 'px "Baloo2", system-ui, sans-serif';
     ctx.fillText('best ' + Math.max(v.best, S.score), W * 0.94, hudY + H * 0.026);
 
     // next fruit preview (top-left, under the title)
     if (!S.over) {
       var nr = Math.min(H * 0.02, C.radiusOf(S.current, b.w));
       ctx.fillStyle = C.SUBTEXT; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-      ctx.font = Math.floor(H * 0.02) + 'px system-ui, sans-serif';
+      ctx.font = Math.floor(H * 0.02) + 'px "Baloo2", system-ui, sans-serif';
       ctx.fillText('next', W * 0.06, hudY + H * 0.028);
       var npr = Math.max(nr, H * 0.022);
       if (!sprite(S.next, W * 0.20, hudY + H * 0.028, npr, null)) {
@@ -196,7 +196,7 @@ function createRenderer(ctx) {
       ctx.fillStyle = 'rgba(0,0,0,0.6)';
       roundRect(tx, ty, tw, H * 0.06, H * 0.02); ctx.fill();
       ctx.fillStyle = C.TEXT; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.font = Math.floor(H * 0.028) + 'px system-ui, sans-serif';
+      ctx.font = Math.floor(H * 0.028) + 'px "Baloo2", system-ui, sans-serif';
       ctx.fillText(v.toast.text, W / 2, ty + H * 0.03);
     }
 
@@ -204,13 +204,13 @@ function createRenderer(ctx) {
     if (S.over) {
       ctx.fillStyle = 'rgba(6,10,26,0.82)'; ctx.fillRect(0, 0, W, H);
       ctx.fillStyle = C.DANGER; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.font = 'bold ' + Math.floor(H * 0.06) + 'px system-ui, sans-serif';
+      ctx.font = 'bold ' + Math.floor(H * 0.06) + 'px "Baloo2", system-ui, sans-serif';
       ctx.fillText('GAME OVER', W / 2, H * 0.32);
       ctx.fillStyle = C.TEXT;
-      ctx.font = '700 ' + Math.floor(H * 0.04) + 'px system-ui, sans-serif';
+      ctx.font = '700 ' + Math.floor(H * 0.04) + 'px "Baloo2", system-ui, sans-serif';
       ctx.fillText('score ' + S.score, W / 2, H * 0.4);
       ctx.fillStyle = C.SUBTEXT;
-      ctx.font = Math.floor(H * 0.024) + 'px system-ui, sans-serif';
+      ctx.font = Math.floor(H * 0.024) + 'px "Baloo2", system-ui, sans-serif';
       ctx.fillText('best ' + Math.max(v.best, S.score), W / 2, H * 0.45);
       // buttons (revive/×2 disable once used)
       drawButton(v.buttons.revive, !v.reviveUsed);

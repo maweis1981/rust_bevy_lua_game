@@ -189,6 +189,7 @@ function createGame(platform) {
         var ev = G.lv.select(p.to);         // pour
         if (ev === 'win') G.banner = 'win';
         spawnSplash(ato, acol);
+        if (platform.playSound) platform.playSound('pour.wav', 0.55);
       }
     }
     stepParts(dt);

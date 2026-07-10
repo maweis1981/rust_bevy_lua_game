@@ -59,7 +59,7 @@ function createRouter(platform, registry, ad) {
     ctx.strokeStyle = 'rgba(255,255,255,0.10)'; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(0, BAR - 0.5); ctx.lineTo(W, BAR - 0.5); ctx.stroke();
     ctx.fillStyle = '#eaf0ff'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-    ctx.font = '600 ' + Math.floor(BAR * 0.42) + 'px system-ui, sans-serif';
+    ctx.font = '600 ' + Math.floor(BAR * 0.42) + 'px "Baloo2", system-ui, sans-serif';
     ctx.fillText('‹ MENU', W * 0.05, BAR * 0.5);
     if (currentId) {
       ctx.textAlign = 'right'; ctx.fillStyle = '#9fb0d0';
