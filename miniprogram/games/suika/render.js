@@ -5,6 +5,10 @@
 'use strict';
 var C = require('./config.js');
 
+// Expressive faces are drawn procedurally (blink, look toward motion, react on
+// merge) over the face-less body sprites, so they animate and vary per fruit.
+var USE_FACES = true;
+
 // Optional art assets: set by game.js from platform.getImage. Returns an
 // HTMLImageElement (maybe not yet loaded) or null; rendering falls back to
 // procedural drawing when an image is absent (headless/tests).
@@ -63,22 +67,70 @@ function createRenderer(ctx) {
 
   // draw a fruit of `tier` centred at (x,y) with radius r; uses the sprite sheet
   // when available (cells are square, side = sheet height), else procedural.
-  function sprite(tier, x, y, r, alpha) {
+  function sprite(tier, x, y, r, alpha, sq) {
     var sheet = img('fruits.png');
-    if (sheet) {
-      var cell = sheet.naturalHeight;
-      var sx = Math.min(tier, C.TIER_COUNT - 1) * cell;
-      var d = r * 2.14;
-      if (alpha != null) { ctx.save(); ctx.globalAlpha = alpha; }
-      ctx.drawImage(sheet, sx, 0, cell, cell, x - d / 2, y - d / 2, d, d);
-      if (alpha != null) ctx.restore();
-      return true;
+    if (!sheet) return false;
+    var cell = sheet.naturalHeight;
+    var sx = Math.min(tier, C.TIER_COUNT - 1) * cell;
+    var d = r * 2.14;
+    sq = sq || 0;
+    var scaleX = 1 + 0.7 * sq, scaleY = 1 - 0.7 * sq;   // squash: wide+short; stretch(sq<0): tall+thin
+    ctx.save();
+    if (alpha != null) ctx.globalAlpha = alpha;
+    if (sq) {                                           // anchor near the contact point so squash "sits"
+      var ay = y + r * 0.82;
+      ctx.translate(x, ay); ctx.scale(scaleX, scaleY); ctx.translate(-x, -ay);
     }
-    return false;
+    ctx.drawImage(sheet, sx, 0, cell, cell, x - d / 2, y - d / 2, d, d);
+    ctx.restore();
+    return true;
+  }
+
+  // procedural animated face drawn over a (face-less) fruit body: blinks, looks
+  // toward motion, reacts on merge, and deforms with the squash. Per-tier
+  // personality (eye size/spacing, mouth, cheeks) keeps 11 fruits characterful.
+  function drawFace(f) {
+    var x = f.x, y = f.y, r = f.r, sq = f.sq || 0, t = f.tier;
+    var react = f.react || 0, blink = f.blink || 0;
+    var eyeR = r * (0.15 + (t % 3) * 0.012);
+    var eyeDX = r * (0.30 + (t % 4) * 0.018);
+    var eyeY = y - r * 0.05;
+    var lookX = (f.lookx || 0) * eyeR * 0.55, lookY = (f.looky || 0) * eyeR * 0.55;
+    ctx.save();
+    var ay = y + r * 0.82, scaleX = 1 + 0.7 * sq, scaleY = 1 - 0.7 * sq;
+    ctx.translate(x, ay); ctx.scale(scaleX, scaleY); ctx.translate(-x, -ay);
+    ctx.lineCap = 'round';
+    for (var s = -1; s <= 1; s += 2) {
+      var ex = x + s * eyeDX;
+      if (blink) {
+        ctx.strokeStyle = 'rgba(28,18,24,0.92)'; ctx.lineWidth = Math.max(1.5, r * 0.055);
+        ctx.beginPath(); ctx.arc(ex, eyeY, eyeR * 0.9, 0.15 * Math.PI, 0.85 * Math.PI); ctx.stroke();
+      } else {
+        var er = eyeR * (1 + react * 0.3);
+        ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.ellipse(ex, eyeY, er * 0.82, er, 0, 0, 6.283); ctx.fill();
+        ctx.fillStyle = '#20161c'; ctx.beginPath(); ctx.arc(ex + lookX, eyeY + lookY, er * 0.52, 0, 6.283); ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,0.92)'; ctx.beginPath(); ctx.arc(ex + lookX - er * 0.2, eyeY + lookY - er * 0.22, er * 0.17, 0, 6.283); ctx.fill();
+      }
+    }
+    if (t % 2 === 0) {   // rosy cheeks on even tiers
+      ctx.fillStyle = 'rgba(255,120,140,0.32)';
+      ctx.beginPath(); ctx.arc(x - eyeDX * 1.2, eyeY + r * 0.17, r * 0.085, 0, 6.283);
+      ctx.arc(x + eyeDX * 1.2, eyeY + r * 0.17, r * 0.085, 0, 6.283); ctx.fill();
+    }
+    var my = y + r * 0.16;
+    if (react > 0.3) {   // open happy mouth on a merge reaction
+      ctx.fillStyle = 'rgba(90,30,40,0.92)';
+      ctx.beginPath(); ctx.ellipse(x, my, r * 0.15, r * 0.12 * (0.6 + react * 0.7), 0, 0, Math.PI); ctx.fill();
+    } else {
+      ctx.strokeStyle = 'rgba(28,18,24,0.9)'; ctx.lineWidth = Math.max(1.5, r * 0.05);
+      var mw = r * (0.17 + (t % 3) * 0.02);
+      ctx.beginPath(); ctx.arc(x, my - r * 0.05, mw, 0.15 * Math.PI, 0.85 * Math.PI); ctx.stroke();
+    }
+    ctx.restore();
   }
 
   function drawFruit(f) {
-    if (sprite(f.tier, f.x, f.y, f.r, null)) return;
+    if (sprite(f.tier, f.x, f.y, f.r, null, f.sq)) { if (USE_FACES && f.r > 7) drawFace(f); return; }
     var col = C.colorOf(f.tier);
     ctx.beginPath(); ctx.arc(f.x, f.y, f.r, 0, Math.PI * 2);
     ctx.fillStyle = col; ctx.fill();

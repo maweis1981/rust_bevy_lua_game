@@ -152,6 +152,47 @@ function createGame(platform) {
     }
   }
 
+  // per-fruit "juice" state (squash/stretch + face) keyed by fruit id, advanced
+  // each frame and annotated onto the fruit objects for the renderer.
+  function updateJuice(dt) {
+    if (!G.juice) G.juice = {};
+    var binW = G.sim.state.bin.w, fs = G.sim.state.fruit, seen = {};
+    for (var i = 0; i < fs.length; i++) {
+      var f = fs[i];
+      var st = G.juice[f.id];
+      if (!st) st = G.juice[f.id] = { s: 0, v: 0, psp: 0, nextBlink: G.clock + 1 + Math.random() * 4, react: 0 };
+      var sp = Math.hypot(f.vx, f.vy);
+      var dec = st.psp - sp;                                  // deceleration = impact
+      if (dec > binW * 0.7) st.v += Math.min(0.55, dec / (binW * 3));   // squash pop on impact
+      var target = -Math.min(0.22, Math.max(0, f.vy) / (binW * 4) * 0.4); // stretch while falling
+      st.v += (target - st.s) * 55 * dt;                     // spring
+      st.v *= Math.pow(0.015, dt);                           // damping
+      st.s = Math.max(-0.3, Math.min(0.55, st.s + st.v * dt));
+      st.psp = sp;
+      // blink schedule
+      var blinking = (G.clock >= st.nextBlink && G.clock < st.nextBlink + 0.12);
+      if (G.clock >= st.nextBlink + 0.12) st.nextBlink = G.clock + 2 + Math.random() * 4;
+      st.react = Math.max(0, st.react - dt * 2.2);
+      // annotate for the renderer
+      f.sq = st.s;
+      f.blink = blinking ? 1 : 0;
+      f.lookx = Math.max(-1, Math.min(1, f.vx / (binW * 1.6)));
+      f.looky = Math.max(-1, Math.min(1, f.vy / (binW * 1.6)));
+      f.react = st.react;
+      seen[f.id] = 1;
+    }
+    for (var key in G.juice) if (!seen[key]) delete G.juice[key];
+  }
+  function pokeReact(x, y, tier) {                            // merged fruit reacts (happy pop)
+    var fs = G.sim.state.fruit, best = null, bd = 1e18;
+    for (var i = 0; i < fs.length; i++) {
+      var f = fs[i]; if (f.tier !== tier) continue;
+      var d = (f.x - x) * (f.x - x) + (f.y - y) * (f.y - y);
+      if (d < bd) { bd = d; best = f; }
+    }
+    if (best) { var st = G.juice[best.id]; if (st) { st.react = 1; st.v += 0.45; } }
+  }
+
   function update(dt, tSec) {
     if (!G.sim) return;
     if (!(dt > 0) || dt > 0.1) dt = dt > 0 ? 0.1 : 0; // clamp big hitches
@@ -160,8 +201,9 @@ function createGame(platform) {
     if (ev.merges || ev.pops) G.flash = Math.min(1, G.flash + 0.5 * (ev.merges + ev.pops));
     G.flash *= 0.9;
     if (!G.parts) G.parts = [];
+    updateJuice(dt);
     var evs = G.sim.state.mergeEvents;
-    if (evs && evs.length) { for (var k = 0; k < evs.length; k++) spawnBurst(evs[k].x, evs[k].y, evs[k].tier, evs[k].pop); evs.length = 0; }
+    if (evs && evs.length) { for (var k = 0; k < evs.length; k++) { spawnBurst(evs[k].x, evs[k].y, evs[k].tier, evs[k].pop); pokeReact(evs[k].x, evs[k].y, evs[k].tier); } evs.length = 0; }
     var grav = G.sim.state.bin.w * 2.2;
     for (var pi = G.parts.length - 1; pi >= 0; pi--) {
       var p = G.parts[pi]; p.life += dt;
