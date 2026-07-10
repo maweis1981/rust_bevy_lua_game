@@ -53,7 +53,8 @@ local function make_ant_clear()
   -- ---- tunables ------------------------------------------------------------
   local SLOTS = LEVEL.slots or 4   -- active slots (< palette size on purpose)
   local ANTS_PER_SLOT = 4
-  local ANT_SPEED = 110      -- world units / sec (slow, calm)
+  local ANT_SPEED = 75       -- world units / sec (slow, calm)
+  local ANT_SIZE = 2.3       -- ant sprite size in cells (big + clear)
   local MAX_DT = 1 / 30
   local mode = "manual"      -- "manual" (tap to load) | "auto" (autoplay/tests)
 
@@ -226,8 +227,10 @@ local function make_ant_clear()
     -- ant_sheet is 8 frames of 48x48 (see tools/gen_ant_sheet.py). spawn_sheet
     -- needs (x,y,w,h,name, frame_w, frame_h, cols, frames) — all nine, or the
     -- host binding errors (which stalled the web build).
-    local id = game.spawn_sheet(NESTX, NESTY, CELL * 1.6, CELL * 1.6, "ant_sheet", 48, 48, 8, 8)
-    ants[#ants + 1] = { id = id, slot = slot_i, state = "idle", x = NESTX, y = NESTY,
+    local sh = game.spawn_sprite(NESTX, NESTY, CELL * ANT_SIZE * 0.85, CELL * ANT_SIZE * 0.5, "ant_shadow")
+    game.set_color(sh, 1, 1, 1, 0.55)
+    local id = game.spawn_sheet(NESTX, NESTY, CELL * ANT_SIZE, CELL * ANT_SIZE, "ant_sheet", 48, 48, 8, 8)
+    ants[#ants + 1] = { id = id, shadow = sh, slot = slot_i, state = "idle", x = NESTX, y = NESTY,
                         pi = 1, path = nil, tr = 0, tc = 0, anim = 0, carry = nil, cc = 0, tintc = -1,
                         phase = (#ants % 8) * 0.8, dust = 0 }
   end
@@ -287,6 +290,7 @@ local function make_ant_clear()
       if a.dust > CELL * 0.85 then a.dust = 0; game.emit("dust", rx, ry - CELL * 0.15, 3) end
     end
     game.move_to(a.id, rx, ry)
+    if a.shadow then game.move_to(a.shadow, rx, ry - CELL * 0.55) end
     if a.carry then game.move_to(a.carry, rx, ry - CELL * 0.5) end
     return a.pi >= #a.path
   end

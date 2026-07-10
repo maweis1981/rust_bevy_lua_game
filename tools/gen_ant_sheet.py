@@ -26,8 +26,9 @@ OUT = "assets/textures/ant_sheet.png"
 # for definition, so a tinted ant still reads as an ant with dark legs.
 BODY = (232, 226, 220)        # light body (takes the tint)
 BODY_HI = (255, 252, 248)     # rim light
-LEG = (46, 36, 32)            # dark legs (stay dark after tint)
-EYE = (20, 15, 13)
+LEG = (40, 30, 26)            # dark legs (stay dark after tint)
+EYE = (18, 13, 11)
+OUTLINE = (26, 18, 15)        # dark rim so a tinted ant reads on any background
 
 
 def ellipse(dr, cx, cy, rx, ry, fill):
@@ -78,14 +79,21 @@ def draw_ant(im, phase):
         dr.line([bx, by, mx, my, tx, ty], fill=LEG, width=max(1, int(1.2 * u)), joint="curve")
         dr.ellipse([tx - 1.1 * u, ty - 1.1 * u, tx + 1.1 * u, ty + 1.1 * u], fill=LEG)
 
-    # --- body: abdomen, thorax, head (back to front) -------------------------
-    ellipse(dr, cx, abdo_y, 7.2 * u, 9.2 * u, BODY)          # abdomen
-    ellipse(dr, cx, abdo_y - 2.5 * u, 4.6 * u, 5.6 * u, BODY_HI)   # sheen
-    ellipse(dr, cx, abdo_y - 2.5 * u, 4.0 * u, 5.0 * u, BODY)
-    ellipse(dr, cx, thorax_y, 4.4 * u, 5.6 * u, BODY)        # thorax
-    ellipse(dr, cx, head_y, 5.0 * u, 4.6 * u, BODY)          # head
-    ellipse(dr, cx, head_y - 1.0 * u, 3.0 * u, 2.4 * u, BODY_HI)   # head sheen
-    ellipse(dr, cx, head_y - 1.0 * u, 2.4 * u, 1.9 * u, BODY)
+    # --- dark OUTLINE behind the body, so a colour-tinted ant still reads on a
+    #     same-colour background (the multiply keeps this dark) -----------------
+    o = 1.8 * u
+    ellipse(dr, cx, abdo_y, 8.4 * u + o, 10.4 * u + o, OUTLINE)
+    ellipse(dr, cx, thorax_y, 5.4 * u + o, 6.6 * u + o, OUTLINE)
+    ellipse(dr, cx, head_y, 6.0 * u + o, 5.6 * u + o, OUTLINE)
+
+    # --- body: abdomen, thorax, head (back to front), a touch larger ----------
+    ellipse(dr, cx, abdo_y, 8.4 * u, 10.4 * u, BODY)          # abdomen
+    ellipse(dr, cx, abdo_y - 2.6 * u, 5.2 * u, 6.2 * u, BODY_HI)   # sheen
+    ellipse(dr, cx, abdo_y - 2.6 * u, 4.5 * u, 5.5 * u, BODY)
+    ellipse(dr, cx, thorax_y, 5.4 * u, 6.6 * u, BODY)        # thorax
+    ellipse(dr, cx, head_y, 6.0 * u, 5.6 * u, BODY)          # head
+    ellipse(dr, cx, head_y - 1.0 * u, 3.6 * u, 2.9 * u, BODY_HI)   # head sheen
+    ellipse(dr, cx, head_y - 1.0 * u, 2.9 * u, 2.3 * u, BODY)
     # mandibles + eyes
     for side in (-1, 1):
         ellipse(dr, cx + side * 2.6 * u, head_y - 1.2 * u, 1.0 * u, 1.2 * u, EYE)
