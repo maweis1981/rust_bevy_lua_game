@@ -86,5 +86,8 @@ cp "$ROOT"/docs/blog/*.md "$OUT/blog/posts/"
 cp -r "$ROOT/docs/blog/img/." "$OUT/blog/img/"
 cp "$ROOT"/docs/showcase/{product-intro,user-manual,use-cases}.md "$OUT/docs/md/"
 
+echo ">> assembling JS mini-games (/games/)"
+PAGES_OUT="$OUT/games" bash "$ROOT/miniprogram/games/build_site.sh" >/dev/null
+
 echo ">> done: $OUT"
 du -sh "$OUT" "$PLAY/hollowlullaby_bg.wasm"

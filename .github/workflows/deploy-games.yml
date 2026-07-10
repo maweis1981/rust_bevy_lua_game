@@ -1,0 +1,35 @@
+name: Build mini-games site
+
+# Validates that the standalone JS mini-game packages assemble cleanly
+# (miniprogram/games/build_site.sh) on every branch/PR push. It does NOT deploy:
+# publishing to GitHub Pages happens in deploy-web.yml on `main`, which now embeds
+# the games under /games/ (the github-pages environment only allows deploys from
+# the default branch, so a branch can't deploy anyway). Run on demand too.
+on:
+  push:
+    paths:
+      - 'miniprogram/**'
+      - '.github/workflows/deploy-games.yml'
+  pull_request:
+    paths:
+      - 'miniprogram/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Assemble the games site (no Rust needed)
+        run: bash miniprogram/games/build_site.sh
+      - name: Show output tree
+        run: find build/pages -maxdepth 2 | sort
+      - name: Upload site as an artifact (preview/download)
+        uses: actions/upload-artifact@v4
+        with:
+          name: mini-games-site
+          path: build/pages
+          if-no-files-found: error

@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<!--
+  index.html — standalone Suika preview / TikTok-Minis-ready HTML runtime. Same
+  pattern as watersort/index.html: load the generated bundle.js, build a DOM
+  platform adapter, start the engine. The TTMinis SDK is optional (no-op outside
+  TikTok); the rewarded-ad hook falls back to auto-grant in a plain browser so
+  the REVIVE / ×2 SCORE reward flows are exercisable in preview. Run build.sh first.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <title>Suika</title>
+  <style>
+    @font-face { font-family: 'Baloo2'; src: url('./assets/Baloo2.ttf') format('truetype'); font-weight: 400 800; font-display: swap; }
+    html, body { margin: 0; padding: 0; height: 100%; background: #0b1020; overflow: hidden; }
+    #game { display: block; width: 100vw; height: 100vh; touch-action: none; }
+  </style>
+  <!-- Optional TikTok SDK; harmless/absent in a plain browser preview. -->
+  <script src="https://developers.tiktok.com/js/minis.js" onerror="void 0"></script>
+</head>
+<body>
+  <canvas id="game"></canvas>
+  <script src="bundle.js"></script>
+  <script>
+    (function () {
+      'use strict';
+      var hasTT = (typeof TTMinis !== 'undefined' && TTMinis.game);
+      if (hasTT && TTMinis.game.init) {
+        try { TTMinis.game.init({ clientKey: 'YOUR_TIKTOK_CLIENT_KEY' }); } catch (e) {}
+      }
+
+      if (document.fonts && document.fonts.load) { try { document.fonts.load('700 40px Baloo2'); } catch (e) {} }
+      var canvas = document.getElementById('game');
+      var dpr = Math.min(3, window.devicePixelRatio || 1);
+      function fit() {
+        canvas.width = Math.floor(window.innerWidth * dpr);
+        canvas.height = Math.floor(window.innerHeight * dpr);
+      }
+      fit();
+
+      function toCanvas(ev) {
+        var r = canvas.getBoundingClientRect();
+        var t = (ev.touches && ev.touches[0]) || (ev.changedTouches && ev.changedTouches[0]) || ev;
+        return { x: (t.clientX - r.left) * dpr, y: (t.clientY - r.top) * dpr };
+      }
+      var startCb = function () {}, moveCb = function () {}, endCb = function () {};
+
+      var platform = {
+        canvas: canvas,
+        onTouchStart: function (cb) { startCb = cb; },
+        onTouchMove: function (cb) { moveCb = cb; },
+        onTouchEnd: function (cb) { endCb = cb; },
+        storage: {
+          get: function (k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
+          set: function (k, v) { try { localStorage.setItem(k, v); } catch (e) {} },
+        },
+        // rewarded video: real ad in TikTok; auto-grant fallback in preview.
+        rewardAd: function (cb) {
+          if (hasTT && TTMinis.game.createRewardedVideoAd) {
+            try {
+              var ad = TTMinis.game.createRewardedVideoAd({ adUnitId: 'YOUR_TIKTOK_AD_UNIT_ID' });
+              ad.onClose(function (res) { cb(!!(res && res.isEnded)); });
+              ad.show().catch(function () { ad.load().then(function () { ad.show(); }); });
+              return;
+            } catch (e) {}
+          }
+          cb(true); // preview fallback
+        },
+        raf: function (cb) { requestAnimationFrame(cb); },
+        now: function () { return performance.now(); },
+        getImage: (function () { var cache = {}; return function (name) { var im = cache[name]; if (im) return im; im = new Image(); cache[name] = im; im.src = './assets/' + name; return im; }; })(),
+        playSound: (function () {
+          var ctx, buf = {}, loading = {};
+          function ac() { if (!ctx) { try { ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} } return ctx; }
+          window.addEventListener('pointerdown', function () { var c = ac(); if (c && c.state === 'suspended') c.resume(); });
+          function load(name) { if (loading[name]) return; loading[name] = 1; fetch('./assets/' + name).then(function (r) { return r.arrayBuffer(); }).then(function (b) { return ac().decodeAudioData(b); }).then(function (d) { buf[name] = d; }).catch(function () {}); }
+          return function (name, vol) { var c = ac(); if (!c) return; if (!buf[name]) { load(name); return; } var sN = c.createBufferSource(); sN.buffer = buf[name]; var g = c.createGain(); g.gain.value = (vol == null ? 1 : vol); sN.connect(g); g.connect(c.destination); try { sN.start(); } catch (e) {} };
+        })(),
+      };
+      try { platform.playSound('pour.wav'); } catch (e) {}
+
+      function bind(el) {
+        el.addEventListener('mousedown', function (e) { var p = toCanvas(e); startCb(p.x, p.y); });
+        el.addEventListener('mousemove', function (e) { var p = toCanvas(e); moveCb(p.x, p.y); });
+        el.addEventListener('mouseup', function (e) { var p = toCanvas(e); endCb(p.x, p.y); });
+        el.addEventListener('touchstart', function (e) { e.preventDefault(); var p = toCanvas(e); startCb(p.x, p.y); }, { passive: false });
+        el.addEventListener('touchmove', function (e) { e.preventDefault(); var p = toCanvas(e); moveCb(p.x, p.y); }, { passive: false });
+        el.addEventListener('touchend', function (e) { e.preventDefault(); var p = toCanvas(e); endCb(p.x, p.y); }, { passive: false });
+      }
+      bind(canvas);
+
+      if (hasTT && TTMinis.game.setLoadingProgress) { try { TTMinis.game.setLoadingProgress({ progress: 1 }); } catch (e) {} }
+
+      var startGame = window.require('main.js').startGame;
+      window.__suika = startGame(platform);   // expose for headless probing
+    })();
+  </script>
+</body>
+</html>
