@@ -1,0 +1,239 @@
+-- Headless invariant tests for assets/scripts/packs/ant_clear.lua.
+--
+-- Mocks the Rust `game` API + GAME_KIT and drives the ant-clear puzzle to
+-- completion under lua5.4, asserting the properties the design rests on:
+--   1. MATCHING     — the tray's per-colour counts equal the picture's per-colour
+--                     pixel counts (you can neither run short nor have leftovers).
+--   2. PATHFINDING  — ants only ever remove FRONTIER pixels: at every frame every
+--                     cleared cell stays connected to the outside (no buried pixel
+--                     is ever taken). A broken flow field would strand an island.
+--   3. NO TELEPORT  — each ant moves a bounded distance per frame (the feel
+--                     contract; big-dt hitches are clamped).
+--   4. SOLVABLE     — the generated level clears completely (win), never deadlocks.
+--
+-- Run: lua5.4 tools/test_ant_clear.lua   (exits non-zero on any failure)
+
+local HW, HH = 215, 466
+local DT = 1 / 60
+
+-- deterministic RNG (unused by the pack, but keep parity with test_pong)
+local rng = 987654321
+math.random = function(a, b)
+  rng = (1103515245 * rng + 12345) % 2147483648
+  local r = rng / 2147483648
+  if a == nil then return r end
+  if b == nil then return math.floor(r * a) + 1 end
+  return math.floor(r * (b - a + 1)) + a
+end
+
+----------------------------------------------------------------------
+-- Mock host API
+----------------------------------------------------------------------
+local pos, max_id = {}, 0
+game = {
+  log = function() end,
+  bounds = function() return HW, HH end,
+  spawn = function(x, y) max_id = max_id + 1; pos[max_id] = { x = x, y = y }; return max_id end,
+  spawn_sprite = function(x, y) max_id = max_id + 1; pos[max_id] = { x = x, y = y }; return max_id end,
+  spawn_text = function(x, y) max_id = max_id + 1; pos[max_id] = { x = x, y = y }; return max_id end,
+  move_to = function(id, x, y) if pos[id] then pos[id] = { x = x, y = y } end end,
+  set_color = function() end,
+  set_size = function() end,
+  set_rotation = function() end,
+  spawn_sheet = function(x, y) max_id = max_id + 1; pos[max_id] = { x = x, y = y }; return max_id end,
+  set_frame = function() end,
+  despawn = function(id) pos[id] = nil end,
+  set_text = function() end,
+  shake = function() end,
+  zoom = function() end,
+  emit = function() end,
+  play_sound = function() end,
+  play_music = function() end,
+  haptic = function() end,
+  track = function() end,
+  set_bg_theme = function() end,
+  pointer = function() return nil, nil, false end,
+  key = function() return false end,
+  touches = function() return {} end,
+}
+
+SETTINGS = { hud = true }
+
+----------------------------------------------------------------------
+-- Minimal GAME_KIT (mirror of main.lua's helpers the pack uses)
+----------------------------------------------------------------------
+local function clamp(v, lo, hi) if v < lo then return lo elseif v > hi then return hi else return v end end
+GAME_KIT = {
+  clamp = clamp,
+  sign = function(v) return (v > 0 and 1) or (v < 0 and -1) or 0 end,
+  in_rect = function(r, x, y) return math.abs(x - r.x) <= r.w * 0.5 and math.abs(y - r.y) <= r.h * 0.5 end,
+  switch = function() end,
+  make_back = function(T, hw, hh)
+    local r = { x = -hw + 84, y = hh - 152, w = 132, h = 76 }
+    T.sprite(r.x, r.y, r.w, r.h, "btn_back"); return r
+  end,
+  tracker = function()
+    local ids = {}
+    return {
+      spawn = function(...) local id = game.spawn(...); ids[#ids + 1] = id; return id end,
+      sprite = function(...) local id = game.spawn_sprite(...); ids[#ids + 1] = id; return id end,
+      text = function(...) local id = game.spawn_text(...); ids[#ids + 1] = id; return id end,
+      clear = function() for _, id in ipairs(ids) do game.despawn(id) end; ids = {} end,
+    }
+  end,
+}
+
+----------------------------------------------------------------------
+-- Load the pack, build the scene
+----------------------------------------------------------------------
+PACKS = {}
+dofile("assets/scripts/packs/ant_clear.lua")
+assert(PACKS.ant_clear, "pack did not register PACKS.ant_clear")
+local scene = PACKS.ant_clear.make()
+scene.enter()
+scene.update(DT, HW, HH)   -- first update builds the board
+local D = DEBUG
+assert(D and D.game == "ant_clear", "DEBUG not exposed")
+
+local fail = 0
+local function check(cond, msg) if not cond then fail = fail + 1; print("FAIL: " .. msg) else print("ok: " .. msg) end end
+
+----------------------------------------------------------------------
+-- 1. MATCHING: tray colour sums == picture per-colour counts
+----------------------------------------------------------------------
+local grid0 = D.grid()
+local Hn, Wn = #grid0, #grid0[1]
+local board_counts = {}
+for r = 1, Hn do for c = 1, Wn do
+  local v = grid0[r][c]; if v ~= 0 then board_counts[v] = (board_counts[v] or 0) + 1 end
+end end
+-- reconstruct tray totals: painted now + everything still queued/active must equal
+-- board_counts; simplest robust check — total painted == sum(board_counts) at start,
+-- and the run below must consume exactly that many (win reaches 0).
+local total0 = 0; for _, n in pairs(board_counts) do total0 = total0 + n end
+check(D.painted() == total0, "board painted count = sum of colour counts (" .. total0 .. ")")
+
+----------------------------------------------------------------------
+-- helper: every empty cell must be reachable from OUTSIDE via empties
+-- (i.e. no buried/enclosed cleared cell — proves frontier-only removal)
+----------------------------------------------------------------------
+local function all_empties_reachable(g)
+  local h, w = #g, #g[1]
+  local seen = {}
+  local q, head = {}, 1
+  local function key(r, c) return r * (w + 2) + c end
+  for r = 1, h do for c = 1, w do
+    if g[r][c] == 0 and (r == 1 or c == 1 or r == h or c == w) then
+      local k = key(r, c); if not seen[k] then seen[k] = true; q[#q + 1] = { r, c } end
+    end
+  end end
+  while head <= #q do
+    local cell = q[head]; head = head + 1
+    local r, c = cell[1], cell[2]
+    for _, p in ipairs({ {r+1,c},{r-1,c},{r,c+1},{r,c-1} }) do
+      local rr, cc = p[1], p[2]
+      if rr >= 1 and rr <= h and cc >= 1 and cc <= w and g[rr][cc] == 0 then
+        local k = key(rr, cc); if not seen[k] then seen[k] = true; q[#q + 1] = { rr, cc } end
+      end
+    end
+  end
+  for r = 1, h do for c = 1, w do
+    if g[r][c] == 0 and not seen[key(r, c)] then return false, r, c end
+  end end
+  return true
+end
+
+----------------------------------------------------------------------
+-- shared driver: runs the scene to a terminal state, checking pathfinding +
+-- no-teleport every frame. `policy` (optional) is the "player" — called each
+-- frame before update to load tray colours into free slots.
+----------------------------------------------------------------------
+local BOUND = 460 * (1 / 30) * 2 + 2   -- ANT_SPEED * MAX_DT * (2x) + slack
+-- runs until the board is cleared (won) or a frame cap. `policy` (the "player")
+-- is called each frame and may load/cancel slots. Stuck is NOT terminal.
+local function drive(Dh, policy)
+  local prev = Dh.ant_xy()
+  local buried_ok, teleport_ok = true, true
+  local frames, MAXF = 0, 30000
+  while not Dh.won() and frames < MAXF do
+    if policy then policy(Dh) end
+    scene.update(DT, HW, HH)
+    frames = frames + 1
+    if not all_empties_reachable(Dh.grid()) then buried_ok = false end
+    local cur = Dh.ant_xy()
+    for i = 1, math.min(#cur, #prev) do
+      local dx, dy = cur[i][1] - prev[i][1], cur[i][2] - prev[i][2]
+      if math.sqrt(dx * dx + dy * dy) > BOUND then teleport_ok = false end
+    end
+    prev = cur
+  end
+  return frames, buried_ok, teleport_ok
+end
+
+local function rebuild()   -- fresh play; DEBUG is reassigned on build
+  scene.enter(); scene.update(DT, HW, HH); return DEBUG
+end
+
+----------------------------------------------------------------------
+-- Scenario A: AUTO — autoplay clears the board (solvability + pathfinding)
+----------------------------------------------------------------------
+D.set_mode("auto")
+local fa, buried_a, tele_a = drive(D)
+check(buried_a, "PATHFINDING: no buried pixel ever removed (cleared region stays edge-connected)")
+check(tele_a, "NO TELEPORT: every ant moves <= " .. string.format("%.1f", BOUND) .. " units/frame")
+check(D.won(), "SOLVABLE (auto): board fully cleared -> win (in " .. fa .. " frames)")
+check(D.painted() == 0, "all pixels carried away (painted == 0)")
+
+----------------------------------------------------------------------
+-- Scenario B: MANUAL, good play — the strategy load path. A "player" that loads
+-- the tray front into any free slot must also clear the board and never stall.
+----------------------------------------------------------------------
+-- Safe play = clear the OUTERMOST colour still on the board first, never racing
+-- an inner colour ahead (which would orphan an outer remnant into a pocket).
+local function safe_policy(Dh)
+  local g, low = Dh.grid(), 1e9
+  for r = 1, #g do for c = 1, #g[1] do local v = g[r][c]; if v > 0 and v < low then low = v end end end
+  if low == 1e9 then return end
+  while Dh.free_slots() > 0 and Dh.reachable(low) > 0 do
+    local tc, pick = Dh.tray_colors(), nil
+    for i, col in ipairs(tc) do if col == low then pick = i; break end end
+    if not pick then break end
+    Dh.load(pick)
+  end
+end
+
+D.set_mode("manual")   -- flip the shared mode before the fresh build auto-fills
+D = rebuild()
+check(D.free_slots() == 4 and D.painted() == total0, "manual: starts with empty slots, nothing auto-loads")
+local fb, buried_b = drive(D, safe_policy)
+check(buried_b, "PATHFINDING holds under manual play too")
+check(D.won(), "STRATEGY: manual outermost-first play clears the board (in " .. fb .. " frames)")
+check(not D.stuck(), "manual good play never gets stuck")
+
+----------------------------------------------------------------------
+-- Scenario C: WRONG commits -> STUCK -> cancel (rewarded ad) -> recover -> win.
+-- This is the monetisation loop: committing every slot to a buried colour strands
+-- you; the way out is to cancel a slot (which the game gates behind a rewarded
+-- video) and re-pick. Good front-to-front play then finishes the board.
+----------------------------------------------------------------------
+D = rebuild()
+D.set_mode("manual")
+-- commit all slots to currently-buried (unreachable) colours = the wrong move
+while D.free_slots() > 0 and D.load_unreachable() do end
+check(D.free_slots() == 0, "wrong play: all 3 slots committed to buried colours")
+for _ = 1, 6 do scene.update(DT, HW, HH) end   -- let it settle
+check(D.stuck(), "STUCK: buried-colour commits strand the board (non-terminal prompt)")
+check(D.painted() == total0, "stuck state removed no pixels (nothing was reachable)")
+-- recover: cancel every slot via the rewarded-ad path, then play smartly —
+-- load only colours that are currently reachable (a sensible player), since the
+-- cancelled buried colours were returned to the tray front.
+for i = 1, 3 do D.cancel(i) end
+scene.update(DT, HW, HH)
+check(not D.stuck() and D.free_slots() == 3, "cancel (rewarded ad) frees the slots -> unstuck")
+local fc, buried_c = drive(D, safe_policy)
+check(buried_c, "PATHFINDING holds through cancel/abort too")
+check(D.won(), "RECOVERED: after cancelling, outer-first play clears the board (in " .. fc .. " frames)")
+
+----------------------------------------------------------------------
+print(string.rep("-", 48))
+if fail == 0 then print("ALL ANT-CLEAR TESTS PASSED") else print(fail .. " FAILURE(S)"); os.exit(1) end

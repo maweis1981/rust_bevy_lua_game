@@ -572,6 +572,7 @@ fn discover_packs() -> Vec<String> {
         format!("{PACKS_DIR}/timedodge.lua"),
         format!("{PACKS_DIR}/forge.lua"),
         format!("{PACKS_DIR}/fireflies.lua"),
+        format!("{PACKS_DIR}/ant_clear.lua"),
     ]
 }
 
