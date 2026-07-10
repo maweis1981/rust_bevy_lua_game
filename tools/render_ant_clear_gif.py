@@ -29,7 +29,7 @@ CAP = {"stuck": ("卡住了 · 取消一个槽位", (196, 72, 72)),
        "done": ("恭喜完成！", (70, 150, 90))}
 
 TEX = {}
-for n in ("ant_sheet", "cat_face", "hole", "ad_play"):
+for n in ("ant_sheet", "cat_face", "hole", "ad_play", "ant_shadow", "ant_icon"):
     p = f"assets/textures/{n}.png"
     TEX[n] = Image.open(p).convert("RGBA") if os.path.exists(p) else None
 AF = TEX["ant_sheet"].width // 8 if TEX["ant_sheet"] else 48
@@ -98,6 +98,15 @@ def draw_frame(bg, rec):
         col = (int(e[4] * 255), int(e[5] * 255), int(e[6] * 255), int(e[7] * 255))
         hw, hh = e[2] * 0.5 * SCALE, e[3] * 0.5 * SCALE
         dr.rounded_rectangle([wx(e[0]) - hw, wy(e[1]) - hh, wx(e[0]) + hw, wy(e[1]) + hh], hw * 0.3, col)
+    # ant shadows (under the ants, above the board)
+    ts = TEX["ant_shadow"]
+    if ts is not None:
+        for e in bytex("ant_shadow"):
+            w = int(e[2] * SCALE); h = int(e[3] * SCALE)
+            s = ts.resize((max(1, w), max(1, h)), Image.LANCZOS)
+            if e[7] < 0.999:
+                al = s.split()[3].point(lambda v: int(v * e[7])); s.putalpha(al)
+            im.paste(s, (int(wx(e[0]) - w / 2), int(wy(e[1]) - h / 2)), s)
     # walking dust puffs (from game.emit("dust", ...))
     for em in rec.get("emits", []):
         ex, ey = wx(em[0]), wy(em[1])
@@ -119,6 +128,16 @@ def draw_frame(bg, rec):
         d = int(e[2] * SCALE)
         sp = sp.resize((d, d), Image.LANCZOS)
         im.paste(sp, (int(wx(e[0]) - d / 2), int(wy(e[1]) - d / 2)), sp)
+    # tile bug-icons (single-frame ant, tinted dark)
+    ti = TEX["ant_icon"]
+    if ti is not None:
+        for e in bytex("ant_icon"):
+            d = max(1, int(e[2] * SCALE))
+            s = ti.resize((d, d), Image.LANCZOS)
+            rr, gg, bb, aa = s.split()
+            s = Image.merge("RGBA", (rr.point(lambda v: int(v*e[4])), gg.point(lambda v: int(v*e[5])),
+                                     bb.point(lambda v: int(v*e[6])), aa))
+            im.paste(s, (int(wx(e[0]) - d / 2), int(wy(e[1]) - d / 2)), s)
     # labels
     for e in bytex("text"):
         if not e[9]: continue

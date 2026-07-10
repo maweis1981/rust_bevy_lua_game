@@ -83,4 +83,17 @@ def cat_face():
     save(im.resize((Wd, Hd), Image.LANCZOS), "cat_face")
 
 
-candy_tile(); hole(); ad_play(); cat_face()
+def ant_shadow():
+    """A soft round drop-shadow to ground each ant (semi-transparent, feathered)."""
+    N = 64
+    im = Image.new("RGBA", (N * SS, N * SS), (0, 0, 0, 0))
+    d = ImageDraw.Draw(im)
+    cx, cy = N * SS / 2, N * SS / 2
+    for k in range(14, 0, -1):
+        rr = (N * SS / 2) * (k / 14)
+        a = int(70 * (1 - k / 14) ** 1.4)
+        d.ellipse([cx - rr, cy - rr * 0.62, cx + rr, cy + rr * 0.62], fill=(30, 22, 18, a))
+    save(im.resize((N, N), Image.LANCZOS), "ant_shadow")
+
+
+candy_tile(); hole(); ad_play(); cat_face(); ant_shadow()
