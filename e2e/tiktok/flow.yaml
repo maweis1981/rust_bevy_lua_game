@@ -1,0 +1,41 @@
+# flow.yaml — Maestro alternative for the parts that ARE menu navigation.
+#
+# Maestro is great for taps/waits/screenshots on a real device and is the
+# simplest way to drive the menu + capture. BUT it cannot express the game's
+# multi-second "hold while moving" gesture as cleanly as Appium's W3C pointer
+# actions (see playtest.py), so use this for launch + menu + screenshots and
+# Appium for the in-game hold-drag, or accept Maestro's coarser swipe below.
+#
+# Run:  maestro test flow.yaml
+# Docs: https://docs.maestro.dev
+appId: com.zhiliaoapp.musically   # TikTok (global)
+---
+# Assumes TikTok is already logged in as the test user and the mini-game preview
+# was opened via launch.sh (deep link). Maestro just drives what's on screen.
+- launchApp:
+    stopApp: false            # do NOT kill the already-open preview / session
+- waitForAnimationToEnd:
+    timeout: 8000
+- takeScreenshot: shots/maestro-01-menu
+
+# ENDLESS (tap center-upper button). Coordinates are percentages of the screen.
+- tapOn:
+    point: 50%,45%
+- waitForAnimationToEnd:
+    timeout: 3000
+# Maestro's closest thing to "hold and drag": a long swipe. It is NOT a true
+# multi-second hold, so the "stolen seconds" will accrue less than a real hold —
+# prefer playtest.py for scoring-sensitive checks.
+- swipe:
+    start: 50%,60%
+    end: 55%,42%
+    duration: 3000
+- takeScreenshot: shots/maestro-02-endless
+
+# Back out toward the menu.
+- pressKey: Back
+- waitForAnimationToEnd:
+    timeout: 3000
+- tapOn:
+    point: 13%,6%          # BACK button
+- takeScreenshot: shots/maestro-03-menu-again

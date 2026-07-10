@@ -1,0 +1,4 @@
+Appium-Python-Client>=4.0.0
+selenium>=4.20.0
+# optional, for the --ocr HUD assertions (also needs the `tesseract` binary on PATH)
+# pytesseract is NOT required — playtest.py shells out to `tesseract` directly.
