@@ -46,6 +46,7 @@ test-lua:
 	@command -v $(LUA) >/dev/null 2>&1 \
 		&& $(LUA) tools/test_pong.lua \
 		&& $(LUA) tools/test_m0_packs.lua \
+		&& $(LUA) tools/test_ant_clear.lua \
 		|| echo "skip: $(LUA) not found (brew install lua) — gameplay tests not run"
 
 # --- Web (WebAssembly) -----------------------------------------------------
