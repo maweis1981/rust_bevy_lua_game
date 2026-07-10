@@ -29,7 +29,8 @@ CAP = {"stuck": ("卡住了 · 取消一个槽位", (196, 72, 72)),
        "done": ("恭喜完成！", (70, 150, 90))}
 
 TEX = {}
-for n in ("ant_sheet", "cat_face", "hole", "ad_play", "ant_shadow", "ant_icon"):
+for n in ("ant_sheet", "cat_face", "hole", "ad_play", "ant_shadow", "ant_icon",
+          "icon_speed", "icon_x2", "icon_gift"):
     p = f"assets/textures/{n}.png"
     TEX[n] = Image.open(p).convert("RGBA") if os.path.exists(p) else None
 AF = TEX["ant_sheet"].width // 8 if TEX["ant_sheet"] else 48
@@ -80,6 +81,16 @@ def draw_frame(bg, rec):
     for e in bytex("ad_play"):
         t = TEX["ad_play"]; w = int(e[2] * SCALE); h = int(t.height * w / t.width)
         s = t.resize((w, h), Image.LANCZOS); im.paste(s, (int(wx(e[0]) - w / 2), int(wy(e[1]) - h / 2)), s)
+    for nm in ("icon_speed", "icon_x2", "icon_gift"):
+        t = TEX[nm]
+        if t is None: continue
+        for e in bytex(nm):
+            w = max(1, int(e[2] * SCALE)); h = max(1, int(e[3] * SCALE))
+            s = t.resize((w, h), Image.LANCZOS)
+            if nm == "icon_x2":   # tinted dark in-game
+                rr, gg, bb, aa = s.split()
+                s = Image.merge("RGBA", (rr.point(lambda v:int(v*e[4])), gg.point(lambda v:int(v*e[5])), bb.point(lambda v:int(v*e[6])), aa))
+            im.paste(s, (int(wx(e[0]) - w / 2), int(wy(e[1]) - h / 2)), s)
     for e in bytex("icon_find"):
         cxp, cyp, rr = wx(e[0]), wy(e[1]), e[2] * SCALE * 0.5
         dr.ellipse([cxp - rr, cyp - rr, cxp + rr, cyp + rr], fill=(74, 58, 50, 255))
