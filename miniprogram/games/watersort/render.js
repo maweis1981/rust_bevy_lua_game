@@ -114,7 +114,7 @@ function createRenderer(ctx, W, H) {
 
   function draw(game) {
     var v = game.view();
-    var bg = img('bg.png');
+    var bg = img('bg.jpg');
     if (bg) ctx.drawImage(bg, 0, 0, W, H);
     else { ctx.fillStyle = C.BG; ctx.fillRect(0, 0, W, H); }
     if (!v.lv) return;

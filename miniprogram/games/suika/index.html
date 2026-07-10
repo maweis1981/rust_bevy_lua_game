@@ -17,7 +17,7 @@
     #game { display: block; width: 100vw; height: 100vh; touch-action: none; }
   </style>
   <!-- Optional TikTok SDK; harmless/absent in a plain browser preview. -->
-  <script src="https://developers.tiktok.com/js/minis.js" onerror="void 0"></script>
+  <script async src="https://developers.tiktok.com/js/minis.js" onerror="void 0"></script>
 </head>
 <body>
   <canvas id="game"></canvas>
@@ -93,7 +93,16 @@
       if (hasTT && TTMinis.game.setLoadingProgress) { try { TTMinis.game.setLoadingProgress({ progress: 1 }); } catch (e) {} }
 
       var startGame = window.require('main.js').startGame;
-      window.__suika = startGame(platform);   // expose for headless probing
+      function __preloadThenStart(pf, startFn){
+        var names=['bg.jpg','fruits.png'], left=0, done=false;
+        function go(){ if(done) return; done=true; startFn(); }
+        function fin(){ if(--left<=0) go(); }
+        try { names.forEach(function(n){ var im = pf.getImage && pf.getImage(n); if(im && !(im.complete && im.naturalWidth)){ left++; im.addEventListener('load',fin,{once:true}); im.addEventListener('error',fin,{once:true}); } }); } catch(e){}
+        if(document.fonts && document.fonts.load){ try{ document.fonts.load('700 40px Baloo2'); }catch(e){} }
+        if(left===0){ go(); return; }
+        setTimeout(go, 3000);
+      }
+      __preloadThenStart(platform, function(){ window.__suika = startGame(platform); });   // expose for headless probing
     })();
   </script>
 </body>

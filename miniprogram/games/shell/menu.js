@@ -9,7 +9,7 @@ function createMenu(games, opts) {
   var onPick = opts.onPick || function () {};
   var W = 0, H = 0, cards = [], spinRect = null, toast = null, now = opts.now || function () { return Date.now(); };
   var getImage = opts.getImage || function () { return null; };
-  function bgImg() { var im = getImage('bg.png'); return (im && im.complete && im.naturalWidth) ? im : null; }
+  function bgImg() { var im = getImage('bg.jpg'); return (im && im.complete && im.naturalWidth) ? im : null; }
 
   function setSize(w, h) {
     W = w; H = h;

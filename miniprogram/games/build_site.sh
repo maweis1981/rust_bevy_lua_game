@@ -42,7 +42,7 @@ pkg "$MP/tiktok"      timedodge index.html adapter.js engine.bundle.js
 
 # shared art for the hub landing page
 mkdir -p "$OUT/assets"
-cp "$HERE/assets/bg.png" "$HERE/assets/Baloo2.ttf" "$OUT/assets/" 2>/dev/null || true
+cp "$HERE/assets/bg.jpg" "$HERE/assets/Baloo2.ttf" "$OUT/assets/" 2>/dev/null || true
 
 cat > "$OUT/index.html" <<'HTML'
 <!DOCTYPE html>
@@ -57,7 +57,7 @@ cat > "$OUT/index.html" <<'HTML'
     html,body { margin:0; height:100%; }
     body {
       font-family:'Baloo2', system-ui, sans-serif; color:#eaf0ff;
-      min-height:100%; background:#0b1020 url('./assets/bg.png') center/cover fixed no-repeat;
+      min-height:100%; background:#0b1020 url('./assets/bg.jpg') center/cover fixed no-repeat;
       display:flex; flex-direction:column; align-items:center; padding:32px 18px 48px;
     }
     h1 { font-weight:800; font-size:clamp(34px,9vw,58px); margin:18px 0 2px; letter-spacing:.5px; text-shadow:0 4px 24px rgba(0,0,0,.5); }
