@@ -21,10 +21,13 @@ FRAMES = 8
 CELL = 48                     # px per frame in the sheet
 OUT = "assets/textures/ant_sheet.png"
 
-BODY = (34, 26, 24)           # near-black brown
-BODY_HI = (70, 54, 48)        # rim light
-LEG = (24, 18, 16)
-EYE = (12, 9, 8)
+# Body is LIGHT/near-white so the engine's set_color tints the ant to its slot
+# colour (a red slot -> red ants). Legs/eyes stay dark (they survive the multiply)
+# for definition, so a tinted ant still reads as an ant with dark legs.
+BODY = (232, 226, 220)        # light body (takes the tint)
+BODY_HI = (255, 252, 248)     # rim light
+LEG = (46, 36, 32)            # dark legs (stay dark after tint)
+EYE = (20, 15, 13)
 
 
 def ellipse(dr, cx, cy, rx, ry, fill):

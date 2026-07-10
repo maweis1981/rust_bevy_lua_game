@@ -215,7 +215,18 @@ local function make_ant_clear()
   local function spawn_ant(slot_i)
     local id = game.spawn_sheet(NESTX, NESTY, CELL * 1.6, CELL * 1.6, "ant_sheet", 8, 8)
     ants[#ants + 1] = { id = id, slot = slot_i, state = "idle", x = NESTX, y = NESTY,
-                        pi = 1, path = nil, tr = 0, tc = 0, anim = 0, carry = nil, cc = 0 }
+                        pi = 1, path = nil, tr = 0, tc = 0, anim = 0, carry = nil, cc = 0, tintc = -1 }
+  end
+  -- Colour each ant to its slot's colour (a red slot -> red ants), so the swarm
+  -- reads as "these ants are carrying THIS colour". Only re-set on change.
+  local function tint_ant(a)
+    local s = slots[a.slot]
+    local ci = s and s.color or 0
+    if ci ~= a.tintc then
+      if ci == 0 then game.set_color(a.id, 0.55, 0.48, 0.44, 1)
+      else local c = palette[ci]; game.set_color(a.id, c[1], c[2], c[3], 1) end
+      a.tintc = ci
+    end
   end
   local function pick_target(color)
     if dirty then recompute_field() end
@@ -255,6 +266,7 @@ local function make_ant_clear()
   end
   local function update_ant(a, dt)
     local s = slots[a.slot]
+    tint_ant(a)
     if a.state == "idle" then
       if not s or s.n <= 0 then return end
       local r, c = pick_target(s.color); if not r then return end
@@ -313,6 +325,7 @@ local function make_ant_clear()
         if slot_bug[i] then game.despawn(slot_bug[i]); slot_bug[i] = nil end
         if lbl ~= "" then
           slot_bug[i] = T.sprite(slot_x(i) - SLOT_W * 0.24, SLOT_Y + SLOT_W * 0.22, SLOT_W * 0.34, SLOT_W * 0.34, "ant_sheet")
+          game.set_color(slot_bug[i], 0.20, 0.16, 0.14, 1)
           slot_txt[i] = T.text(slot_x(i) + SLOT_W * 0.1, SLOT_Y - SLOT_W * 0.05, 22, 1, 1, 1, 1, lbl)
         end
         slot_shown[i] = lbl
@@ -327,6 +340,7 @@ local function make_ant_clear()
         if tray_bug[i] then game.despawn(tray_bug[i]); tray_bug[i] = nil end
         if lbl ~= "" then
           tray_bug[i] = T.sprite(tray_x(i) - TRAY_W * 0.24, tray_yy(i) + TRAY_W * 0.22, TRAY_W * 0.3, TRAY_W * 0.3, "ant_sheet")
+          game.set_color(tray_bug[i], 0.20, 0.16, 0.14, 1)
           tray_txt[i] = T.text(tray_x(i) + TRAY_W * 0.08, tray_yy(i) - TRAY_W * 0.05, 22, 1, 1, 1, 1, lbl)
         end
         tray_shown[i] = lbl

@@ -98,13 +98,18 @@ def draw_frame(bg, rec):
         col = (int(e[4] * 255), int(e[5] * 255), int(e[6] * 255), int(e[7] * 255))
         hw, hh = e[2] * 0.5 * SCALE, e[3] * 0.5 * SCALE
         dr.rounded_rectangle([wx(e[0]) - hw, wy(e[1]) - hh, wx(e[0]) + hw, wy(e[1]) + hh], hw * 0.3, col)
-    # ants
+    # ants — tinted to the entity colour (= its slot colour), so a red slot's
+    # ants are red. Multiply RGB, keep alpha, then rotate to face travel.
     t = TEX["ant_sheet"]
     for e in bytex("ant_sheet"):
         fr = max(0, min(7, int(e[11])))
-        sp = t.crop((fr * AF, 0, fr * AF + AF, t.height))
-        deg = -math.degrees(e[10])
-        sp = sp.rotate(deg, expand=True, resample=Image.BICUBIC)
+        sp = t.crop((fr * AF, 0, fr * AF + AF, t.height)).convert("RGBA")
+        rch, gch, bch, ach = sp.split()
+        rch = rch.point(lambda v: int(v * e[4]))
+        gch = gch.point(lambda v: int(v * e[5]))
+        bch = bch.point(lambda v: int(v * e[6]))
+        sp = Image.merge("RGBA", (rch, gch, bch, ach))
+        sp = sp.rotate(-math.degrees(e[10]), expand=True, resample=Image.BICUBIC)
         d = int(e[2] * SCALE)
         sp = sp.resize((d, d), Image.LANCZOS)
         im.paste(sp, (int(wx(e[0]) - d / 2), int(wy(e[1]) - d / 2)), sp)
