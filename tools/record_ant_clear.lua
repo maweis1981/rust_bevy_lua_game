@@ -84,6 +84,7 @@ local scene = PACKS.ant_clear.make()
 scene.enter(); scene.update(DT, HW, HH)
 local D = DEBUG
 D.set_mode("manual")
+D.toggle_speed()   -- 2x for a watchable-length demo clip (game default is calm)
 
 ----------------------------------------------------------------------
 -- JSON dump
@@ -146,15 +147,15 @@ end
 -- 2. the mistake: drop the good colours and commit every slot to a buried inner
 --    colour. Cancel first so no outer clearing races (which would orphan cells);
 --    the board freezes with all slots stranded.
-for i = 1, 3 do D.cancel(i) end
+for i = 1, 4 do D.cancel(i) end
 step("mistake", 70, bad_play)
 -- 3. hold on the STUCK prompt
 step("stuck", 130, bad_play)
 -- 4. cancel every slot (rewarded ad) to recover
-for i = 1, 3 do D.cancel(i) end
+for i = 1, 4 do D.cancel(i) end
 step("cancel", 45, nil)
 -- 5. recover and finish
-while not D.won() and frames < 3000 do
+while not D.won() and frames < 6000 do
   if step("finish", 1, safe_play) then break end
 end
 -- hold on the CLEARED card (freeze-frame; the sim has stopped)

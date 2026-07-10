@@ -53,7 +53,7 @@ local function make_ant_clear()
   -- ---- tunables ------------------------------------------------------------
   local SLOTS = LEVEL.slots or 4   -- active slots (< palette size on purpose)
   local ANTS_PER_SLOT = 4
-  local ANT_SPEED = 300      -- world units / sec
+  local ANT_SPEED = 165      -- world units / sec (calmer, readable)
   local MAX_DT = 1 / 30
   local mode = "manual"      -- "manual" (tap to load) | "auto" (autoplay/tests)
 
@@ -107,8 +107,16 @@ local function make_ant_clear()
     while cur ~= -1 do chain[#chain + 1] = cur; cur = par[cur] end
     local pts = {}
     for i = #chain, 1, -1 do
-      local r, c = math.floor(chain[i] / NW), chain[i] % NW
-      pts[#pts + 1] = { cx(c), cy(r) }
+      -- The flow-field nest node lives at grid row H+1 (the board's bottom edge),
+      -- but the VISIBLE hole sits lower (its own layout position). Map the nest
+      -- node to the visible hole so ants actually enter/leave the hole and never
+      -- idle stranded on the board bottom.
+      if chain[i] == NEST then
+        pts[#pts + 1] = { NESTX, NESTY }
+      else
+        local r, c = math.floor(chain[i] / NW), chain[i] % NW
+        pts[#pts + 1] = { cx(c), cy(r) }
+      end
     end
     pts[#pts + 1] = { cx(tc), cy(tr) }
     return pts
@@ -165,6 +173,7 @@ local function make_ant_clear()
     for _, a in ipairs(ants) do
       if a.slot == i and a.state == "out" then
         reserved[(a.tr-1)*W+a.tc] = nil
+        s.n = s.n + 1                 -- give back the count reserved at dispatch
         local rev = { { a.x, a.y } }
         for k = a.pi, 1, -1 do rev[#rev + 1] = a.path[k] end
         a.path, a.pi, a.state = rev, 1, "back"
@@ -216,7 +225,8 @@ local function make_ant_clear()
   local function spawn_ant(slot_i)
     local id = game.spawn_sheet(NESTX, NESTY, CELL * 1.6, CELL * 1.6, "ant_sheet", 8, 8)
     ants[#ants + 1] = { id = id, slot = slot_i, state = "idle", x = NESTX, y = NESTY,
-                        pi = 1, path = nil, tr = 0, tc = 0, anim = 0, carry = nil, cc = 0, tintc = -1 }
+                        pi = 1, path = nil, tr = 0, tc = 0, anim = 0, carry = nil, cc = 0, tintc = -1,
+                        phase = (#ants % 8) * 0.8, dust = 0 }
   end
   -- Colour each ant to its slot's colour (a red slot -> red ants), so the swarm
   -- reads as "these ants are carrying THIS colour". Only re-set on change.
@@ -250,7 +260,7 @@ local function make_ant_clear()
   end
   local function move_along(a, dt)
     local step = ANT_SPEED * dt * (speed2 and 2 or 1)
-    local moved = 0
+    local sx0, sy0, moved = a.x, a.y, 0
     while step > 0 and a.pi < #a.path do
       local nx, ny = a.path[a.pi + 1][1], a.path[a.pi + 1][2]
       local dx, dy = nx - a.x, ny - a.y
@@ -259,10 +269,22 @@ local function make_ant_clear()
       if d <= step then a.x, a.y, a.pi, step, moved = nx, ny, a.pi + 1, step - d, moved + d
       else a.x, a.y, step, moved = a.x + dx / d * step, a.y + dy / d * step, 0, moved + step end
     end
-    game.move_to(a.id, a.x, a.y)
-    a.anim = (a.anim + moved * 0.08) % 8
+    a.anim = (a.anim + moved * 0.16) % 8
     game.set_frame(a.id, math.floor(a.anim))
-    if a.carry then game.move_to(a.carry, a.x, a.y - CELL * 0.5) end
+    -- gentle side-to-side meander perpendicular to travel (visual only — logical
+    -- position stays on the path), plus little dust puffs while walking.
+    local tdx, tdy = a.x - sx0, a.y - sy0
+    local tl = math.sqrt(tdx * tdx + tdy * tdy)
+    local rx, ry = a.x, a.y
+    if tl > 0.01 then
+      local px, py = -tdy / tl, tdx / tl
+      local sway = math.sin(a.anim * 0.85 + a.phase) * CELL * 0.18
+      rx, ry = a.x + px * sway, a.y + py * sway
+      a.dust = a.dust + moved
+      if a.dust > CELL * 0.85 then a.dust = 0; game.emit("dust", rx, ry - CELL * 0.15, 3) end
+    end
+    game.move_to(a.id, rx, ry)
+    if a.carry then game.move_to(a.carry, rx, ry - CELL * 0.5) end
     return a.pi >= #a.path
   end
   local function update_ant(a, dt)
@@ -273,13 +295,13 @@ local function make_ant_clear()
       local r, c = pick_target(s.color); if not r then return end
       local p = path_to(r, c); if not p then return end
       reserved[(r-1)*W+c] = true
-      a.tr, a.tc, a.path, a.pi, a.state = r, c, p, 1, "out"
+      s.n = s.n - 1                     -- reserve the count at DISPATCH so a slot
+      a.tr, a.tc, a.path, a.pi, a.state = r, c, p, 1, "out"   -- never over-sends ants
     elseif a.state == "out" then
       if move_along(a, dt) then
         if grid[a.tr][a.tc] ~= 0 then
           a.cc = grid[a.tr][a.tc]
           clear_cell(a.tr, a.tc)
-          if s then s.n = s.n - 1 end
           a.carry = game.spawn(a.x, a.y - CELL * 0.5, CELL * 0.7, CELL * 0.7, 1, 1, 1, 1)
           tint(a.carry, a.cc)
           game.play_sound("hit"); game.shake(0.02); game.haptic("light")
@@ -367,9 +389,9 @@ local function make_ant_clear()
     local q_bot = BAR_CY + BAR_H / 2 + 28 + TRAY_W / 2      -- queue bottom row centre
     TRAY_Y = q_bot + (TRAY_W + 8)                           -- queue top row (row 0)
     SLOT_Y = (TRAY_Y + TRAY_W / 2) + 24 + SLOT_W / 2        -- slots above the queue
-    local HOLE_R = 22
-    NESTY = SLOT_Y + SLOT_W / 2 + 28 + HOLE_R               -- hole above the slots
-    local board_bottom = NESTY + HOLE_R + 48                -- roomy gap: ants exit here
+    local HOLE_R = 30
+    NESTY = SLOT_Y + SLOT_W / 2 + 30 + HOLE_R               -- hole above the slots
+    local board_bottom = NESTY + HOLE_R + 46                -- roomy gap: ants exit here
     local board_h = (hh - 150) - board_bottom               -- rest goes to the picture
     CELL = math.min((2 * hw - 44) / W, board_h / H, 16)
     OX = -W * CELL / 2
@@ -390,7 +412,7 @@ local function make_ant_clear()
     local panel = T.sprite(0, TOPY - 0.5 * CELL * H, W * CELL + 20, H * CELL + 20, "tile_sq")
     game.set_color(panel, 0.99, 0.97, 0.93, 1)
     -- nest hole + the two rewarded-ad unlock buttons flanking it
-    T.sprite(NESTX, NESTY, HOLE_R * 2, HOLE_R * 2, "hole")
+    T.sprite(NESTX, NESTY, HOLE_R * 2.4, HOLE_R * 1.9, "hole")   -- slightly widened
     for _, sx in ipairs({ -1, 1 }) do
       local bx = sx * (hw - 44)
       local ub = T.sprite(bx, NESTY, 74, 50, "tile_sq"); game.set_color(ub, 0.88, 0.85, 0.80, 1)

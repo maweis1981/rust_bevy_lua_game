@@ -98,6 +98,12 @@ def draw_frame(bg, rec):
         col = (int(e[4] * 255), int(e[5] * 255), int(e[6] * 255), int(e[7] * 255))
         hw, hh = e[2] * 0.5 * SCALE, e[3] * 0.5 * SCALE
         dr.rounded_rectangle([wx(e[0]) - hw, wy(e[1]) - hh, wx(e[0]) + hw, wy(e[1]) + hh], hw * 0.3, col)
+    # walking dust puffs (from game.emit("dust", ...))
+    for em in rec.get("emits", []):
+        ex, ey = wx(em[0]), wy(em[1])
+        for k, rr in enumerate((7, 4.5)):
+            dr.ellipse([ex - rr * SS, ey - rr * SS, ex + rr * SS, ey + rr * SS],
+                       fill=(210, 194, 170, 90 - k * 30))
     # ants — tinted to the entity colour (= its slot colour), so a red slot's
     # ants are red. Multiply RGB, keep alpha, then rotate to face travel.
     t = TEX["ant_sheet"]
