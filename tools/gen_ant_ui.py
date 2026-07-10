@@ -83,6 +83,37 @@ def cat_face():
     save(im.resize((Wd, Hd), Image.LANCZOS), "cat_face")
 
 
+def icon_speed():
+    """Blue upgrade drop with an up-arrow (速度升级)."""
+    N = 48; im = Image.new("RGBA", (N*SS, N*SS), (0,0,0,0)); d = ImageDraw.Draw(im)
+    cx, cy = N*SS/2, N*SS*0.56
+    d.pieslice([cx-15*SS, cy-15*SS, cx+15*SS, cy+15*SS], 30, 330, fill=(70,150,220,255))
+    d.polygon([(cx, N*SS*0.10),(cx-11*SS, cy-6*SS),(cx+11*SS, cy-6*SS)], fill=(70,150,220,255))
+    d.polygon([(cx, cy-8*SS),(cx-7*SS, cy),(cx-3*SS, cy),(cx-3*SS, cy+8*SS),
+               (cx+3*SS, cy+8*SS),(cx+3*SS, cy),(cx+7*SS, cy)], fill=(255,255,255,255))
+    save(im.resize((N,N), Image.LANCZOS), "icon_speed")
+
+
+def icon_x2():
+    """Fast-forward chevrons (速度x2)."""
+    N = 48; im = Image.new("RGBA", (N*SS, N*SS), (0,0,0,0)); d = ImageDraw.Draw(im)
+    for off in (-9*SS, 1*SS):
+        cx = N*SS/2 + off
+        d.polygon([(cx-6*SS, N*SS*0.28),(cx+8*SS, N*SS*0.5),(cx-6*SS, N*SS*0.72)], fill=(255,255,255,255))
+    save(im.resize((N,N), Image.LANCZOS), "icon_x2")
+
+
+def icon_gift():
+    """Gift box (level-unlock buttons)."""
+    N = 48; im = Image.new("RGBA", (N*SS, N*SS), (0,0,0,0)); d = ImageDraw.Draw(im)
+    d.rounded_rectangle([N*SS*0.2, N*SS*0.42, N*SS*0.8, N*SS*0.82], N*SS*0.06, fill=(230,120,110,255))
+    d.rounded_rectangle([N*SS*0.16, N*SS*0.34, N*SS*0.84, N*SS*0.48], N*SS*0.05, fill=(245,150,140,255))
+    d.rectangle([N*SS*0.46, N*SS*0.34, N*SS*0.54, N*SS*0.82], fill=(255,220,150,255))
+    d.ellipse([N*SS*0.32, N*SS*0.22, N*SS*0.5, N*SS*0.38], outline=(255,220,150,255), width=3*SS)
+    d.ellipse([N*SS*0.5, N*SS*0.22, N*SS*0.68, N*SS*0.38], outline=(255,220,150,255), width=3*SS)
+    save(im.resize((N,N), Image.LANCZOS), "icon_gift")
+
+
 def ant_shadow():
     """A soft round drop-shadow to ground each ant (semi-transparent, feathered)."""
     N = 64
@@ -97,3 +128,4 @@ def ant_shadow():
 
 
 candy_tile(); hole(); ad_play(); cat_face(); ant_shadow()
+icon_speed(); icon_x2(); icon_gift()

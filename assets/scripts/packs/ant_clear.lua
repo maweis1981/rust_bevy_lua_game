@@ -125,6 +125,7 @@ local function make_ant_clear()
 
   -- ---- slots / tray / ants -------------------------------------------------
   local tray, slots, reserved, ants = {}, {}, {}, {}
+  local slot_pulse = {}   -- brief scale bump when a slot's count ticks down
   local playing, won, stuck, speed2 = true, false, false, false
   local HW, HH, built = 0, 0, false
   local back, was_stuck = nil, false
@@ -291,7 +292,19 @@ local function make_ant_clear()
     end
     game.move_to(a.id, rx, ry)
     if a.shadow then game.move_to(a.shadow, rx, ry - CELL * 0.55) end
-    if a.carry then game.move_to(a.carry, rx, ry - CELL * 0.5) end
+    -- emerge scale-in as the ant leaves the nest
+    if a.emerge and a.emerge < 1 then
+      a.emerge = math.min(1, a.emerge + dt * 5)
+      local sz = CELL * ANT_SIZE * (0.35 + 0.65 * a.emerge)
+      game.set_size(a.id, sz, sz)
+    end
+    -- carried pixel pops up from nothing, then rides the ant
+    if a.carry then
+      a.carry_t = math.min(1, (a.carry_t or 1) + dt * 8)
+      local cs = CELL * 0.72 * (0.2 + 0.8 * a.carry_t)
+      game.set_size(a.carry, cs, cs)
+      game.move_to(a.carry, rx, ry - CELL * 0.5)
+    end
     return a.pi >= #a.path
   end
   local function update_ant(a, dt)
@@ -303,13 +316,16 @@ local function make_ant_clear()
       local p = path_to(r, c); if not p then return end
       reserved[(r-1)*W+c] = true
       s.n = s.n - 1                     -- reserve the count at DISPATCH so a slot
+      slot_pulse[a.slot] = 1            -- animate the count tick-down
+      a.emerge = 0                      -- scale-in as it leaves the nest
       a.tr, a.tc, a.path, a.pi, a.state = r, c, p, 1, "out"   -- never over-sends ants
     elseif a.state == "out" then
       if move_along(a, dt) then
         if grid[a.tr][a.tc] ~= 0 then
           a.cc = grid[a.tr][a.tc]
           clear_cell(a.tr, a.tc)
-          a.carry = game.spawn(a.x, a.y - CELL * 0.5, CELL * 0.7, CELL * 0.7, 1, 1, 1, 1)
+          a.carry = game.spawn(a.x, a.y - CELL * 0.5, 1, 1, 1, 1, 1, 1)
+          a.carry_t = 0                 -- pop the picked pixel up from nothing
           tint(a.carry, a.cc)
           game.play_sound("hit"); game.shake(0.02); game.haptic("light")
         end
@@ -349,6 +365,14 @@ local function make_ant_clear()
     for i = 1, SLOTS do
       local s = slots[i]
       if s then tint(slot_bg[i], s.color) else game.set_color(slot_bg[i], 0.80, 0.76, 0.70, 1) end
+      -- count-tick pulse: scale the slot tile up briefly, then ease back
+      local p = slot_pulse[i] or 0
+      if p > 0.01 then
+        local sc = SLOT_W * (1 + 0.18 * p); game.set_size(slot_bg[i], sc, sc)
+        slot_pulse[i] = p * 0.82
+      elseif slot_pulse[i] then
+        game.set_size(slot_bg[i], SLOT_W, SLOT_W); slot_pulse[i] = nil
+      end
       local lbl = s and tostring(s.n) or ""
       if lbl ~= slot_shown[i] then
         if slot_txt[i] then game.despawn(slot_txt[i]); slot_txt[i] = nil end
@@ -399,8 +423,11 @@ local function make_ant_clear()
     local HOLE_R = 30
     NESTY = SLOT_Y + SLOT_W / 2 + 30 + HOLE_R               -- hole above the slots
     local board_bottom = NESTY + HOLE_R + 46                -- roomy gap: ants exit here
-    local board_h = (hh - 150) - board_bottom               -- rest goes to the picture
-    CELL = math.min((2 * hw - 44) / W, board_h / H, 16)
+    -- RESPONSIVE: the picture fills the screen width (like the reference), then
+    -- is capped by whatever vertical space is left — it scales with the device,
+    -- never a fixed size.
+    local board_h = (hh - 128) - board_bottom               -- rest goes to the picture
+    CELL = math.min((2 * hw - 22) / W, board_h / H)
     OX = -W * CELL / 2
     TOPY = board_bottom + H * CELL
     NESTX = cx(math.floor(W / 2) + 1)
@@ -430,15 +457,19 @@ local function make_ant_clear()
     local BM, BG = 14, 8
     local bw = (2 * hw - 2 * BM - 3 * BG) / 4
     local btns = {
-      { "速度升级", { 0.34, 0.62, 0.86 } }, { "速度x2", { 0.94, 0.59, 0.25 } },
-      { "第11关\n解锁", { 0.95, 0.84, 0.47 } }, { "第20关\n解锁", { 0.95, 0.84, 0.47 } },
+      { "速度升级", { 0.34, 0.62, 0.86 }, "icon_speed" },
+      { "速度x2", { 0.94, 0.59, 0.25 }, "icon_x2" },
+      { "第11关\n解锁", { 0.95, 0.84, 0.47 }, "icon_gift" },
+      { "第20关\n解锁", { 0.95, 0.84, 0.47 }, "icon_gift" },
     }
     for i, b in ipairs(btns) do
       local bxc = -hw + BM + bw / 2 + (i - 1) * (bw + BG)
       local id = T.sprite(bxc, BAR_CY, bw, BAR_H, "tile_sq")
       game.set_color(id, b[2][1], b[2][2], b[2][3], 1)
+      local ic = T.sprite(bxc - bw * 0.32, BAR_CY, BAR_H * 0.62, BAR_H * 0.62, b[3])
+      if b[3] == "icon_x2" then game.set_color(ic, 0.22, 0.15, 0.10, 1) end
       local dark = b[2][1] > 0.9
-      T.text(bxc, BAR_CY, 15, dark and 0.30 or 1, dark and 0.24 or 1, dark and 0.10 or 1, 1, b[1])
+      T.text(bxc + bw * 0.12, BAR_CY, 14, dark and 0.30 or 1, dark and 0.24 or 1, dark and 0.10 or 1, 1, b[1])
     end
 
     draw_board()
