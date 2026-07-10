@@ -27,7 +27,9 @@ local function make_ant_clear()
   local LEVEL = {
     id = 1, slots = 4,       -- level number + active-slot count (level-driven)
     w = 20, h = 17,
-    palette = { {0.220,0.150,0.110}, {0.930,0.550,0.220}, {0.990,0.870,0.660}, {0.980,0.660,0.700}, {0.340,0.740,0.460} },
+    -- candy palette (art-direction v2): cocoa outline, tangerine fur, cream face,
+    -- strawberry ears/nose, mint eyes — bright + high-contrast, no muddy browns.
+    palette = { {0.290,0.180,0.125}, {1.000,0.624,0.110}, {1.000,0.953,0.863}, {1.000,0.353,0.416}, {0.224,0.788,0.722} },
     grid = {
       {0,0,0,0,1,1,0,0,0,0,0,0,0,0,1,1,0,0,0,0},
       {0,0,0,1,4,4,1,0,0,0,0,0,0,1,4,4,1,0,0,0},
