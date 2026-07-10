@@ -378,6 +378,35 @@ local function make_ant_clear()
   local slot_shown, tray_shown = {}, {}
   local coin_num                       -- bitmap-digit coin counter
   local drifters = {}                  -- ambient floating leaves/motes (bg motion)
+  local buttons = {}                   -- tappable UI buttons with press-state feedback
+
+  -- Register a pill button for press feedback + hit-testing. `sel` (optional) is
+  -- a predicate → the button shows a lit "selected" state while it returns true
+  -- (e.g. speed x2 while active); `on_tap` runs when it's pressed.
+  local function add_button(id, rect, base, on_tap, sel)
+    buttons[#buttons + 1] = { id = id, rect = rect, base = base, pulse = 0, on_tap = on_tap, sel = sel }
+  end
+  -- Ease each button back from its last press; pressed = darker (pushed in),
+  -- selected = brighter (lit). Runs every frame so it animates on the win card too.
+  local function update_buttons(dt)
+    for _, b in ipairs(buttons) do
+      b.pulse = math.max(0, b.pulse - dt * 6)
+      local k = 1 - 0.28 * b.pulse                       -- press darkens
+      local lift = (b.sel and b.sel()) and 0.16 or 0     -- selected brightens toward white
+      game.set_color(b.id, b.base[1] * k + lift, b.base[2] * k + lift, b.base[3] * k + lift, 1)
+    end
+  end
+  -- Hit-test the buttons; on a press, pulse + fire on_tap. Returns true if consumed.
+  local function press_button(x, y)
+    for _, b in ipairs(buttons) do
+      if K.in_rect(b.rect, x, y) then
+        b.pulse = 1; game.play_sound("ac_load"); game.haptic("light")
+        if b.on_tap then b.on_tap() end
+        return true
+      end
+    end
+    return false
+  end
 
   -- Ambient background motion: a handful of soft leaves + light motes that drift
   -- slowly upward-diagonally and wrap, so the scene never feels static. Spawned
@@ -426,6 +455,7 @@ local function make_ant_clear()
     tray_txt = {}
     num_free(coin_num); coin_num = nil
     for _, d in ipairs(drifters) do game.despawn(d.id) end; drifters = {}
+    buttons = {}   -- pill sprites are tracker-owned (T.clear despawns them); drop stale refs
   end
   local QYGAP = 6
   local function slot_x(i) return (i - (SLOTS + 1) / 2) * (SLOT_W + 8) end
@@ -560,7 +590,8 @@ local function make_ant_clear()
     T.sprite(NESTX, NESTY, HOLE_R * 2.5, HOLE_R * 2.4, "hole")
     for _, sx in ipairs({ -1, 1 }) do
       local bx = sx * (hw - 44)
-      local ub = T.sprite(bx, NESTY, 80, 54, "btn_pill"); game.set_color(ub, 0.93, 0.80, 0.55, 1)
+      local ub = T.sprite(bx, NESTY, 80, 54, "btn_pill")
+      add_button(ub, { x = bx, y = NESTY, w = 80, h = 54 }, { 0.93, 0.80, 0.55 })
       T.sprite(bx, NESTY + 8, 26, 20, "ad_play")
       T.text(bx, NESTY - 14, 17, 0.42, 0.32, 0.18, 1, "解锁")
     end
@@ -576,7 +607,10 @@ local function make_ant_clear()
     for i, b in ipairs(btns) do
       local bxc = -hw + BM + bw / 2 + (i - 1) * (bw + BG)
       local id = T.sprite(bxc, BAR_CY, bw, BAR_H + 6, "btn_pill")
-      game.set_color(id, b[2][1], b[2][2], b[2][3], 1)
+      -- the speed x2 button toggles the demo double-speed and lights up while on
+      local on_tap = (b[3] == "icon_x2") and function() speed2 = not speed2 end or nil
+      local sel = (b[3] == "icon_x2") and function() return speed2 end or nil
+      add_button(id, { x = bxc, y = BAR_CY, w = bw, h = BAR_H + 6 }, b[2], on_tap, sel)
       local ic = T.sprite(bxc - bw * 0.32, BAR_CY, BAR_H * 0.62, BAR_H * 0.62, b[3])
       if b[3] == "icon_x2" then game.set_color(ic, 0.22, 0.15, 0.10, 1) end
       local dark = b[2][1] > 0.9
@@ -627,9 +661,7 @@ local function make_ant_clear()
     tap = function(x, y)
       if back and K.in_rect(back, x, y) then K.switch("menu"); return end
       if not playing then T.clear(); build(HW, HH); return end
-      if math.abs(x - NESTX) < CELL and math.abs(y - NESTY) < CELL then
-        speed2 = not speed2; game.play_sound("ac_load"); game.haptic("light"); return
-      end
+      if press_button(x, y) then return end   -- bottom bar + unlock buttons (press feedback)
       if mode == "manual" then
         for i = 1, SLOTS do
           if slots[i] and math.abs(x - slot_x(i)) <= SLOT_W * 0.6 and math.abs(y - SLOT_Y) <= SLOT_W * 0.6 then
@@ -650,6 +682,7 @@ local function make_ant_clear()
     update = function(dt, hw, hh)
       if not built then build(hw, hh) end
       update_drifters(math.min(dt, MAX_DT))   -- ambient motion, even on the win card
+      update_buttons(math.min(dt, MAX_DT))    -- ease button press/selected states
       if not playing then return end
       dt = math.min(dt, MAX_DT)
       if dirty then recompute_field() end
