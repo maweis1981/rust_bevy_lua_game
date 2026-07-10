@@ -358,7 +358,7 @@ local function make_ant_clear()
           a.carry = game.spawn(a.x, a.y - CELL * 0.5, 1, 1, 1, 1, 1, 1)
           a.carry_t = 0                 -- pop the picked pixel up from nothing
           tint(a.carry, a.cc)
-          game.play_sound("hit"); game.shake(0.02); game.haptic("light")
+          game.shake(0.02); game.haptic("light")   -- grab: subtle (deposit is the sound)
         end
         reserved[(a.tr-1)*W+a.tc] = nil
         local rev = {}
@@ -367,7 +367,7 @@ local function make_ant_clear()
       end
     elseif a.state == "back" then
       if move_along(a, dt) then
-        if a.carry then game.despawn(a.carry); a.carry = nil; game.play_sound("wall") end
+        if a.carry then game.despawn(a.carry); a.carry = nil; game.play_sound("ac_deposit") end
         a.state = "idle"
       end
     end
@@ -582,29 +582,29 @@ local function make_ant_clear()
   local function win()
     playing, won = false, true
     game.set_text("恭喜完成！\n点击再玩一次")
-    game.play_sound("score"); game.haptic("success"); game.shake(0.5); game.log("ant_clear win")
+    game.play_sound("ac_win"); game.haptic("success"); game.shake(0.5); game.log("ant_clear win")
   end
 
   return {
-    enter = function() built = false end,
-    leave = function() T.clear(); despawn_dynamic(); ants = {}; built = false end,
+    enter = function() built = false; game.play_music("ac_bgm") end,
+    leave = function() T.clear(); despawn_dynamic(); ants = {}; built = false; game.stop_music() end,
     tap = function(x, y)
       if back and K.in_rect(back, x, y) then K.switch("menu"); return end
       if not playing then T.clear(); build(HW, HH); return end
       if math.abs(x - NESTX) < CELL and math.abs(y - NESTY) < CELL then
-        speed2 = not speed2; game.play_sound("wall"); game.haptic("light"); return
+        speed2 = not speed2; game.play_sound("ac_load"); game.haptic("light"); return
       end
       if mode == "manual" then
         for i = 1, SLOTS do
           if slots[i] and math.abs(x - slot_x(i)) <= SLOT_W * 0.6 and math.abs(y - SLOT_Y) <= SLOT_W * 0.6 then
-            if cancel_slot_ad(i) then game.play_sound("wall"); game.haptic("medium") end
+            if cancel_slot_ad(i) then game.play_sound("ac_load"); game.haptic("medium") end
             return
           end
         end
         if free_slot() then
           for c = 1, NCOL do   -- only the top row (column heads) can be loaded
             if col_head(c) and math.abs(x - col_x(c)) <= TRAY_W * 0.55 and math.abs(y - row_y(0)) <= TRAY_W * 0.6 then
-              if load_head(c) then game.play_sound("hit"); game.haptic("light") end
+              if load_head(c) then game.play_sound("ac_place"); game.haptic("light") end
               return
             end
           end
@@ -620,7 +620,7 @@ local function make_ant_clear()
       for _, a in ipairs(ants) do update_ant(a, dt) end
       for i = 1, SLOTS do if slots[i] and slots[i].n <= 0 then slots[i] = nil end end
       stuck = check_stuck()
-      if stuck and not was_stuck then game.play_sound("wall"); game.haptic("medium") end
+      if stuck and not was_stuck then game.play_sound("ac_stuck"); game.haptic("medium") end
       was_stuck = stuck
       refresh_hud(); status()
       if painted <= 0 then win() end
