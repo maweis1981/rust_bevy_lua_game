@@ -470,6 +470,8 @@ local function make_ant_clear()
     slots, reserved, ants, dirty = {}, {}, {}, true
     playing, won, stuck, speed2, was_stuck = true, false, false, false, false
 
+    -- full-screen cozy background (generated art), behind everything
+    T.sprite(0, 0, math.max(2 * hw, 2 * hh * 512 / 768) + 4, 2 * hh + 4, "game_bg")
     -- top status bar: settings (left) · 关卡 N (centre) · coins (right)
     local bar = T.sprite(0, hh - 34, 2 * hw - 20, 48, "tile_sq")
     game.set_color(bar, 0.99, 0.94, 0.84, 1)
@@ -479,13 +481,13 @@ local function make_ant_clear()
     -- board panel (white picture frame) behind the cells
     local panel = T.sprite(0, TOPY - 0.5 * CELL * H, W * CELL + 20, H * CELL + 20, "tile_sq")
     game.set_color(panel, 0.99, 0.97, 0.93, 1)
-    -- nest hole + the two rewarded-ad unlock buttons flanking it
-    T.sprite(NESTX, NESTY, HOLE_R * 2.4, HOLE_R * 1.9, "hole")   -- slightly widened
+    -- nest hole (generated art) + the two rewarded-ad unlock buttons flanking it
+    T.sprite(NESTX, NESTY, HOLE_R * 2.5, HOLE_R * 2.4, "hole")
     for _, sx in ipairs({ -1, 1 }) do
       local bx = sx * (hw - 44)
-      local ub = T.sprite(bx, NESTY, 74, 50, "tile_sq"); game.set_color(ub, 0.88, 0.85, 0.80, 1)
-      T.sprite(bx, NESTY + 7, 26, 20, "ad_play")
-      T.text(bx, NESTY - 15, 17, 0.47, 0.41, 0.36, 1, "解锁")
+      local ub = T.sprite(bx, NESTY, 80, 54, "btn_pill"); game.set_color(ub, 0.93, 0.80, 0.55, 1)
+      T.sprite(bx, NESTY + 8, 26, 20, "ad_play")
+      T.text(bx, NESTY - 14, 17, 0.42, 0.32, 0.18, 1, "解锁")
     end
     -- bottom bar: 4 equal-width buttons, evenly spaced — no overlap at any width
     local BM, BG = 14, 8
@@ -498,7 +500,7 @@ local function make_ant_clear()
     }
     for i, b in ipairs(btns) do
       local bxc = -hw + BM + bw / 2 + (i - 1) * (bw + BG)
-      local id = T.sprite(bxc, BAR_CY, bw, BAR_H, "tile_sq")
+      local id = T.sprite(bxc, BAR_CY, bw, BAR_H + 6, "btn_pill")
       game.set_color(id, b[2][1], b[2][2], b[2][3], 1)
       local ic = T.sprite(bxc - bw * 0.32, BAR_CY, BAR_H * 0.62, BAR_H * 0.62, b[3])
       if b[3] == "icon_x2" then game.set_color(ic, 0.22, 0.15, 0.10, 1) end

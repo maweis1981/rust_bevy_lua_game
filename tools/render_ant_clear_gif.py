@@ -30,7 +30,7 @@ CAP = {"stuck": ("卡住了 · 取消一个槽位", (196, 72, 72)),
 
 TEX = {}
 for n in ("ant_sheet", "cat_face", "hole", "ad_play", "ant_shadow", "ant_icon",
-          "icon_speed", "icon_x2", "icon_gift"):
+          "icon_speed", "icon_x2", "icon_gift", "game_bg", "btn_pill"):
     p = f"assets/textures/{n}.png"
     TEX[n] = Image.open(p).convert("RGBA") if os.path.exists(p) else None
 AF = TEX["ant_sheet"].width // 8 if TEX["ant_sheet"] else 48
@@ -50,6 +50,12 @@ def darker(c, k=0.78): return tuple(int(x * k) for x in c[:3])
 def lighter(c, k=0.3): return tuple(int(x + (255 - x) * k) for x in c[:3])
 
 def make_bg():
+    if TEX.get("game_bg") is not None:
+        src = TEX["game_bg"].convert("RGB")
+        sc = max(CW / src.width, CH / src.height)          # cover-fit
+        r = src.resize((int(src.width * sc), int(src.height * sc)), Image.LANCZOS)
+        x = (r.width - CW) // 2; y = (r.height - CH) // 2
+        return r.crop((x, y, x + CW, y + CH))
     bg = Image.new("RGB", (CW, CH)); px = bg.load()
     for j in range(CH):
         c = lerp(BG_T, BG_B, j / (CH - 1))
@@ -104,6 +110,16 @@ def draw_frame(bg, rec):
         col = (int(e[4] * 255), int(e[5] * 255), int(e[6] * 255))
         hw, hh = e[2] * 0.5 * SCALE, e[3] * 0.5 * SCALE
         candy(dr, [wx(e[0]) - hw, wy(e[1]) - hh, wx(e[0]) + hw, wy(e[1]) + hh], col)
+    # pill buttons (generated art, tinted)
+    tp = TEX["btn_pill"]
+    if tp is not None:
+        for e in bytex("btn_pill"):
+            w = max(1, int(e[2] * SCALE)); h = max(1, int(e[3] * SCALE))
+            s = tp.resize((w, h), Image.LANCZOS)
+            rr, gg, bb, aa = s.split()
+            s = Image.merge("RGBA", (rr.point(lambda v: int(v*e[4])), gg.point(lambda v: int(v*e[5])),
+                                     bb.point(lambda v: int(v*e[6])), aa))
+            im.paste(s, (int(wx(e[0]) - w/2), int(wy(e[1]) - h/2)), s)
     # carried pixels
     for e in bytex("rect"):
         col = (int(e[4] * 255), int(e[5] * 255), int(e[6] * 255), int(e[7] * 255))
