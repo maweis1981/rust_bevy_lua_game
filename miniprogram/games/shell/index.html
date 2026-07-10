@@ -16,7 +16,7 @@
     html, body { margin: 0; padding: 0; height: 100%; background: #0b1020; overflow: hidden; }
     #game { display: block; width: 100vw; height: 100vh; touch-action: none; }
   </style>
-  <script src="https://developers.tiktok.com/js/minis.js" onerror="void 0"></script>
+  <script async src="https://developers.tiktok.com/js/minis.js" onerror="void 0"></script>
 </head>
 <body>
   <canvas id="game"></canvas>
@@ -69,9 +69,16 @@
             im = new Image(); cache[name] = im; im.src = './assets/' + name;
             return im;
           };
-      try { platform.playSound('pour.wav'); } catch (e) {}
+        })(),
+        playSound: (function () {
+          var ctx, buf = {}, loading = {};
+          function ac() { if (!ctx) { try { ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} } return ctx; }
+          window.addEventListener('pointerdown', function () { var c = ac(); if (c && c.state === 'suspended') c.resume(); });
+          function load(name) { if (loading[name]) return; loading[name] = 1; fetch('./assets/' + name).then(function (r) { return r.arrayBuffer(); }).then(function (b) { return ac().decodeAudioData(b); }).then(function (d) { buf[name] = d; }).catch(function () {}); }
+          return function (name, vol) { var c = ac(); if (!c) return; if (!buf[name]) { load(name); return; } var sN = c.createBufferSource(); sN.buffer = buf[name]; var g = c.createGain(); g.gain.value = (vol == null ? 1 : vol); sN.connect(g); g.connect(c.destination); try { sN.start(); } catch (e) {} };
         })(),
       };
+      try { platform.playSound('pour.wav'); } catch (e) {}
       canvas.addEventListener('mousedown', function (e) { var p = toCanvas(e); startCb(p.x, p.y); });
       canvas.addEventListener('mousemove', function (e) { var p = toCanvas(e); moveCb(p.x, p.y); });
       canvas.addEventListener('mouseup', function (e) { var p = toCanvas(e); endCb(p.x, p.y); });
@@ -80,7 +87,16 @@
       canvas.addEventListener('touchend', function (e) { e.preventDefault(); var p = toCanvas(e); endCb(p.x, p.y); }, { passive: false });
 
       if (hasTT && TTMinis.game.setLoadingProgress) { try { TTMinis.game.setLoadingProgress({ progress: 1 }); } catch (e) {} }
-      window.__shell = window.require('main.js').startShell(platform);
+      function __preloadThenStart(pf, startFn){
+        var names=['bg.jpg','fruits.png'], left=0, done=false;
+        function go(){ if(done) return; done=true; startFn(); }
+        function fin(){ if(--left<=0) go(); }
+        try { names.forEach(function(n){ var im = pf.getImage && pf.getImage(n); if(im && !(im.complete && im.naturalWidth)){ left++; im.addEventListener('load',fin,{once:true}); im.addEventListener('error',fin,{once:true}); } }); } catch(e){}
+        if(document.fonts && document.fonts.load){ try{ document.fonts.load('700 40px Baloo2'); }catch(e){} }
+        if(left===0){ go(); return; }
+        setTimeout(go, 3000);
+      }
+      __preloadThenStart(platform, function(){ window.__shell = window.require('main.js').startShell(platform); });
     })();
   </script>
 </body>
