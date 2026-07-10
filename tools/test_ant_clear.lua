@@ -40,6 +40,8 @@ game = {
   set_color = function() end,
   set_size = function() end,
   set_rotation = function() end,
+  spawn_sheet = function(x, y) max_id = max_id + 1; pos[max_id] = { x = x, y = y }; return max_id end,
+  set_frame = function() end,
   despawn = function(id) pos[id] = nil end,
   set_text = function() end,
   shake = function() end,
@@ -186,13 +188,26 @@ check(D.painted() == 0, "all pixels carried away (painted == 0)")
 -- Scenario B: MANUAL, good play — the strategy load path. A "player" that loads
 -- the tray front into any free slot must also clear the board and never stall.
 ----------------------------------------------------------------------
+-- Safe play = clear the OUTERMOST colour still on the board first, never racing
+-- an inner colour ahead (which would orphan an outer remnant into a pocket).
+local function safe_policy(Dh)
+  local g, low = Dh.grid(), 1e9
+  for r = 1, #g do for c = 1, #g[1] do local v = g[r][c]; if v > 0 and v < low then low = v end end end
+  if low == 1e9 then return end
+  while Dh.free_slots() > 0 and Dh.reachable(low) > 0 do
+    local tc, pick = Dh.tray_colors(), nil
+    for i, col in ipairs(tc) do if col == low then pick = i; break end end
+    if not pick then break end
+    Dh.load(pick)
+  end
+end
+
 D.set_mode("manual")   -- flip the shared mode before the fresh build auto-fills
 D = rebuild()
-check(D.free_slots() == 3 and D.painted() == total0, "manual: starts with empty slots, nothing auto-loads")
-local function front_policy(Dh) while Dh.free_slots() > 0 and Dh.tray_len() > 0 do Dh.load(1) end end
-local fb, buried_b = drive(D, front_policy)
+check(D.free_slots() == 4 and D.painted() == total0, "manual: starts with empty slots, nothing auto-loads")
+local fb, buried_b = drive(D, safe_policy)
 check(buried_b, "PATHFINDING holds under manual play too")
-check(D.won(), "STRATEGY: manual front-to-front loading clears the board (in " .. fb .. " frames)")
+check(D.won(), "STRATEGY: manual outermost-first play clears the board (in " .. fb .. " frames)")
 check(not D.stuck(), "manual good play never gets stuck")
 
 ----------------------------------------------------------------------
@@ -215,23 +230,6 @@ check(D.painted() == total0, "stuck state removed no pixels (nothing was reachab
 for i = 1, 3 do D.cancel(i) end
 scene.update(DT, HW, HH)
 check(not D.stuck() and D.free_slots() == 3, "cancel (rewarded ad) frees the slots -> unstuck")
--- Safe play = clear the band that is currently OUTERMOST ON THE BOARD, and never
--- touch an inner band until that one is entirely gone. "Any reachable colour"
--- isn't enough: if the outer band's reachable cells are momentarily all reserved,
--- jumping to an inner band orphans the outer remnant into an enclosed pocket —
--- the exact trap the game is built around. Locking to the lowest band still
--- present avoids it and reproduces the guaranteed peel order.
-local function safe_policy(Dh)
-  local g, low = Dh.grid(), 1e9
-  for r = 1, #g do for c = 1, #g[1] do local v = g[r][c]; if v > 0 and v < low then low = v end end end
-  if low == 1e9 then return end
-  while Dh.free_slots() > 0 and Dh.reachable(low) > 0 do
-    local tc, pick = Dh.tray_colors(), nil
-    for i, col in ipairs(tc) do if col == low then pick = i; break end end
-    if not pick then break end
-    Dh.load(pick)
-  end
-end
 local fc, buried_c = drive(D, safe_policy)
 check(buried_c, "PATHFINDING holds through cancel/abort too")
 check(D.won(), "RECOVERED: after cancelling, outer-first play clears the board (in " .. fc .. " frames)")

@@ -32,7 +32,7 @@ local hud_text, frame_fx = "", {}
 local function add(x, y, w, h, r, g, b, a, tex, str)
   max_id = max_id + 1
   ents[max_id] = { x = x, y = y, w = w or 0, h = h or 0, r = r or 1, g = g or 1,
-                   b = b or 1, a = a or 1, tex = tex, str = str }
+                   b = b or 1, a = a or 1, tex = tex, str = str, rot = 0, frame = 0 }
   return max_id
 end
 local function noop() end
@@ -40,10 +40,13 @@ game = setmetatable({
   bounds = function() return HW, HH end,
   spawn = function(x, y, w, h, r, g, b, a) return add(x, y, w, h, r, g, b, a, "rect") end,
   spawn_sprite = function(x, y, w, h, name) return add(x, y, w, h, 1, 1, 1, 1, name) end,
+  spawn_sheet = function(x, y, w, h, name) return add(x, y, w, h, 1, 1, 1, 1, name or "ant_sheet") end,
   spawn_text = function(x, y, size, r, g, b, a, str) return add(x, y, 0, size, r, g, b, a, "text", str) end,
   move_to = function(id, x, y) local e = ents[id]; if e then e.x, e.y = x, y end end,
   set_color = function(id, r, g, b, a) local e = ents[id]; if e then e.r, e.g, e.b, e.a = r, g, b, a end end,
   set_size = function(id, w, h) local e = ents[id]; if e then e.w, e.h = w, h end end,
+  set_rotation = function(id, a) local e = ents[id]; if e then e.rot = a end end,
+  set_frame = function(id, f) local e = ents[id]; if e then e.frame = f end end,
   despawn = function(id) ents[id] = nil end,
   set_text = function(s) hud_text = s or "" end,
   shake = function(v) frame_fx[#frame_fx + 1] = { "shake", v } end,
@@ -90,8 +93,9 @@ local out = assert(io.open(OUT, "w"))
 local function dump(n, phase)
   local parts = {}
   for id, e in pairs(ents) do
-    parts[#parts + 1] = string.format('[%.1f,%.1f,%.1f,%.1f,%.3f,%.3f,%.3f,%.3f,%s,%s]',
-      e.x, e.y, e.w, e.h, e.r, e.g, e.b, e.a, jstr(e.tex or "rect"), jstr(e.str or ""))
+    parts[#parts + 1] = string.format('[%.1f,%.1f,%.1f,%.1f,%.3f,%.3f,%.3f,%.3f,%s,%s,%.4f,%d]',
+      e.x, e.y, e.w, e.h, e.r, e.g, e.b, e.a, jstr(e.tex or "rect"), jstr(e.str or ""),
+      e.rot or 0, math.floor(e.frame or 0))
   end
   local fx = {}
   for _, f in ipairs(frame_fx) do

@@ -44,6 +44,41 @@ PALETTES = {
 }
 
 
+# Hand-authored cute-animal pixel art (chars '0'..'K' index into the palette;
+# '0' = empty). Natural colour regions give natural burial (interior colours are
+# only reachable once the surrounding ones are carried away).
+PIXEL_ART = {
+    "cat": {
+        "palette": [
+            (0.22, 0.15, 0.11),   # 1 dark outline
+            (0.93, 0.55, 0.22),   # 2 orange fur
+            (0.99, 0.87, 0.66),   # 3 cream face
+            (0.98, 0.66, 0.70),   # 4 pink (inner ear / nose)
+            (0.34, 0.74, 0.46),   # 5 green eyes
+        ],
+        "rows": [
+            "....11........11....",
+            "...1441......1441...",
+            "...1421......1241...",
+            "..112211....112211..",
+            "..1222221111222221..",
+            ".12222222222222221..",
+            ".12233333333333221..",
+            ".12333333333333321.",
+            "1233553333335533321",
+            "1233553333335533321",
+            "1233333334433333321",
+            "1233333344443333321",
+            "1223333333333333221",
+            ".1223333333333221..",
+            ".112223333322211...",
+            "...1122222221111...",
+            ".....11111111.....",
+        ],
+    },
+}
+
+
 def gradient(k):
     """k warm colours, outer (deep red) -> inner (light pink) — a shaded look."""
     a, b = (0.70, 0.10, 0.18), (1.00, 0.82, 0.86)
@@ -83,7 +118,11 @@ def band_recolor(grid, w, h, k):
 
 
 def build_grid(pattern, w, h):
-    """Return grid[r][c] in 0..K (row 0 = TOP). Procedural, recognisable shapes."""
+    """Return grid[r][c] in 0..K (row 0 = TOP). Hand-authored art or procedural."""
+    if pattern in PIXEL_ART:
+        rows = PIXEL_ART[pattern]["rows"]
+        ww = max(len(r) for r in rows)
+        return [[0 if ch in "0." else int(ch) for ch in r.ljust(ww, "0")] for r in rows]
     grid = [[0] * w for _ in range(h)]
     if pattern == "heart":
         for r in range(h):
@@ -261,7 +300,7 @@ def to_lua(name, pal, grid, tray, w, h):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--pattern", default="heart", choices=list(PALETTES))
+    ap.add_argument("--pattern", default="heart", choices=list(PALETTES) + list(PIXEL_ART))
     ap.add_argument("--w", type=int, default=15)
     ap.add_argument("--h", type=int, default=14)
     ap.add_argument("--batch", type=int, default=6, help="max cells per tray batch")
@@ -275,13 +314,17 @@ def main():
     args = ap.parse_args()
 
     grid = build_grid(args.pattern, args.w, args.h)
+    W, Hn = len(grid[0]), len(grid)      # authored art carries its own dimensions
     if args.bands > 0:
-        grid = band_recolor(grid, args.w, args.h, args.bands)
+        grid = band_recolor(grid, W, Hn, args.bands)
         pal = gradient(args.bands)
+    elif args.pattern in PIXEL_ART:
+        pal = PIXEL_ART[args.pattern]["palette"]
     else:
         pal = PALETTES[args.pattern]
-    tray, peak = make_tray(grid, args.w, args.h, args.batch)
-    ok, steps = validate(grid, tray, args.w, args.h, args.slots)
+    args.w, args.h = W, Hn
+    tray, peak = make_tray(grid, W, Hn, args.batch)
+    ok, steps = validate(grid, tray, W, Hn, args.slots)
 
     total = sum(1 for row in grid for v in row if v)
     ncol = len(set(v for row in grid for v in row if v))
