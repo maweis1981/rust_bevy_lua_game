@@ -30,7 +30,7 @@ CAP = {"stuck": ("卡住了 · 取消一个槽位", (196, 72, 72)),
 
 TEX = {}
 for n in ("ant_sheet", "cat_face", "hole", "ad_play", "ant_shadow", "ant_icon",
-          "icon_speed", "icon_x2", "icon_gift", "game_bg", "btn_pill"):
+          "icon_speed", "icon_x2", "icon_gift", "game_bg", "btn_pill", "num_font"):
     p = f"assets/textures/{n}.png"
     TEX[n] = Image.open(p).convert("RGBA") if os.path.exists(p) else None
 AF = TEX["ant_sheet"].width // 8 if TEX["ant_sheet"] else 48
@@ -165,6 +165,18 @@ def draw_frame(bg, rec):
             s = Image.merge("RGBA", (rr.point(lambda v: int(v*e[4])), gg.point(lambda v: int(v*e[5])),
                                      bb.point(lambda v: int(v*e[6])), aa))
             im.paste(s, (int(wx(e[0]) - d / 2), int(wy(e[1]) - d / 2)), s)
+    # bitmap-font digits (num_font.png: 10 candy digits, cropped by frame)
+    nf = TEX["num_font"]
+    if nf is not None:
+        fw = nf.width // 10
+        for e in bytex("num_font"):
+            fr = max(0, min(9, int(e[11])))
+            g = nf.crop((fr * fw, 0, fr * fw + fw, nf.height)).convert("RGBA")
+            w = max(1, int(e[2] * SCALE)); h = max(1, int(e[3] * SCALE))
+            g = g.resize((w, h), Image.LANCZOS)
+            if e[7] < 0.999:
+                g.putalpha(g.split()[3].point(lambda v: int(v * e[7])))
+            im.paste(g, (int(wx(e[0]) - w / 2), int(wy(e[1]) - h / 2)), g)
     # labels
     for e in bytex("text"):
         if not e[9]: continue

@@ -212,6 +212,28 @@ local function make_ant_clear()
     local col = palette[ci]; game.set_color(id, col[1], col[2], col[3], a or 1)
   end
 
+  -- ---- bitmap number font (num_font.png: 10 candy digits, 52x68) -----------
+  local NUMA = 52 / 68
+  local function num_make(str, h, alpha)
+    local dw = h * NUMA; local step = dw * 0.82
+    local ids, offs = {}, {}
+    local x0 = -(#str - 1) * step / 2
+    for i = 1, #str do
+      local d = tonumber(str:sub(i, i)) or 0
+      local id = game.spawn_sheet(0, 0, dw, h, "num_font", 52, 68, 10, 10)
+      game.set_frame(id, d); game.set_color(id, 1, 1, 1, alpha or 1)
+      ids[i] = id; offs[i] = x0 + (i - 1) * step
+    end
+    return { ids = ids, offs = offs }
+  end
+  local function num_place(num, cx, cy)
+    if not num then return end
+    for i, id in ipairs(num.ids) do game.move_to(id, cx + num.offs[i], cy) end
+  end
+  local function num_free(num)
+    if num then for _, id in ipairs(num.ids) do game.despawn(id) end end
+  end
+
   -- ---- rendering: board ----------------------------------------------------
   local function draw_board()
     cell_id, painted = {}, 0
@@ -354,6 +376,22 @@ local function make_ant_clear()
   -- ---- HUD tiles (slots + tray) -------------------------------------------
   local slot_bg, slot_txt, slot_bug, tray_bg, tray_txt, tray_bug = {}, {}, {}, {}, {}, {}
   local slot_shown, tray_shown = {}, {}
+  local coin_num                       -- bitmap-digit coin counter
+
+  -- Despawn every dynamically-spawned (untracked) sprite: ants + their shadows/
+  -- carried pixels, and all bitmap-number digits. Called on rebuild and leave so
+  -- nothing leaks (T.clear only covers tracker-owned sprites).
+  local function despawn_dynamic()
+    for _, a in ipairs(ants) do
+      game.despawn(a.id)
+      if a.shadow then game.despawn(a.shadow) end
+      if a.carry then game.despawn(a.carry) end
+    end
+    for i = 1, SLOTS do num_free(slot_txt[i]); slot_txt[i] = nil end
+    for c = 1, NCOL do for row = 0, QROWS - 1 do num_free(tray_txt[qi and qi(c, row) or ((c-1)*QROWS+row+1)]); end end
+    tray_txt = {}
+    num_free(coin_num); coin_num = nil
+  end
   local QYGAP = 6
   local function slot_x(i) return (i - (SLOTS + 1) / 2) * (SLOT_W + 8) end
   local function col_x(c) return (c - (NCOL + 1) / 2) * (TRAY_W + 8) end
@@ -387,15 +425,16 @@ local function make_ant_clear()
       end
       local lbl = s and tostring(s.n) or ""
       if lbl ~= slot_shown[i] then
-        if slot_txt[i] then game.despawn(slot_txt[i]); slot_txt[i] = nil end
+        num_free(slot_txt[i]); slot_txt[i] = nil
         if slot_bug[i] then game.despawn(slot_bug[i]); slot_bug[i] = nil end
         if lbl ~= "" then
-          slot_bug[i] = T.sprite(slot_x(i) - SLOT_W * 0.24, SLOT_Y + SLOT_W * 0.22, SLOT_W * 0.34, SLOT_W * 0.34, "ant_icon")
+          slot_bug[i] = T.sprite(slot_x(i) - SLOT_W * 0.26, SLOT_Y + SLOT_W * 0.26, SLOT_W * 0.3, SLOT_W * 0.3, "ant_icon")
           game.set_color(slot_bug[i], 0.20, 0.16, 0.14, 1)
-          slot_txt[i] = T.text(slot_x(i) + SLOT_W * 0.1, SLOT_Y - SLOT_W * 0.05, 22, 1, 1, 1, 1, lbl)
+          slot_txt[i] = num_make(lbl, SLOT_W * 0.52, 1)
         end
         slot_shown[i] = lbl
       end
+      num_place(slot_txt[i], slot_x(i) + SLOT_W * 0.12, SLOT_Y - SLOT_W * 0.02)
     end
     for c = 1, NCOL do
       local slide = (col_adv[c] or 0)
@@ -411,18 +450,17 @@ local function make_ant_clear()
         if b then tint(tray_bg[i], b.color, a) else game.set_color(tray_bg[i], 0.80, 0.76, 0.70, 0) end
         local lbl = b and tostring(b.n) or ""
         if lbl ~= tray_shown[i] then
-          if tray_txt[i] then game.despawn(tray_txt[i]); tray_txt[i] = nil end
+          num_free(tray_txt[i]); tray_txt[i] = nil
           if tray_bug[i] then game.despawn(tray_bug[i]); tray_bug[i] = nil end
           if lbl ~= "" then
-            tray_bug[i] = T.sprite(xx - TRAY_W * 0.24, yy + TRAY_W * 0.22, TRAY_W * 0.3, TRAY_W * 0.3, "ant_icon")
+            tray_bug[i] = T.sprite(xx - TRAY_W * 0.26, yy + TRAY_W * 0.24, TRAY_W * 0.28, TRAY_W * 0.28, "ant_icon")
             game.set_color(tray_bug[i], 0.20, 0.16, 0.14, a)
-            tray_txt[i] = T.text(xx + TRAY_W * 0.08, yy - TRAY_W * 0.05, 22, 1, 1, 1, a, lbl)
+            tray_txt[i] = num_make(lbl, TRAY_W * 0.5, a)
           end
           tray_shown[i] = lbl
-        elseif lbl ~= "" then
-          if tray_bug[i] then game.move_to(tray_bug[i], xx - TRAY_W * 0.24, yy + TRAY_W * 0.22) end
-          if tray_txt[i] then game.move_to(tray_txt[i], xx + TRAY_W * 0.08, yy - TRAY_W * 0.05) end
         end
+        if tray_bug[i] then game.move_to(tray_bug[i], xx - TRAY_W * 0.26, yy + TRAY_W * 0.24) end
+        num_place(tray_txt[i], xx + TRAY_W * 0.06, yy - TRAY_W * 0.04)
       end
     end
   end
@@ -436,6 +474,7 @@ local function make_ant_clear()
   -- ---- build ---------------------------------------------------------------
   local function build(hw, hh)
     HW, HH = hw, hh
+    despawn_dynamic()   -- clear any leftover ants / bitmap digits before a rebuild
 
     -- ---- deterministic layout, stacked BOTTOM-UP so nothing ever overlaps ----
     local M, BAR_H = 30, 46
@@ -477,7 +516,7 @@ local function make_ant_clear()
     game.set_color(bar, 0.99, 0.94, 0.84, 1)
     T.text(0, hh - 34, 22, 0.30, 0.22, 0.16, 1, "关卡 " .. (LEVEL.id or 1))
     T.sprite(hw - 96, hh - 34, 26, 26, "icon_coin")
-    T.text(hw - 58, hh - 34, 20, 0.36, 0.28, 0.14, 1, "1240")
+    coin_num = num_make("1240", 22, 1); num_place(coin_num, hw - 54, hh - 34)
     -- board panel (white picture frame) behind the cells
     local panel = T.sprite(0, TOPY - 0.5 * CELL * H, W * CELL + 20, H * CELL + 20, "tile_sq")
     game.set_color(panel, 0.99, 0.97, 0.93, 1)
@@ -548,7 +587,7 @@ local function make_ant_clear()
 
   return {
     enter = function() built = false end,
-    leave = function() T.clear(); ants = {}; built = false end,
+    leave = function() T.clear(); despawn_dynamic(); ants = {}; built = false end,
     tap = function(x, y)
       if back and K.in_rect(back, x, y) then K.switch("menu"); return end
       if not playing then T.clear(); build(HW, HH); return end
