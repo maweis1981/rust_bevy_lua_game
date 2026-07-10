@@ -72,9 +72,10 @@ function createRenderer(ctx) {
     if (!sheet) return false;
     var cell = sheet.naturalHeight;
     var sx = Math.min(tier, C.TIER_COUNT - 1) * cell;
-    var d = r * 2.14;
+    var d = r * 2.28;                                    // snug to the physics circle
     sq = sq || 0;
-    var scaleX = 1 + 0.7 * sq, scaleY = 1 - 0.7 * sq;   // squash: wide+short; stretch(sq<0): tall+thin
+    // mostly-vertical squash so widening never bleeds into a neighbour
+    var scaleX = 1 + 0.30 * sq, scaleY = 1 - 0.55 * sq;
     ctx.save();
     if (alpha != null) ctx.globalAlpha = alpha;
     if (sq) {                                           // anchor near the contact point so squash "sits"
@@ -97,7 +98,7 @@ function createRenderer(ctx) {
     var eyeY = y - r * 0.05;
     var lookX = (f.lookx || 0) * eyeR * 0.55, lookY = (f.looky || 0) * eyeR * 0.55;
     ctx.save();
-    var ay = y + r * 0.82, scaleX = 1 + 0.7 * sq, scaleY = 1 - 0.7 * sq;
+    var ay = y + r * 0.82, scaleX = 1 + 0.30 * sq, scaleY = 1 - 0.55 * sq;
     ctx.translate(x, ay); ctx.scale(scaleX, scaleY); ctx.translate(-x, -ay);
     ctx.lineCap = 'round';
     for (var s = -1; s <= 1; s += 2) {

@@ -163,11 +163,11 @@ function createGame(platform) {
       if (!st) st = G.juice[f.id] = { s: 0, v: 0, psp: 0, nextBlink: G.clock + 1 + Math.random() * 4, react: 0 };
       var sp = Math.hypot(f.vx, f.vy);
       var dec = st.psp - sp;                                  // deceleration = impact
-      if (dec > binW * 0.7) st.v += Math.min(0.55, dec / (binW * 3));   // squash pop on impact
-      var target = -Math.min(0.22, Math.max(0, f.vy) / (binW * 4) * 0.4); // stretch while falling
+      if (dec > binW * 0.8) st.v += Math.min(0.38, dec / (binW * 4));   // squash pop on impact
+      var target = -Math.min(0.16, Math.max(0, f.vy) / (binW * 4) * 0.35); // stretch while falling
       st.v += (target - st.s) * 55 * dt;                     // spring
-      st.v *= Math.pow(0.015, dt);                           // damping
-      st.s = Math.max(-0.3, Math.min(0.55, st.s + st.v * dt));
+      st.v *= Math.pow(0.02, dt);                            // damping
+      st.s = Math.max(-0.22, Math.min(0.40, st.s + st.v * dt));
       st.psp = sp;
       // blink schedule
       var blinking = (G.clock >= st.nextBlink && G.clock < st.nextBlink + 0.12);

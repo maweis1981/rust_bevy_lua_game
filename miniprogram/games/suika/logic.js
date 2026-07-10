@@ -176,7 +176,7 @@ function createSim(seed, bin) {
         if (bb.merged || bb.tier !== a.tier) continue;
         var dx = bb.x - a.x, dy = bb.y - a.y;
         var dist = Math.hypot(dx, dy);
-        if (dist > a.r + bb.r) continue;         // must actually be touching
+        if (dist > a.r + bb.r + Math.min(a.r, bb.r) * 0.12) continue;  // touching (small slack = snappy merge)
         a.merged = true; bb.merged = true;
         var mx = (a.x + bb.x) / 2, my = (a.y + bb.y) / 2;
         if (a.tier >= C.TIER_COUNT - 1) {
