@@ -47,9 +47,12 @@ pub fn run() {
     .add_plugins(FrameTimeDiagnosticsPlugin::default())
     .add_plugins(background::BackgroundPlugin)
     .add_plugins(rock3d::Rock3dPlugin)
-    .add_plugins(ScriptPlugin)
-    .add_systems(Startup, spawn_fps_overlay)
-    .add_systems(Update, update_fps_overlay);
+    .add_plugins(ScriptPlugin);
+    // FPS overlay is dev-only; enable with FPS_OVERLAY=1 (kept off for players).
+    if std::env::var("FPS_OVERLAY").is_ok() {
+        app.add_systems(Startup, spawn_fps_overlay)
+            .add_systems(Update, update_fps_overlay);
+    }
 
     app.run();
 }

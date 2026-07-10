@@ -125,7 +125,7 @@ local function make_ant_clear()
 
   -- ---- slots / tray / ants -------------------------------------------------
   local tray, slots, reserved, ants = {}, {}, {}, {}
-  local NCOL, QROWS = 4, 3              -- queue = 4 fixed columns, 3 rows visible
+  local NCOL, QROWS = 4, 2              -- queue = 4 fixed columns, 2 rows visible
   local cols = { {}, {}, {}, {} }       -- each column is a stack; only the head loads
   local col_adv = {}                    -- per-column slide-up animation timer
   local slot_pulse = {}   -- brief scale bump when a slot's count ticks down
@@ -452,8 +452,8 @@ local function make_ant_clear()
     -- RESPONSIVE: the picture fills the screen width (like the reference), then
     -- is capped by whatever vertical space is left — it scales with the device,
     -- never a fixed size.
-    local board_h = (hh - 128) - board_bottom               -- rest goes to the picture
-    CELL = math.min((2 * hw - 22) / W, board_h / H)
+    local board_h = (hh - 82) - board_bottom                -- rest goes to the picture
+    CELL = math.min((2 * hw - 18) / W, board_h / H)
     OX = -W * CELL / 2
     TOPY = board_bottom + H * CELL
     NESTX = cx(math.floor(W / 2) + 1)
@@ -470,9 +470,12 @@ local function make_ant_clear()
     slots, reserved, ants, dirty = {}, {}, {}, true
     playing, won, stuck, speed2, was_stuck = true, false, false, false, false
 
-    -- decor: mascot + level pill
-    T.sprite(0, hh - 42, 300, 118, "cat_face")
-    T.text(-hw + 66, hh - 100, 20, 0.29, 0.22, 0.18, 1, "关卡 " .. (LEVEL.id or 1))
+    -- top status bar: settings (left) · 关卡 N (centre) · coins (right)
+    local bar = T.sprite(0, hh - 34, 2 * hw - 20, 48, "tile_sq")
+    game.set_color(bar, 0.99, 0.94, 0.84, 1)
+    T.text(0, hh - 34, 22, 0.30, 0.22, 0.16, 1, "关卡 " .. (LEVEL.id or 1))
+    T.sprite(hw - 96, hh - 34, 26, 26, "icon_coin")
+    T.text(hw - 58, hh - 34, 20, 0.36, 0.28, 0.14, 1, "1240")
     -- board panel (white picture frame) behind the cells
     local panel = T.sprite(0, TOPY - 0.5 * CELL * H, W * CELL + 20, H * CELL + 20, "tile_sq")
     game.set_color(panel, 0.99, 0.97, 0.93, 1)
@@ -505,7 +508,7 @@ local function make_ant_clear()
 
     draw_board()
     draw_hud()
-    back = { x = -hw + 36, y = hh - 46, w = 50, h = 50 }
+    back = { x = -hw + 34, y = hh - 34, w = 44, h = 44 }
     T.sprite(back.x, back.y, back.w, back.h, "icon_find")
     fill_slots()
     for i = 1, SLOTS do for _ = 1, ANTS_PER_SLOT do spawn_ant(i) end end
