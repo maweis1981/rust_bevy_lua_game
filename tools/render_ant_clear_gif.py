@@ -118,8 +118,10 @@ def draw_frame(bg, rec):
         if not e[9]: continue
         col = (int(e[4] * 255), int(e[5] * 255), int(e[6] * 255))
         f = font(e[3] * SCALE)
-        for k, line in enumerate(e[9].split("\\n")):
-            dr.text((wx(e[0]), wy(e[1]) + k * e[3] * SCALE * 1.05), line, font=f, fill=col, anchor="mm")
+        lines = e[9].split("\n")
+        for k, line in enumerate(lines):
+            yoff = (k - (len(lines) - 1) / 2) * e[3] * SCALE * 1.05
+            dr.text((wx(e[0]), wy(e[1]) + yoff), line, font=f, fill=col, anchor="mm")
     # HUD line
     hud = rec.get("hud", "")
     if hud:

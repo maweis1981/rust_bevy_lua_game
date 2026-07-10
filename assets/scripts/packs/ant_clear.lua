@@ -25,6 +25,7 @@ local function make_ant_clear()
 
   -- ---- level (generated: tools/gen_level.py --pattern cat) -----------------
   local LEVEL = {
+    id = 1, slots = 4,       -- level number + active-slot count (level-driven)
     w = 20, h = 17,
     palette = { {0.220,0.150,0.110}, {0.930,0.550,0.220}, {0.990,0.870,0.660}, {0.980,0.660,0.700}, {0.340,0.740,0.460} },
     grid = {
@@ -50,7 +51,7 @@ local function make_ant_clear()
   }
 
   -- ---- tunables ------------------------------------------------------------
-  local SLOTS = 4            -- active slots (< 5 palette colours on purpose)
+  local SLOTS = LEVEL.slots or 4   -- active slots (< palette size on purpose)
   local ANTS_PER_SLOT = 4
   local ANT_SPEED = 300      -- world units / sec
   local MAX_DT = 1 / 30
@@ -357,14 +358,23 @@ local function make_ant_clear()
   -- ---- build ---------------------------------------------------------------
   local function build(hw, hh)
     HW, HH = hw, hh
-    CELL = math.min((2 * hw - 44) / W, (0.96 * hh) / H, 16)
+
+    -- ---- deterministic layout, stacked BOTTOM-UP so nothing ever overlaps ----
+    local M, BAR_H = 30, 46
+    local BAR_CY = -hh + M + BAR_H / 2
+    TRAY_W = math.min((2 * hw - 44) / 4 - 8, 60)
+    SLOT_W = math.min((2 * hw - 60) / 5 - 8, 50)
+    local q_bot = BAR_CY + BAR_H / 2 + 28 + TRAY_W / 2      -- queue bottom row centre
+    TRAY_Y = q_bot + (TRAY_W + 8)                           -- queue top row (row 0)
+    SLOT_Y = (TRAY_Y + TRAY_W / 2) + 24 + SLOT_W / 2        -- slots above the queue
+    local HOLE_R = 22
+    NESTY = SLOT_Y + SLOT_W / 2 + 28 + HOLE_R               -- hole above the slots
+    local board_bottom = NESTY + HOLE_R + 48                -- roomy gap: ants exit here
+    local board_h = (hh - 150) - board_bottom               -- rest goes to the picture
+    CELL = math.min((2 * hw - 44) / W, board_h / H, 16)
     OX = -W * CELL / 2
-    TOPY = hh - 168
-    NESTX, NESTY = cx(math.floor(W / 2) + 1), TOPY - H * CELL - 26
-    SLOT_W = math.min((2 * hw - 60) / 5 - 8, 52)
-    SLOT_Y = NESTY - 44
-    TRAY_W = math.min((2 * hw - 40) / 4 - 8, 66)
-    TRAY_Y = SLOT_Y - SLOT_W - 18
+    TOPY = board_bottom + H * CELL
+    NESTX = cx(math.floor(W / 2) + 1)
 
     grid, painted = {}, 0
     for r = 1, H do grid[r] = {} for c = 1, W do grid[r][c] = LEVEL.grid[r][c] end end
@@ -373,31 +383,35 @@ local function make_ant_clear()
     slots, reserved, ants, dirty = {}, {}, {}, true
     playing, won, stuck, speed2, was_stuck = true, false, false, false, false
 
-    -- decor: mascot, top icons, level pill, board frame, hole
+    -- decor: mascot + level pill
     T.sprite(0, hh - 42, 300, 118, "cat_face")
-    T.text(-hw + 66, hh - 100, 20, 0.29, 0.22, 0.18, 1, "关卡 1")
-    T.sprite(NESTX, NESTY, CELL * 2.0, CELL * 2.0, "hole")
-    -- unlock (ad) buttons flanking the hole
-    for _, sx in ipairs({ -1, 1 }) do
-      local bx = sx * math.min(hw - 46, 150)
-      local ub = T.sprite(bx, NESTY, 74, 52, "tile_sq"); game.set_color(ub, 0.88, 0.85, 0.80, 1)
-      T.sprite(bx, NESTY + 8, 28, 22, "ad_play")
-      T.text(bx, NESTY - 16, 18, 0.47, 0.41, 0.36, 1, "解锁")
-    end
-    -- bottom bar
-    local byb = -hh + 40
-    local sb1 = T.sprite(-hw * 0.55, byb, 120, 46, "tile_sq"); game.set_color(sb1, 0.34, 0.62, 0.86, 1)
-    T.text(-hw * 0.55, byb, 18, 1, 1, 1, 1, "速度升级")
-    local sb2 = T.sprite(-hw * 0.18, byb, 120, 46, "tile_sq"); game.set_color(sb2, 0.94, 0.59, 0.25, 1)
-    T.text(-hw * 0.18, byb, 18, 1, 1, 1, 1, "速度x2")
-    local ub1 = T.sprite(hw * 0.22, byb, 82, 46, "tile_sq"); game.set_color(ub1, 0.95, 0.84, 0.47, 1)
-    T.text(hw * 0.22, byb, 14, 0.36, 0.28, 0.10, 1, "第11关\n解锁")
-    local ub2 = T.sprite(hw * 0.62, byb, 82, 46, "tile_sq"); game.set_color(ub2, 0.95, 0.84, 0.47, 1)
-    T.text(hw * 0.62, byb, 14, 0.36, 0.28, 0.10, 1, "第20关\n解锁")
-
-    -- board panel behind the cells (the white picture frame)
+    T.text(-hw + 66, hh - 100, 20, 0.29, 0.22, 0.18, 1, "关卡 " .. (LEVEL.id or 1))
+    -- board panel (white picture frame) behind the cells
     local panel = T.sprite(0, TOPY - 0.5 * CELL * H, W * CELL + 20, H * CELL + 20, "tile_sq")
     game.set_color(panel, 0.99, 0.97, 0.93, 1)
+    -- nest hole + the two rewarded-ad unlock buttons flanking it
+    T.sprite(NESTX, NESTY, HOLE_R * 2, HOLE_R * 2, "hole")
+    for _, sx in ipairs({ -1, 1 }) do
+      local bx = sx * (hw - 44)
+      local ub = T.sprite(bx, NESTY, 74, 50, "tile_sq"); game.set_color(ub, 0.88, 0.85, 0.80, 1)
+      T.sprite(bx, NESTY + 7, 26, 20, "ad_play")
+      T.text(bx, NESTY - 15, 17, 0.47, 0.41, 0.36, 1, "解锁")
+    end
+    -- bottom bar: 4 equal-width buttons, evenly spaced — no overlap at any width
+    local BM, BG = 14, 8
+    local bw = (2 * hw - 2 * BM - 3 * BG) / 4
+    local btns = {
+      { "速度升级", { 0.34, 0.62, 0.86 } }, { "速度x2", { 0.94, 0.59, 0.25 } },
+      { "第11关\n解锁", { 0.95, 0.84, 0.47 } }, { "第20关\n解锁", { 0.95, 0.84, 0.47 } },
+    }
+    for i, b in ipairs(btns) do
+      local bxc = -hw + BM + bw / 2 + (i - 1) * (bw + BG)
+      local id = T.sprite(bxc, BAR_CY, bw, BAR_H, "tile_sq")
+      game.set_color(id, b[2][1], b[2][2], b[2][3], 1)
+      local dark = b[2][1] > 0.9
+      T.text(bxc, BAR_CY, 15, dark and 0.30 or 1, dark and 0.24 or 1, dark and 0.10 or 1, 1, b[1])
+    end
+
     draw_board()
     draw_hud()
     back = { x = -hw + 36, y = hh - 46, w = 50, h = 50 }
