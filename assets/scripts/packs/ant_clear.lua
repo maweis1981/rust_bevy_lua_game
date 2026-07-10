@@ -125,6 +125,9 @@ local function make_ant_clear()
 
   -- ---- slots / tray / ants -------------------------------------------------
   local tray, slots, reserved, ants = {}, {}, {}, {}
+  local NCOL, QROWS = 4, 3              -- queue = 4 fixed columns, 3 rows visible
+  local cols = { {}, {}, {}, {} }       -- each column is a stack; only the head loads
+  local col_adv = {}                    -- per-column slide-up animation timer
   local slot_pulse = {}   -- brief scale bump when a slot's count ticks down
   local playing, won, stuck, speed2 = true, false, false, false
   local HW, HH, built = 0, 0, false
@@ -144,31 +147,34 @@ local function make_ant_clear()
     return n
   end
   local function free_slot() for i = 1, SLOTS do if slots[i] == nil then return i end end end
-  local function load_tray(ti)
-    local i = free_slot(); if not i or not tray[ti] then return false end
-    slots[i] = table.remove(tray, ti); return true
+  local function queue_total() local n = 0 for c = 1, NCOL do n = n + #cols[c] end return n end
+  local function col_head(c) return cols[c][1] end
+  -- Load a COLUMN HEAD into a free slot (the only legal move: top row only). The
+  -- column then advances up (col_adv drives the slide animation).
+  local function load_head(c)
+    local i = free_slot(); local b = cols[c] and cols[c][1]
+    if not i or not b then return false end
+    slots[i] = b; table.remove(cols[c], 1); col_adv[c] = 1; return true
   end
-  -- Lowest colour index still present on the board (the current OUTERMOST layer).
-  local function board_low_color()
-    local low
-    for r = 1, H do for c = 1, W do
-      local v = grid[r][c]; if v ~= 0 and (low == nil or v < low) then low = v end
-    end end
-    return low
-  end
-  -- Auto play (autoplay / tests): commit free slots to the current outermost
-  -- colour only. Never race an inner colour ahead of the outer ring — for a real
-  -- picture that would orphan outer cells into an enclosed pocket (a stuck).
+  -- Auto play (autoplay / tests): load any head whose colour is currently
+  -- reachable. There is no geometric orphaning (ants only take reachable frontier
+  -- cells) — the only failure is a slot jam, which is exactly the lose/ad state.
   local function fill_slots()
     if mode ~= "auto" then return end
     while free_slot() do
-      local low = board_low_color()
-      if not low or reachable_count(low) == 0 then break end
-      local ti
-      for i, b in ipairs(tray) do if b.color == low then ti = i; break end end
-      if not ti then break end
-      load_tray(ti)
+      local pick
+      for c = 1, NCOL do
+        local b = col_head(c)
+        if b and reachable_count(b.color) > 0 then pick = c; break end
+      end
+      if not pick then break end
+      load_head(pick)
     end
+  end
+  local function shortest_col()
+    local best, bn = 1, math.huge
+    for c = 1, NCOL do if #cols[c] < bn then bn = #cols[c]; best = c end end
+    return best
   end
   local function cancel_slot(i)
     local s = slots[i]; if not s then return false end
@@ -181,20 +187,23 @@ local function make_ant_clear()
         a.path, a.pi, a.state = rev, 1, "back"
       end
     end
-    table.insert(tray, 1, s); slots[i] = nil; return true
+    local c = shortest_col(); table.insert(cols[c], 1, s); col_adv[c] = 1
+    slots[i] = nil; return true
   end
   local function rewarded_ad(reward) game.track("rewarded_ad"); if reward then reward() end end
   local function cancel_slot_ad(i)
     if slots[i] then rewarded_ad(function() cancel_slot(i) end); return true end
     return false
   end
+  -- Jammed (the lose/ad prompt): nothing carrying, no active slot colour reachable,
+  -- and no free slot can load a reachable HEAD. Recoverable only by cancelling.
   local function check_stuck()
     if painted <= 0 then return false end
     for _, a in ipairs(ants) do if a.state ~= "idle" then return false end end
     for i = 1, SLOTS do local s = slots[i]; if s and reachable_count(s.color) > 0 then return false end end
-    local free = false
-    for i = 1, SLOTS do if slots[i] == nil then free = true end end
-    if free then for _, b in ipairs(tray) do if reachable_count(b.color) > 0 then return false end end end
+    if free_slot() then
+      for c = 1, NCOL do local b = col_head(c); if b and reachable_count(b.color) > 0 then return false end end
+    end
     return true
   end
 
@@ -345,9 +354,11 @@ local function make_ant_clear()
   -- ---- HUD tiles (slots + tray) -------------------------------------------
   local slot_bg, slot_txt, slot_bug, tray_bg, tray_txt, tray_bug = {}, {}, {}, {}, {}, {}
   local slot_shown, tray_shown = {}, {}
+  local QYGAP = 6
   local function slot_x(i) return (i - (SLOTS + 1) / 2) * (SLOT_W + 8) end
-  local function tray_x(i) local col = (i - 1) % 4; return (col - 1.5) * (TRAY_W + 8) end
-  local function tray_yy(i) local row = math.floor((i - 1) / 4); return TRAY_Y - row * (TRAY_W + 8) end
+  local function col_x(c) return (c - (NCOL + 1) / 2) * (TRAY_W + 8) end
+  local function row_y(row) return TRAY_Y - row * (TRAY_W + QYGAP) end   -- row 0 = head (top)
+  local function qi(c, row) return (c - 1) * QROWS + row + 1 end          -- 0-based row
 
   local function draw_hud()
     for i = 1, SLOTS do
@@ -355,11 +366,12 @@ local function make_ant_clear()
       game.set_color(slot_bg[i], 0.80, 0.76, 0.70, 1)
       slot_shown[i] = nil
     end
-    for i = 1, 8 do
-      tray_bg[i] = T.sprite(tray_x(i), tray_yy(i), TRAY_W, TRAY_W, "tile_sq")
-      game.set_color(tray_bg[i], 0.80, 0.76, 0.70, 1)
+    for c = 1, NCOL do for row = 0, QROWS - 1 do
+      local i = qi(c, row)
+      tray_bg[i] = T.sprite(col_x(c), row_y(row), TRAY_W, TRAY_W, "tile_sq")
+      game.set_color(tray_bg[i], 0.80, 0.76, 0.70, 0)
       tray_shown[i] = nil
-    end
+    end end
   end
   local function refresh_hud()
     for i = 1, SLOTS do
@@ -385,19 +397,32 @@ local function make_ant_clear()
         slot_shown[i] = lbl
       end
     end
-    for i = 1, 8 do
-      local b = tray[i]
-      if b then tint(tray_bg[i], b.color) else game.set_color(tray_bg[i], 0.80, 0.76, 0.70, 1) end
-      local lbl = b and tostring(b.n) or ""
-      if lbl ~= tray_shown[i] then
-        if tray_txt[i] then game.despawn(tray_txt[i]); tray_txt[i] = nil end
-        if tray_bug[i] then game.despawn(tray_bug[i]); tray_bug[i] = nil end
-        if lbl ~= "" then
-          tray_bug[i] = T.sprite(tray_x(i) - TRAY_W * 0.24, tray_yy(i) + TRAY_W * 0.22, TRAY_W * 0.3, TRAY_W * 0.3, "ant_icon")
-          game.set_color(tray_bug[i], 0.20, 0.16, 0.14, 1)
-          tray_txt[i] = T.text(tray_x(i) + TRAY_W * 0.08, tray_yy(i) - TRAY_W * 0.05, 22, 1, 1, 1, 1, lbl)
+    for c = 1, NCOL do
+      local slide = (col_adv[c] or 0)
+      if slide > 0.01 then col_adv[c] = slide * 0.8 elseif col_adv[c] then col_adv[c] = nil end
+      for row = 0, QROWS - 1 do
+        local i = qi(c, row)
+        local b = cols[c][row + 1]
+        local head = (row == 0)
+        local a = head and 1 or 0.5                 -- only the head row is "live"
+        local yy = row_y(row) - slide * (TRAY_W + QYGAP)   -- slide up from one row below
+        local xx = col_x(c)
+        game.move_to(tray_bg[i], xx, yy)
+        if b then tint(tray_bg[i], b.color, a) else game.set_color(tray_bg[i], 0.80, 0.76, 0.70, 0) end
+        local lbl = b and tostring(b.n) or ""
+        if lbl ~= tray_shown[i] then
+          if tray_txt[i] then game.despawn(tray_txt[i]); tray_txt[i] = nil end
+          if tray_bug[i] then game.despawn(tray_bug[i]); tray_bug[i] = nil end
+          if lbl ~= "" then
+            tray_bug[i] = T.sprite(xx - TRAY_W * 0.24, yy + TRAY_W * 0.22, TRAY_W * 0.3, TRAY_W * 0.3, "ant_icon")
+            game.set_color(tray_bug[i], 0.20, 0.16, 0.14, a)
+            tray_txt[i] = T.text(xx + TRAY_W * 0.08, yy - TRAY_W * 0.05, 22, 1, 1, 1, a, lbl)
+          end
+          tray_shown[i] = lbl
+        elseif lbl ~= "" then
+          if tray_bug[i] then game.move_to(tray_bug[i], xx - TRAY_W * 0.24, yy + TRAY_W * 0.22) end
+          if tray_txt[i] then game.move_to(tray_txt[i], xx + TRAY_W * 0.08, yy - TRAY_W * 0.05) end
         end
-        tray_shown[i] = lbl
       end
     end
   end
@@ -405,7 +430,7 @@ local function make_ant_clear()
   local function status()
     if not SETTINGS.hud then return end
     if stuck then game.set_text("卡住了 — 点一个满槽位取消(看广告)") return end
-    game.set_text(mode == "manual" and free_slot() and #tray > 0 and "点一个颜色" or "")
+    game.set_text(mode == "manual" and free_slot() and queue_total() > 0 and "点一个颜色" or "")
   end
 
   -- ---- build ---------------------------------------------------------------
@@ -415,11 +440,12 @@ local function make_ant_clear()
     -- ---- deterministic layout, stacked BOTTOM-UP so nothing ever overlaps ----
     local M, BAR_H = 30, 46
     local BAR_CY = -hh + M + BAR_H / 2
-    TRAY_W = math.min((2 * hw - 44) / 4 - 8, 60)
+    TRAY_W = math.min((2 * hw - 44) / 4 - 8, 54)
     SLOT_W = math.min((2 * hw - 60) / 5 - 8, 50)
-    local q_bot = BAR_CY + BAR_H / 2 + 28 + TRAY_W / 2      -- queue bottom row centre
-    TRAY_Y = q_bot + (TRAY_W + 8)                           -- queue top row (row 0)
-    SLOT_Y = (TRAY_Y + TRAY_W / 2) + 24 + SLOT_W / 2        -- slots above the queue
+    -- reserve QROWS visible queue rows above the bar (head row at the top)
+    local q_bot = BAR_CY + BAR_H / 2 + 18 + TRAY_W / 2      -- bottom queue row centre
+    TRAY_Y = q_bot + (QROWS - 1) * (TRAY_W + 6)             -- head row (row 0, top)
+    SLOT_Y = (TRAY_Y + TRAY_W / 2) + 20 + SLOT_W / 2        -- slots above the queue
     local HOLE_R = 30
     NESTY = SLOT_Y + SLOT_W / 2 + 30 + HOLE_R               -- hole above the slots
     local board_bottom = NESTY + HOLE_R + 46                -- roomy gap: ants exit here
@@ -434,8 +460,13 @@ local function make_ant_clear()
 
     grid, painted = {}, 0
     for r = 1, H do grid[r] = {} for c = 1, W do grid[r][c] = LEVEL.grid[r][c] end end
-    tray = {}
-    for i, b in ipairs(LEVEL.tray) do tray[i] = { color = b[1], n = b[2] } end
+    -- Fixed queue: distribute the (peel-order, guaranteed-solvable) tray round-
+    -- robin into NCOL columns. Only column HEADS load; the layout never shuffles.
+    tray, cols, col_adv = {}, { {}, {}, {}, {} }, {}
+    for i, b in ipairs(LEVEL.tray) do
+      local bb = { color = b[1], n = b[2] }
+      cols[(i - 1) % NCOL + 1][#cols[(i - 1) % NCOL + 1] + 1] = bb
+    end
     slots, reserved, ants, dirty = {}, {}, {}, true
     playing, won, stuck, speed2, was_stuck = true, false, false, false, false
 
@@ -483,7 +514,7 @@ local function make_ant_clear()
     DEBUG = {
       game = "ant_clear", back = back,
       painted = function() return painted end,
-      tray_len = function() return #tray end,
+      tray_len = function() return queue_total() end,
       won = function() return won end,
       stuck = function() return stuck end,
       reachable = function(col) return reachable_count(col) end,
@@ -492,14 +523,14 @@ local function make_ant_clear()
       toggle_speed = function() speed2 = not speed2 end,
       set_mode = function(m) mode = m; fill_slots() end,
       free_slots = function() local n = 0 for i = 1, SLOTS do if slots[i] == nil then n = n + 1 end end return n end,
-      load = function(ti) return load_tray(ti) end,
-      load_unreachable = function()
+      load = function(c) return load_head(c) end,   -- c = column index (1..NCOL)
+      load_unreachable = function()                  -- load a buried-colour head (a wrong move)
         if not free_slot() then return false end
-        for ti, b in ipairs(tray) do if reachable_count(b.color) == 0 then return load_tray(ti) end end
+        for c = 1, NCOL do local b = col_head(c); if b and reachable_count(b.color) == 0 then return load_head(c) end end
         return false
       end,
       cancel = function(i) return cancel_slot_ad(i) end,
-      tray_colors = function() local o = {} for _, b in ipairs(tray) do o[#o + 1] = b.color end return o end,
+      tray_colors = function() local o = {} for c = 1, NCOL do local b = col_head(c); o[c] = b and b.color or 0 end return o end,
       slot_colors = function() local o = {} for i = 1, SLOTS do o[i] = slots[i] and slots[i].color or 0 end return o end,
     }
   end
@@ -527,9 +558,9 @@ local function make_ant_clear()
           end
         end
         if free_slot() then
-          for i = 1, 8 do
-            if tray[i] and math.abs(x - tray_x(i)) <= TRAY_W * 0.55 and math.abs(y - tray_yy(i)) <= TRAY_W * 0.55 then
-              if load_tray(i) then game.play_sound("hit"); game.haptic("light") end
+          for c = 1, NCOL do   -- only the top row (column heads) can be loaded
+            if col_head(c) and math.abs(x - col_x(c)) <= TRAY_W * 0.55 and math.abs(y - row_y(0)) <= TRAY_W * 0.6 then
+              if load_head(c) then game.play_sound("hit"); game.haptic("light") end
               return
             end
           end

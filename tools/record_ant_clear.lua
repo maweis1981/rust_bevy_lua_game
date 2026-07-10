@@ -109,21 +109,15 @@ end
 ----------------------------------------------------------------------
 -- Scripted player
 ----------------------------------------------------------------------
--- clear the OUTERMOST band still on the board, never racing an inner one
+-- Good play in the COLUMN queue: load any column HEAD whose colour is reachable
+-- (only the top row is loadable; the column advances up after).
 local function safe_play()
-  local g, low = D.grid(), 1e9
-  for r = 1, #g do for c = 1, #g[1] do local v = g[r][c]; if v > 0 and v < low then low = v end end end
-  if low == 1e9 then return end
-  while D.free_slots() > 0 and D.reachable(low) > 0 do
+  while D.free_slots() > 0 do
     local tc, pick = D.tray_colors(), nil
-    for i, col in ipairs(tc) do if col == low then pick = i; break end end
+    for c = 1, 4 do if tc[c] ~= 0 and D.reachable(tc[c]) > 0 then pick = c; break end end
     if not pick then break end
     D.load(pick)
   end
-end
--- greedily commit free slots to a currently-buried colour (the wrong move)
-local function bad_play()
-  while D.free_slots() > 0 and D.load_unreachable() do end
 end
 
 local frames = 0
@@ -139,24 +133,9 @@ local function step(phase, nframes, act)
   return false
 end
 
--- 1. good play until the board is ~55% eaten
-local total = D.painted()
-while D.painted() > total * 0.45 and frames < 1400 do
+-- play the level to completion, loading column heads (the queue advances as columns empty)
+while not D.won() and frames < 12000 do
   if step("play", 1, safe_play) then break end
-end
--- 2. the mistake: drop the good colours and commit every slot to a buried inner
---    colour. Cancel first so no outer clearing races (which would orphan cells);
---    the board freezes with all slots stranded.
-for i = 1, 4 do D.cancel(i) end
-step("mistake", 70, bad_play)
--- 3. hold on the STUCK prompt
-step("stuck", 130, bad_play)
--- 4. cancel every slot (rewarded ad) to recover
-for i = 1, 4 do D.cancel(i) end
-step("cancel", 45, nil)
--- 5. recover and finish
-while not D.won() and frames < 6000 do
-  if step("finish", 1, safe_play) then break end
 end
 -- hold on the CLEARED card (freeze-frame; the sim has stopped)
 for _ = 1, 80 do frame_fx = {}; frames = frames + 1; dump(frames, "done") end

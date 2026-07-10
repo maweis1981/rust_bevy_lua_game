@@ -188,15 +188,13 @@ check(D.painted() == 0, "all pixels carried away (painted == 0)")
 -- Scenario B: MANUAL, good play — the strategy load path. A "player" that loads
 -- the tray front into any free slot must also clear the board and never stall.
 ----------------------------------------------------------------------
--- Safe play = clear the OUTERMOST colour still on the board first, never racing
--- an inner colour ahead (which would orphan an outer remnant into a pocket).
+-- Good play in the COLUMN queue: only column heads are loadable; load any head
+-- whose colour is currently reachable. (No geometric orphaning — the only failure
+-- is a slot jam.) tray_colors() returns the 4 head colours (0 = empty column).
 local function safe_policy(Dh)
-  local g, low = Dh.grid(), 1e9
-  for r = 1, #g do for c = 1, #g[1] do local v = g[r][c]; if v > 0 and v < low then low = v end end end
-  if low == 1e9 then return end
-  while Dh.free_slots() > 0 and Dh.reachable(low) > 0 do
+  while Dh.free_slots() > 0 do
     local tc, pick = Dh.tray_colors(), nil
-    for i, col in ipairs(tc) do if col == low then pick = i; break end end
+    for c = 1, 4 do if tc[c] ~= 0 and Dh.reachable(tc[c]) > 0 then pick = c; break end end
     if not pick then break end
     Dh.load(pick)
   end
@@ -207,32 +205,25 @@ D = rebuild()
 check(D.free_slots() == 4 and D.painted() == total0, "manual: starts with empty slots, nothing auto-loads")
 local fb, buried_b = drive(D, safe_policy)
 check(buried_b, "PATHFINDING holds under manual play too")
-check(D.won(), "STRATEGY: manual outermost-first play clears the board (in " .. fb .. " frames)")
+check(D.won(), "STRATEGY: manual top-row (column-head) play clears the board (in " .. fb .. " frames)")
 check(not D.stuck(), "manual good play never gets stuck")
 
 ----------------------------------------------------------------------
--- Scenario C: WRONG commits -> STUCK -> cancel (rewarded ad) -> recover -> win.
--- This is the monetisation loop: committing every slot to a buried colour strands
--- you; the way out is to cancel a slot (which the game gates behind a rewarded
--- video) and re-pick. Good front-to-front play then finishes the board.
+-- Scenario C: the rewarded-ad cancel path — cancel a committed slot mid-flight
+-- (aborting its ants cleanly), then finish. Proves cancel frees a slot, the abort
+-- keeps the pathfinding invariant, and the level still completes.
 ----------------------------------------------------------------------
 D = rebuild()
 D.set_mode("manual")
--- commit all slots to currently-buried (unreachable) colours = the wrong move
-while D.free_slots() > 0 and D.load_unreachable() do end
-check(D.free_slots() == 0, "wrong play: all 3 slots committed to buried colours")
-for _ = 1, 6 do scene.update(DT, HW, HH) end   -- let it settle
-check(D.stuck(), "STUCK: buried-colour commits strand the board (non-terminal prompt)")
-check(D.painted() == total0, "stuck state removed no pixels (nothing was reachable)")
--- recover: cancel every slot via the rewarded-ad path, then play smartly —
--- load only colours that are currently reachable (a sensible player), since the
--- cancelled buried colours were returned to the tray front.
-for i = 1, 3 do D.cancel(i) end
+D.load(1); D.load(2)                                  -- commit two column heads
+for _ = 1, 150 do scene.update(DT, HW, HH) end         -- ants go to work
+local before = D.free_slots()
+D.cancel(1)                                            -- rewarded-ad cancel
 scene.update(DT, HW, HH)
-check(not D.stuck() and D.free_slots() == 3, "cancel (rewarded ad) frees the slots -> unstuck")
+check(D.free_slots() > before, "cancel (rewarded ad) frees a slot")
 local fc, buried_c = drive(D, safe_policy)
 check(buried_c, "PATHFINDING holds through cancel/abort too")
-check(D.won(), "RECOVERED: after cancelling, outer-first play clears the board (in " .. fc .. " frames)")
+check(D.won(), "RECOVERED: cancel then column-head play clears the board (in " .. fc .. " frames)")
 
 ----------------------------------------------------------------------
 print(string.rep("-", 48))
