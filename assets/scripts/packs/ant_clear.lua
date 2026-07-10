@@ -53,7 +53,7 @@ local function make_ant_clear()
   -- ---- tunables ------------------------------------------------------------
   local SLOTS = LEVEL.slots or 4   -- active slots (< palette size on purpose)
   local ANTS_PER_SLOT = 4
-  local ANT_SPEED = 165      -- world units / sec (calmer, readable)
+  local ANT_SPEED = 110      -- world units / sec (slow, calm)
   local MAX_DT = 1 / 30
   local mode = "manual"      -- "manual" (tap to load) | "auto" (autoplay/tests)
 
