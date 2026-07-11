@@ -473,6 +473,11 @@ local function make_ant_clear()
   local function qi(c, row) return (c - 1) * QROWS + row + 1 end          -- 0-based row
 
   local function draw_hud()
+    -- wooden trays under the slot row and the queue grid (approved mockup):
+    -- generous side margins so the end cubes sit inside the rounded rim
+    T.sprite(0, SLOT_Y, SLOTS * (SLOT_W + 8) + 44, SLOT_W + 30, "tray_wood")
+    local q_cy = (row_y(0) + row_y(QROWS - 1)) / 2
+    T.sprite(0, q_cy, NCOL * (TRAY_W + 8) + 44, QROWS * (TRAY_W + QYGAP) + 28, "tray_wood")
     for i = 1, SLOTS do
       slot_bg[i] = T.sprite(slot_x(i), SLOT_Y, SLOT_W, SLOT_W, "cube")
       game.set_color(slot_bg[i], 0.80, 0.76, 0.70, 1)
@@ -556,9 +561,11 @@ local function make_ant_clear()
     TRAY_W = math.min((2 * hw - 44) / 4 - 8, 54)
     SLOT_W = math.min((2 * hw - 60) / 5 - 8, 50)
     -- reserve QROWS visible queue rows above the bar (head row at the top)
-    local q_bot = BAR_CY + BAR_H / 2 + 18 + TRAY_W / 2      -- bottom queue row centre
+    local q_bot = BAR_CY + BAR_H / 2 + 22 + TRAY_W / 2      -- bottom queue row centre
     TRAY_Y = q_bot + (QROWS - 1) * (TRAY_W + 6)             -- head row (row 0, top)
-    SLOT_Y = (TRAY_Y + TRAY_W / 2) + 20 + SLOT_W / 2        -- slots above the queue
+    SLOT_Y = (TRAY_Y + TRAY_W / 2) + 38 + SLOT_W / 2        -- slots above the queue
+                                                            -- (extra air so the two
+                                                            -- wooden trays read apart)
     local HOLE_R = 30
     NESTY = SLOT_Y + SLOT_W / 2 + 30 + HOLE_R               -- hole above the slots
     local board_bottom = NESTY + HOLE_R + 46                -- roomy gap: ants exit here
@@ -587,15 +594,14 @@ local function make_ant_clear()
     T.sprite(0, 0, math.max(2 * hw, 2 * hh * 512 / 768) + 4, 2 * hh + 4, "game_bg")
     spawn_drifters()   -- ambient floating leaves/motes over the background
     -- top status bar: settings (left) · 关卡 N (centre) · coins (right)
-    local bar = T.sprite(0, hh - 34, 2 * hw - 20, 48, "tile_sq")
-    game.set_color(bar, 0.99, 0.94, 0.84, 1)
-    T.text(0, hh - 34, 22, 0.30, 0.22, 0.16, 1, "关卡 " .. (LEVEL.id or 1))
+    T.sprite(0, hh - 34, 2 * hw - 20, 50, "bar_wood")
+    T.text(0, hh - 34, 22, 1.00, 0.96, 0.88, 1, "关卡 " .. (LEVEL.id or 1))
     T.sprite(hw - 96, hh - 34, 26, 26, "icon_coin")
     coin_num = num_make("1240", 22, 1); num_place(coin_num, hw - 54, hh - 34)
-    -- soft recessed soil patch behind the picture (not a white card — the cubes
-    -- sit in the dirt like the reference)
-    local panel = T.sprite(0, TOPY - 0.5 * CELL * H, W * CELL + 24, H * CELL + 24, "tile_sq")
-    game.set_color(panel, 0.26, 0.17, 0.11, 0.30)
+    -- per the approved mockup the picture sits DIRECTLY on the soil — only a very
+    -- faint contact shading grounds it (no card, no heavy patch)
+    local panel = T.sprite(0, TOPY - 0.5 * CELL * H, W * CELL + 16, H * CELL + 16, "tile_sq")
+    game.set_color(panel, 0.22, 0.14, 0.09, 0.12)
     -- nest hole (generated art) + the two rewarded-ad unlock buttons flanking it
     T.sprite(NESTX, NESTY, HOLE_R * 2.6, HOLE_R * 2.6, "hole")
     for _, sx in ipairs({ -1, 1 }) do
@@ -605,26 +611,24 @@ local function make_ant_clear()
       T.sprite(bx, NESTY + 8, 26, 20, "ad_play")
       T.text(bx, NESTY - 14, 17, 0.42, 0.32, 0.18, 1, "解锁")
     end
-    -- bottom bar: 4 equal-width buttons, evenly spaced — no overlap at any width
-    local BM, BG = 14, 8
-    local bw = (2 * hw - 2 * BM - 3 * BG) / 4
+    -- bottom bar: TWO big friendly buttons, like the approved mockup (the unlock
+    -- buttons already flank the nest hole, so they don't repeat here)
+    local BM, BG = 20, 14
+    local bw = (2 * hw - 2 * BM - BG) / 2
     local btns = {
-      { "速度升级", { 0.34, 0.62, 0.86 }, "icon_speed" },
-      { "速度x2", { 0.94, 0.59, 0.25 }, "icon_x2" },
-      { "第11关\n解锁", { 0.95, 0.84, 0.47 }, "icon_gift" },
-      { "第20关\n解锁", { 0.95, 0.84, 0.47 }, "icon_gift" },
+      { "速度升级", { 0.55, 0.78, 0.38 }, "icon_speed" },   -- leafy green
+      { "速度x2", { 0.98, 0.72, 0.22 }, "icon_x2" },       -- warm amber
     }
     for i, b in ipairs(btns) do
       local bxc = -hw + BM + bw / 2 + (i - 1) * (bw + BG)
-      local id = T.sprite(bxc, BAR_CY, bw, BAR_H + 6, "btn_base")
+      local id = T.sprite(bxc, BAR_CY, bw, BAR_H + 10, "btn_base")
       -- the speed x2 button toggles the demo double-speed and lights up while on
       local on_tap = (b[3] == "icon_x2") and function() speed2 = not speed2 end or nil
       local sel = (b[3] == "icon_x2") and function() return speed2 end or nil
-      add_button(id, { x = bxc, y = BAR_CY, w = bw, h = BAR_H + 6 }, b[2], on_tap, sel)
-      local ic = T.sprite(bxc - bw * 0.32, BAR_CY, BAR_H * 0.62, BAR_H * 0.62, b[3])
-      if b[3] == "icon_x2" then game.set_color(ic, 0.22, 0.15, 0.10, 1) end
-      local dark = b[2][1] > 0.9
-      T.text(bxc + bw * 0.12, BAR_CY, 14, dark and 0.30 or 1, dark and 0.24 or 1, dark and 0.10 or 1, 1, b[1])
+      add_button(id, { x = bxc, y = BAR_CY, w = bw, h = BAR_H + 10 }, b[2], on_tap, sel)
+      local ic = T.sprite(bxc - bw * 0.28, BAR_CY, BAR_H * 0.66, BAR_H * 0.66, b[3])
+      if b[3] == "icon_x2" then game.set_color(ic, 0.30, 0.20, 0.10, 1) end
+      T.text(bxc + bw * 0.10, BAR_CY, 17, 1, 1, 1, 1, b[1])
     end
 
     draw_board()
