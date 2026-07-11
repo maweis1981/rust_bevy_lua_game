@@ -63,8 +63,15 @@ local function make_ant_clear()
   -- geometry (filled in build)
   local CELL, OX, TOPY, NESTX, NESTY = 0, 0, 0, 0, 0
   local SLOT_Y, TRAY_Y, SLOT_W, TRAY_W = 0, 0, 0, 0
-  local function cx(c) return OX + (c - 0.5) * CELL end
-  local function cy(r) return TOPY - (r - 0.5) * CELL end
+  -- FAKE PERSPECTIVE (the mockup's 3D tabletop look): rows shrink and converge
+  -- toward a vanishing point as they recede. PS[r] = scale of row r, ROWY[r] =
+  -- its centre-line. Filled in build(); identity until then. Ant paths go
+  -- through cx/cy too, so the swarm walks the same tilted table.
+  local PS, ROWY = {}, {}
+  local PERSP = 0.30            -- how much the far (top) row shrinks
+  local function rs(r) return PS[r] or 1 end
+  local function cx(c, r) return (OX + (c - 0.5) * CELL) * rs(r or H) end
+  local function cy(r) return ROWY[r] or (TOPY - (r - 0.5) * CELL) end
 
   -- ---- flow field over an open ring (rows/cols 0..H+1, 0..W+1) -------------
   local NW = W + 2
@@ -115,10 +122,10 @@ local function make_ant_clear()
         pts[#pts + 1] = { NESTX, NESTY }
       else
         local r, c = math.floor(chain[i] / NW), chain[i] % NW
-        pts[#pts + 1] = { cx(c), cy(r) }
+        pts[#pts + 1] = { cx(c, r), cy(r) }
       end
     end
-    pts[#pts + 1] = { cx(tc), cy(tr) }
+    pts[#pts + 1] = { cx(tc, tr), cy(tr) }
     return pts
   end
 
@@ -247,7 +254,7 @@ local function make_ant_clear()
       for c = 1, W do
         local ci = grid[r][c]
         if ci ~= 0 then
-          local id = T.sprite(cx(c), cy(r), CELL, CELL, FOOD[ci])
+          local id = T.sprite(cx(c, r), cy(r), CELL * rs(r), CELL * rs(r), FOOD[ci])
           cell_id[r][c] = id; painted = painted + 1
         end
       end
@@ -257,7 +264,7 @@ local function make_ant_clear()
     local id = cell_id[r][c]
     if id then game.despawn(id); cell_id[r][c] = nil end
     grid[r][c] = 0; painted = painted - 1; dirty = true
-    game.emit("spark", cx(c), cy(r), 4)
+    game.emit("spark", cx(c, r), cy(r), 4)
   end
 
   -- ---- ants (spritesheet walk + facing + carry) ---------------------------
@@ -401,6 +408,7 @@ local function make_ant_clear()
   local coin_num                       -- bitmap-digit coin counter
   local lvl_num                        -- bitmap-digit level number (in the badge)
   local prog_x0, prog_w, prog_fill, prog_stars = 0, 1, nil, {}   -- star progress bar
+  local prog_y, prog_h = 0, 8          -- fill centre-line + thickness (set in build)
   local drifters = {}                  -- ambient floating leaves/motes (bg motion)
   local buttons = {}                   -- tappable UI buttons with press-state feedback
 
@@ -484,21 +492,33 @@ local function make_ant_clear()
     buttons = {}   -- pill sprites are tracker-owned (T.clear despawns them); drop stale refs
   end
   local QYGAP = 6
-  local function slot_x(i) return (i - (SLOTS + 1) / 2) * (SLOT_W + 8) end
+  -- the sliced strip's four sockets sit at these fractions of its width — anchor
+  -- the slot positions (draws AND taps) to the baked art, not to even spacing
+  local SOCKF = { 0.108, 0.349, 0.582, 0.829 }
+  local function slot_x(i)
+    local w = SLOTS * (SLOT_W + 8) + 44
+    return -w / 2 + (SOCKF[i] or (i / (SLOTS + 1))) * w
+  end
   local function col_x(c) return (c - (NCOL + 1) / 2) * (TRAY_W + 8) end
   local function row_y(row) return TRAY_Y - row * (TRAY_W + QYGAP) end   -- row 0 = head (top)
   local function qi(c, row) return (c - 1) * QROWS + row + 1 end          -- 0-based row
 
   local function draw_hud()
-    -- wooden trays under the slot row and the queue grid (approved mockup):
-    -- generous side margins so the end cubes sit inside the rounded rim
-    T.sprite(0, SLOT_Y, SLOTS * (SLOT_W + 8) + 44, SLOT_W + 30, "tray_wood")
+    -- the mockup's OWN slot strip and queue tray (sliced from the concept art);
+    -- the tray's baked tiles get covered by a dark inner panel, then live tiles
+    local strip_w = SLOTS * (SLOT_W + 8) + 44
+    T.sprite(0, SLOT_Y, strip_w, strip_w * 78 / 416, "mock_slots")
     local q_cy = (row_y(0) + row_y(QROWS - 1)) / 2
-    T.sprite(0, q_cy, NCOL * (TRAY_W + 8) + 44, QROWS * (TRAY_W + QYGAP) + 28, "tray_wood")
+    local q_w = NCOL * (TRAY_W + 8) + 44
+    local q_h = QROWS * (TRAY_W + QYGAP) + 28
+    T.sprite(0, q_cy, q_w, q_h, "mock_tray")
+    local cover = T.sprite(0, q_cy, q_w - 12, q_h - 12, "tile_sq")
+    game.set_color(cover, 0.30, 0.19, 0.11, 1)
     for i = 1, SLOTS do
-      -- each slot is a little kitchen SPICE BOX; the food it's committed to sits
-      -- inside it (mini food sprite), so the container matches the narrative
-      slot_bg[i] = T.sprite(slot_x(i), SLOT_Y, SLOT_W * 1.14, SLOT_W * 1.14, "spice_box")
+      -- slot sockets are BAKED into the sliced strip; slot_bg is a dark cover
+      -- that hides the baked colour block while the slot is empty
+      slot_bg[i] = T.sprite(slot_x(i), SLOT_Y, SLOT_W * 0.92, SLOT_W * 0.80, "tile_sq")
+      game.set_color(slot_bg[i], 0.26, 0.16, 0.10, 1)
       slot_shown[i] = nil
     end
     for c = 1, NCOL do for row = 0, QROWS - 1 do
@@ -509,45 +529,47 @@ local function make_ant_clear()
   end
   local total_cells = 0   -- set in build; drives the star progress bar
   local function refresh_hud()
-    -- star progress: fill tracks the cleared fraction, stars light at 1/3 2/3 3/3
+    -- star progress: fill tracks the cleared fraction; lit stars fade IN over
+    -- the baked dark stars of the mockup strip at 1/3 2/3 3/3
     if prog_fill and total_cells > 0 then
       local frac = 1 - painted / total_cells
       local fw = math.max(1, prog_w * frac)
-      game.set_size(prog_fill, fw, 10)
-      game.move_to(prog_fill, prog_x0 + fw / 2, HH - 34)
+      game.set_size(prog_fill, fw, prog_h or 8)
+      game.move_to(prog_fill, prog_x0 + fw / 2, prog_y or (HH - 34))
       for k = 1, 3 do
         if prog_stars[k] then
-          if frac >= k / 3 - 0.001 then game.set_color(prog_stars[k], 1, 1, 1, 1)
-          else game.set_color(prog_stars[k], 0.45, 0.35, 0.28, 1) end
+          game.set_color(prog_stars[k], 1, 1, 1, frac >= k / 3 - 0.001 and 1 or 0)
         end
       end
     end
     for i = 1, SLOTS do
       local s = slots[i]
-      -- count-tick pulse: scale the spice box up briefly, then ease back
+      -- count-tick pulse: bump the committed food briefly, then ease back
       local p = slot_pulse[i] or 0
-      if p > 0.01 then
-        local sc = SLOT_W * 1.14 * (1 + 0.18 * p); game.set_size(slot_bg[i], sc, sc)
-        slot_pulse[i] = p * 0.82
-      elseif slot_pulse[i] then
-        game.set_size(slot_bg[i], SLOT_W * 1.14, SLOT_W * 1.14); slot_pulse[i] = nil
+      if slot_food[i] then
+        if p > 0.01 then
+          local sc = SLOT_W * 0.72 * (1 + 0.20 * p); game.set_size(slot_food[i], sc, sc)
+          slot_pulse[i] = p * 0.82
+        elseif slot_pulse[i] then
+          game.set_size(slot_food[i], SLOT_W * 0.72, SLOT_W * 0.72); slot_pulse[i] = nil
+        end
       end
-      -- key includes the colour: respawn the mini food + markers when it changes
+      -- key includes the colour: respawn the food + markers when it changes
       local lbl = s and (tostring(s.n) .. ":" .. s.color) or ""
       if lbl ~= slot_shown[i] then
         num_free(slot_txt[i]); slot_txt[i] = nil
         if slot_food[i] then game.despawn(slot_food[i]); slot_food[i] = nil end
         if slot_bug[i] then game.despawn(slot_bug[i]); slot_bug[i] = nil end
         if s then
-          -- the committed food sits IN the box, ant marker + count on top
-          slot_food[i] = T.sprite(slot_x(i), SLOT_Y + SLOT_W * 0.06, SLOT_W * 0.62, SLOT_W * 0.62, FOOD[s.color])
-          slot_bug[i] = T.sprite(slot_x(i) - SLOT_W * 0.30, SLOT_Y + SLOT_W * 0.30, SLOT_W * 0.36, SLOT_W * 0.36, "ant_hero")
+          -- the dark socket stays visible; the committed food sits IN it
+          slot_food[i] = T.sprite(slot_x(i), SLOT_Y, SLOT_W * 0.72, SLOT_W * 0.72, FOOD[s.color])
+          slot_bug[i] = T.sprite(slot_x(i) - SLOT_W * 0.30, SLOT_Y + SLOT_W * 0.26, SLOT_W * 0.36, SLOT_W * 0.36, "ant_hero")
           tint(slot_bug[i], s.color)                 -- marker ant = the species colour
-          slot_txt[i] = num_make(tostring(s.n), SLOT_W * 0.52, 1)
+          slot_txt[i] = num_make(tostring(s.n), SLOT_W * 0.50, 1)
         end
         slot_shown[i] = lbl
       end
-      num_place(slot_txt[i], slot_x(i) + SLOT_W * 0.16, SLOT_Y - SLOT_W * 0.18)
+      num_place(slot_txt[i], slot_x(i) + SLOT_W * 0.16, SLOT_Y - SLOT_W * 0.16)
     end
     for c = 1, NCOL do
       local slide = (col_adv[c] or 0)
@@ -611,10 +633,20 @@ local function make_ant_clear()
     -- is capped by whatever vertical space is left — it scales with the device,
     -- never a fixed size.
     local board_h = (hh - 82) - board_bottom                -- rest goes to the picture
-    CELL = math.min((2 * hw - 18) / W, board_h / H)
+    -- perspective rows total H*(1 - PERSP/2) cells of height, so CELL can grow
+    -- to refill the reclaimed space (width cap is the near, full-size row)
+    CELL = math.min((2 * hw - 18) / W, board_h / (H * (1 - PERSP / 2)))
     OX = -W * CELL / 2
-    TOPY = board_bottom + H * CELL
-    NESTX = cx(math.floor(W / 2) + 1)
+    -- per-row scale (top row most shrunken) + stacked centre-lines, bottom-up
+    PS, ROWY = {}, {}
+    for r = 1, H do PS[r] = 1 - PERSP * (H - r) / math.max(1, H - 1) end
+    local yy = board_bottom
+    for r = H, 1, -1 do
+      ROWY[r] = yy + CELL * PS[r] / 2
+      yy = yy + CELL * PS[r]
+    end
+    TOPY = yy                                              -- top edge of the picture
+    NESTX = cx(math.floor(W / 2) + 1, H)
 
     grid, painted = {}, 0
     for r = 1, H do grid[r] = {} for c = 1, W do grid[r][c] = LEVEL.grid[r][c] end end
@@ -632,30 +664,34 @@ local function make_ant_clear()
     -- full-screen cozy background (generated art), behind everything
     T.sprite(0, 0, math.max(2 * hw, 2 * hh * 512 / 768) + 4, 2 * hh + 4, "game_bg")
     spawn_drifters()   -- ambient floating leaves/motes over the background
-    -- top status bar (mockup layout): level BADGE with the number inside (left)
-    -- · star PROGRESS BAR (centre, fills as the picture clears) · coin (right)
+    -- top status bar: the mockup's OWN strip (badge + star groove + coin pill,
+    -- sliced from the concept art). Live data overlays at measured fractions.
     local by = hh - 34
-    T.sprite(6, by, 2 * hw - 64, 46, "bar_wood")
-    T.sprite(-hw + 52, by, 56, 56, "badge_wood")
-    lvl_num = num_make(tostring(LEVEL.id or 1), 24, 1)
-    num_place(lvl_num, -hw + 52, by)
-    -- progress groove + fill + three stars (fill/stars update in refresh_hud)
-    local gx0, gx1 = -hw + 96, hw - 116                     -- groove extent
-    prog_x0, prog_w = gx0, gx1 - gx0
-    local groove = T.sprite(gx0 + prog_w / 2, by, prog_w, 14, "tile_sq")
-    game.set_color(groove, 0.24, 0.15, 0.09, 0.85)
-    prog_fill = T.sprite(gx0, by, 1, 10, "tile_sq")
+    local bar_w = 2 * hw - 16
+    local bar_h = bar_w * 88 / 564                          -- keep slice aspect
+    T.sprite(0, by, bar_w, bar_h, "mock_bar")
+    local function bfx(f) return -bar_w / 2 + f * bar_w end -- fraction -> x
+    -- cover the badge's baked "12" with a badge-green patch, then live digits
+    local bcov = T.sprite(bfx(0.0975), by - bar_h * 0.02, bar_h * 0.46, bar_h * 0.40, "tile_sq")
+    game.set_color(bcov, 0.36, 0.42, 0.18, 1)
+    lvl_num = num_make(tostring(LEVEL.id or 1), bar_h * 0.40, 1)
+    num_place(lvl_num, bfx(0.0975), by)
+    -- live progress fill over the baked groove, then the three stars
+    prog_x0, prog_w = bfx(0.2199), bar_w * (0.7305 - 0.2199)
+    prog_y, prog_h = by + bar_h * 0.03, bar_h * 0.16
+    prog_fill = T.sprite(prog_x0, prog_y, 1, prog_h, "tile_sq")
     game.set_color(prog_fill, 1.0, 0.78, 0.20, 1)
     prog_stars = {}
-    for k = 1, 3 do
-      prog_stars[k] = T.sprite(gx0 + prog_w * (k / 3) - 6, by + 1, 24, 24, "icon_star")
-      game.set_color(prog_stars[k], 0.45, 0.35, 0.28, 1)   -- unlit until earned
+    for k, f in ipairs({ 0.390, 0.5035, 0.617 }) do
+      prog_stars[k] = T.sprite(bfx(f), by + bar_h * 0.02, bar_h * 0.44, bar_h * 0.44, "icon_star")
+      game.set_color(prog_stars[k], 1, 1, 1, 0)             -- invisible until earned
     end
-    T.sprite(hw - 82, by, 30, 30, "icon_coin")
-    coin_num = num_make("1240", 20, 1); num_place(coin_num, hw - 42, by)
+    coin_num = num_make("1240", bar_h * 0.36, 1)
+    num_place(coin_num, bfx(0.872), by)
     -- per the approved mockup the picture sits DIRECTLY on the soil — only a very
-    -- faint contact shading grounds it (no card, no heavy patch)
-    local panel = T.sprite(0, TOPY - 0.5 * CELL * H, W * CELL + 16, H * CELL + 16, "tile_sq")
+    -- faint contact shading grounds it (sized to the perspective trapezoid's box)
+    local b_bot = ROWY[H] and (ROWY[H] - CELL * PS[H] / 2) or (TOPY - H * CELL)
+    local panel = T.sprite(0, (TOPY + b_bot) / 2, W * CELL + 16, (TOPY - b_bot) + 16, "tile_sq")
     game.set_color(panel, 0.22, 0.14, 0.09, 0.12)
     -- nest hole (generated art) + the two rewarded-ad unlock buttons flanking it
     T.sprite(NESTX, NESTY, HOLE_R * 2.6, HOLE_R * 2.6, "hole")
@@ -670,20 +706,17 @@ local function make_ant_clear()
     -- buttons already flank the nest hole, so they don't repeat here)
     local BM, BG = 20, 14
     local bw = (2 * hw - 2 * BM - BG) / 2
+    -- the mockup's own two buttons, icons baked in (green shovel = 速度升级,
+    -- amber bomb = 速度x2 toggle)
     local btns = {
-      { "速度升级", { 0.55, 0.78, 0.38 }, "icon_speed" },   -- leafy green
-      { "速度x2", { 0.98, 0.72, 0.22 }, "icon_x2" },       -- warm amber
+      { "btn_green", nil, nil },
+      { "btn_amber", function() speed2 = not speed2 end, function() return speed2 end },
     }
     for i, b in ipairs(btns) do
       local bxc = -hw + BM + bw / 2 + (i - 1) * (bw + BG)
-      local id = T.sprite(bxc, BAR_CY, bw, BAR_H + 10, "btn_base")
-      -- the speed x2 button toggles the demo double-speed and lights up while on
-      local on_tap = (b[3] == "icon_x2") and function() speed2 = not speed2 end or nil
-      local sel = (b[3] == "icon_x2") and function() return speed2 end or nil
-      add_button(id, { x = bxc, y = BAR_CY, w = bw, h = BAR_H + 10 }, b[2], on_tap, sel)
-      -- mockup buttons carry a single centred ICON, no label
-      local ic = T.sprite(bxc, BAR_CY, BAR_H * 0.78, BAR_H * 0.78, b[3])
-      if b[3] == "icon_x2" then game.set_color(ic, 0.30, 0.20, 0.10, 1) end
+      local bh = bw * 88 / 198                              -- keep slice aspect
+      local id = T.sprite(bxc, BAR_CY, bw, bh, b[1])
+      add_button(id, { x = bxc, y = BAR_CY, w = bw, h = bh }, { 1, 1, 1 }, b[2], b[3])
     end
     -- crumb debris: a few fallen morsels scattered under the picture (mockup decor)
     for k = 1, 6 do

@@ -33,6 +33,7 @@ for n in ("ant_sheet", "cat_face", "hole", "ad_play", "ant_shadow", "ant_icon",
           "icon_speed", "icon_x2", "icon_gift", "game_bg", "btn_pill", "num_font",
           "leaf", "petal", "cube", "ant_hero", "btn_base", "bar_wood", "tray_wood",
           "badge_wood", "icon_coin", "icon_sound", "icon_star", "spice_box",
+          "mock_bar", "mock_slots", "mock_tray", "btn_green", "btn_amber",
           "food_choc", "food_bread", "food_sugar", "food_berry", "food_mint"):
     p = f"assets/textures/{n}.png"
     TEX[n] = Image.open(p).convert("RGBA") if os.path.exists(p) else None
@@ -111,21 +112,22 @@ def draw_frame(bg, rec):
         candy(dr, [wx(e[0]) - e[2] * SCALE / 2, wy(e[1]) - e[3] * SCALE / 2,
                    wx(e[0]) + e[2] * SCALE / 2, wy(e[1]) + e[3] * SCALE / 2], (196, 150, 96))
         dr.text((wx(e[0]), wy(e[1])), "←", font=font(int(e[3] * SCALE * 0.6)), fill=(255, 255, 255), anchor="mm")
-    # soft background panels (status bar + recessed soil patch): plain rounded
-    # rects honouring alpha (these stay "tile_sq" in-engine)
-    for e in bytex("tile_sq"):
-        col = (int(e[4] * 255), int(e[5] * 255), int(e[6] * 255), int(e[7] * 255))
-        hw, hh = e[2] * 0.5 * SCALE, e[3] * 0.5 * SCALE
-        dr.rounded_rectangle([wx(e[0]) - hw, wy(e[1]) - hh, wx(e[0]) + hw, wy(e[1]) + hh],
-                             min(hw, hh) * 0.4, col)
-    # wooden furniture (status bar + trays) BEFORE the cubes that sit on them
-    for nm in ("bar_wood", "tray_wood"):
+    # wooden furniture (status bar + trays + sliced mockup pieces) FIRST, then
+    # the tile_sq covers/fills that sit on them, then tokens
+    for nm in ("bar_wood", "tray_wood", "mock_bar", "mock_slots", "mock_tray",
+               "btn_green", "btn_amber"):
         t = TEX.get(nm)
         if t is None: continue
         for e in bytex(nm):
             w = max(1, int(e[2] * SCALE)); h = max(1, int(e[3] * SCALE))
             s = t.resize((w, h), Image.LANCZOS)
             im.paste(s, (int(wx(e[0]) - w/2), int(wy(e[1]) - h/2)), s)
+    # soft panels/covers/fills: plain rounded rects honouring alpha ("tile_sq")
+    for e in bytex("tile_sq"):
+        col = (int(e[4] * 255), int(e[5] * 255), int(e[6] * 255), int(e[7] * 255))
+        hw, hh = e[2] * 0.5 * SCALE, e[3] * 0.5 * SCALE
+        dr.rounded_rectangle([wx(e[0]) - hw, wy(e[1]) - hh, wx(e[0]) + hw, wy(e[1]) + hh],
+                             min(hw, hh) * 0.4, col)
     # rendered tokens: real food sprites (board/queue/carried), the spice-box
     # slots, the neutral cube (legacy), and small badge/coin/sound icons.
     # Colour channels multiply (foods are spawned 1,1,1 so they draw natural).
