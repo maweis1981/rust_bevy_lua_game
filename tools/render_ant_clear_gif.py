@@ -31,7 +31,7 @@ CAP = {"stuck": ("卡住了 · 取消一个槽位", (196, 72, 72)),
 TEX = {}
 for n in ("ant_sheet", "cat_face", "hole", "ad_play", "ant_shadow", "ant_icon",
           "icon_speed", "icon_x2", "icon_gift", "game_bg", "btn_pill", "num_font",
-          "leaf", "petal", "cube", "ant_hero", "btn_base"):
+          "leaf", "petal", "cube", "ant_hero", "btn_base", "bar_wood", "tray_wood"):
     p = f"assets/textures/{n}.png"
     TEX[n] = Image.open(p).convert("RGBA") if os.path.exists(p) else None
 AF = TEX["ant_sheet"].width // 8 if TEX["ant_sheet"] else 48
@@ -126,6 +126,14 @@ def draw_frame(bg, rec):
         hw, hh = e[2] * 0.5 * SCALE, e[3] * 0.5 * SCALE
         dr.rounded_rectangle([wx(e[0]) - hw, wy(e[1]) - hh, wx(e[0]) + hw, wy(e[1]) + hh],
                              min(hw, hh) * 0.4, col)
+    # wooden furniture (status bar + trays) BEFORE the cubes that sit on them
+    for nm in ("bar_wood", "tray_wood"):
+        t = TEX.get(nm)
+        if t is None: continue
+        for e in bytex(nm):
+            w = max(1, int(e[2] * SCALE)); h = max(1, int(e[3] * SCALE))
+            s = t.resize((w, h), Image.LANCZOS)
+            im.paste(s, (int(wx(e[0]) - w/2), int(wy(e[1]) - h/2)), s)
     # rendered 3D cubes (Floniks), tinted per colour: board picture + slots + queue
     # + the cube an ant carries. One texture, multiplied to the cell's colour.
     tc = TEX.get("cube")
