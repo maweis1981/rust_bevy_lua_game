@@ -189,9 +189,12 @@ def draw_frame(bg, rec):
     t = TEX.get("ant_hero")
     if t is not None:
         for e in bytex("ant_hero"):
-            sp = t
+            rr, gg, bb, aa = t.split()
+            # RGB tint (species colour, like in-engine set_color) + alpha
+            rr = rr.point(lambda v: int(v * e[4])); gg = gg.point(lambda v: int(v * e[5])); bb = bb.point(lambda v: int(v * e[6]))
             if e[7] < 0.999:
-                rr, gg, bb, aa = sp.split(); sp = Image.merge("RGBA", (rr, gg, bb, aa.point(lambda v: int(v*e[7]))))
+                aa = aa.point(lambda v: int(v * e[7]))
+            sp = Image.merge("RGBA", (rr, gg, bb, aa))
             if abs(e[10]) > 1e-3:
                 sp = sp.rotate(-math.degrees(e[10]), expand=True, resample=Image.BICUBIC)
             d = max(1, int(e[2] * SCALE))
