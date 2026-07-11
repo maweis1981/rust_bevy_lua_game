@@ -2428,10 +2428,11 @@ fn apply_lua(
     ),
     particles_alive: Query<(), With<Particle>>,
     mut emit_seed: Local<u64>,
-    mut rig_states: Query<&mut RigState>,
+    rig_q: (Query<&mut RigState>, Query<&crate::rig::RigBones>),
     assets: Res<AssetServer>,
     hud: Option<Res<Hud>>,
 ) {
+    let (mut rig_states, rig_bones) = rig_q;
     let (
         ref mut tex_cache,
         ref mut sheet_registry,
@@ -2509,7 +2510,22 @@ fn apply_lua(
                 color: (r, g, b, a),
             } => {
                 if let Some(&entity) = registry.0.get(&id) {
-                    if let Ok(mut sprite) = sprites.get_mut(entity) {
+                    if let Ok(bones) = rig_bones.get(entity) {
+                        // Rig roots have no Sprite of their own: tint every bone
+                        // part instead, so `set_color` recolours the whole
+                        // character (ant species tinting).
+                        for (bone_entity, _) in bones.0.values() {
+                            let e = *bone_entity;
+                            if let Ok(mut sprite) = sprites.get_mut(e) {
+                                sprite.color = Color::srgba(r, g, b, a);
+                            } else {
+                                commands
+                                    .entity(e)
+                                    .entry::<Sprite>()
+                                    .and_modify(move |mut s| s.color = Color::srgba(r, g, b, a));
+                            }
+                        }
+                    } else if let Ok(mut sprite) = sprites.get_mut(entity) {
                         sprite.color = Color::srgba(r, g, b, a);
                     } else {
                         commands
