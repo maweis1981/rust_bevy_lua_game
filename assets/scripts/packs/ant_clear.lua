@@ -232,6 +232,7 @@ local function make_ant_clear()
   local DISPATCH_GAP = 0.45    -- seconds between departures
   local muted = false          -- sound toggle (music + sfx)
   local win_t = 0              -- celebration timer -> auto-advance to next level
+  local intro = { ids = {} }   -- level-intro title card ("第 N 关") state
   local HW, HH, built = 0, 0, false
   local back, was_stuck = nil, false
   local palette = PALETTE5
@@ -602,6 +603,8 @@ local function make_ant_clear()
     num_free(coin_num); coin_num = nil
     num_free(lvl_num); lvl_num = nil
     prog_fill, prog_stars = nil, {}   -- tracker-owned sprites; drop stale refs
+    for _, id in ipairs(intro.ids) do game.despawn(id) end
+    intro.ids, intro.t = {}, nil      -- kill any mid-flight level-intro card
     for _, d in ipairs(drifters) do game.despawn(d.id) end; drifters = {}
     buttons = {}   -- pill sprites are tracker-owned (T.clear despawns them); drop stale refs
   end
@@ -725,6 +728,45 @@ local function make_ant_clear()
     if not SETTINGS.hud then return end
     -- only the stuck rescue prompt is ever shown; no idle hint text
     game.set_text(stuck and "卡住了 — 点一个满槽位取消(看广告)" or "")
+  end
+
+  -- ---- level-intro title card ("第 N 关") ----------------------------------
+  -- A clear "new level" beat (Supercell-style): a wooden plate + the level title
+  -- sweeps down from above, holds, then lifts away and fades. Self-animated in
+  -- update_intro (position + alpha), spawned untracked so despawn_dynamic reaps
+  -- it if the level rebuilds mid-flight.
+  local function clear_intro()
+    for _, id in ipairs(intro.ids) do game.despawn(id) end
+    intro.ids, intro.t = {}, nil
+  end
+  local function show_intro()
+    clear_intro()
+    local y = HH * 0.34
+    local plate = game.spawn_sprite(0, y, 300, 96, "bar_wood")
+    game.set_layer(plate, 95)               -- above the vignette (layer 90)
+    local txt = game.spawn_text(0, y, 42, 1.00, 0.96, 0.86, 1, "第 " .. cur_lvl .. " 关")
+    intro.ids, intro.plate, intro.txt, intro.y, intro.t = { plate, txt }, plate, txt, y, 0
+  end
+  local function update_intro(dt)
+    if not intro.t then return end
+    intro.t = intro.t + dt
+    local t, IN, HOLD, OUT = intro.t, 0.34, 1.10, 0.42
+    local total = IN + HOLD + OUT
+    local yoff, alpha
+    if t < IN then
+      local p = t / IN; local e = 1 - (1 - p) * (1 - p)   -- ease-out drop-in
+      yoff, alpha = (1 - e) * 130, math.min(1, p * 1.6)
+    elseif t < IN + HOLD then
+      yoff, alpha = 0, 1
+    elseif t < total then
+      local p = (t - IN - HOLD) / OUT                     -- lift up and fade out
+      yoff, alpha = -p * 100, 1 - p
+    else
+      clear_intro(); return
+    end
+    local y = intro.y + yoff
+    game.move_to(intro.plate, 0, y); game.set_color(intro.plate, 1, 1, 1, alpha)
+    game.move_to(intro.txt, 0, y); game.set_color(intro.txt, 1.00, 0.96, 0.86, alpha)
   end
 
   -- ---- build ---------------------------------------------------------------
@@ -854,6 +896,7 @@ local function make_ant_clear()
     fill_slots()
     for i = 1, SLOTS do for _ = 1, ANTS_PER_SLOT do spawn_ant(i) end end
     recompute_field(); status(); built = true
+    show_intro()        -- announce the level (sweeps in over the fresh board)
 
     DEBUG = {
       game = "ant_clear", back = back,
@@ -937,6 +980,7 @@ local function make_ant_clear()
       if not built then build(hw, hh) end
       update_drifters(math.min(dt, MAX_DT))   -- ambient motion, even on the win card
       update_buttons(math.min(dt, MAX_DT))    -- ease button press/selected states
+      update_intro(math.min(dt, MAX_DT))      -- level-intro title card sweep
       if not playing then
         -- won: hold the celebration briefly, then AUTO-ADVANCE to the next level
         -- (no caption, no tap needed; a tap during the hold skips ahead)
