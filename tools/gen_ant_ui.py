@@ -174,6 +174,27 @@ def icon_sound():
     save(im.resize((N, N), Image.LANCZOS), "icon_sound")
 
 
+def icon_star():
+    """A chubby five-point star, warm gold with a darker rim — the progress-bar
+    stars on the status bar (unlit copies are tinted dark in-engine)."""
+    import math
+    N = 48
+    im = Image.new("RGBA", (N * SS, N * SS), (0, 0, 0, 0))
+    d = ImageDraw.Draw(im)
+    cx = cy = N * SS / 2
+    def star(radius, fill):
+        pts = []
+        for i in range(10):
+            r = radius if i % 2 == 0 else radius * 0.5
+            a = -math.pi / 2 + i * math.pi / 5
+            pts.append((cx + r * math.cos(a), cy + r * math.sin(a)))
+        d.polygon(pts, fill=fill)
+    star(21 * SS, (150, 96, 26, 255))       # rim
+    star(17 * SS, (255, 200, 60, 255))      # body
+    star(10 * SS, (255, 232, 140, 255))     # inner glow
+    save(im.resize((N, N), Image.LANCZOS), "icon_star")
+
+
 candy_tile(); hole(); ad_play(); cat_face(); ant_shadow()
 icon_speed(); icon_x2(); icon_gift()
-leaf(); petal(); icon_sound()
+leaf(); petal(); icon_sound(); icon_star()
