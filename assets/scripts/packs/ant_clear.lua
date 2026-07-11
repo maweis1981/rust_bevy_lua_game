@@ -27,8 +27,9 @@ local function make_ant_clear()
   local LEVEL = {
     id = 1, slots = 4,       -- level number + active-slot count (level-driven)
     w = 20, h = 17,
-    -- candy palette (art-direction v2): cocoa outline, tangerine fur, cream face,
-    -- strawberry ears/nose, mint eyes — bright + high-contrast, no muddy browns.
+    -- FOOD palette (dirt-world v3): every colour reads as something ants haul —
+    -- 1 chocolate, 2 bread crust, 3 white sugar, 4 strawberry candy, 5 mint candy.
+    -- The same colours tint the cubes (the food) AND the ant species carrying it.
     palette = { {0.290,0.180,0.125}, {1.000,0.624,0.110}, {1.000,0.953,0.863}, {1.000,0.353,0.416}, {0.224,0.788,0.722} },
     grid = {
       {0,0,0,0,1,1,0,0,0,0,0,0,0,0,1,1,0,0,0,0},
@@ -272,9 +273,20 @@ local function make_ant_clear()
   end
   -- Colour each ant to its slot's colour (a red slot -> red ants), so the swarm
   -- reads as "these ants are carrying THIS colour". Only re-set on change.
-  -- The ant stays its natural red; colour is read from the cube it carries, so
-  -- there is nothing to tint on the ant body.
-  local function tint_ant(_) end
+  -- ANT SPECIES BY COLOUR: ant_hero.png is a light luminance master, so tinting
+  -- it turns the whole ant into a different-coloured species (chocolate ants haul
+  -- chocolate, sugar-white ants haul sugar, ...). Idle ants with no slot rest as
+  -- a natural warm brown. Only re-set on change.
+  local IDLE_ANT = { 0.62, 0.42, 0.28 }
+  local function tint_ant(a)
+    local s = slots[a.slot]
+    local ci = s and s.color or 0
+    if ci ~= a.tintc then
+      if ci == 0 then game.set_color(a.id, IDLE_ANT[1], IDLE_ANT[2], IDLE_ANT[3], 1)
+      else local c = palette[ci]; game.set_color(a.id, c[1], c[2], c[3], 1) end
+      a.tintc = ci
+    end
+  end
   local function pick_target(color)
     if dirty then recompute_field() end
     local br, bc, bd
@@ -491,6 +503,7 @@ local function make_ant_clear()
         if slot_bug[i] then game.despawn(slot_bug[i]); slot_bug[i] = nil end
         if lbl ~= "" then
           slot_bug[i] = T.sprite(slot_x(i) - SLOT_W * 0.26, SLOT_Y + SLOT_W * 0.26, SLOT_W * 0.36, SLOT_W * 0.36, "ant_hero")
+          if s then tint(slot_bug[i], s.color) end   -- marker ant = the species colour
           slot_txt[i] = num_make(lbl, SLOT_W * 0.52, 1)
         end
         slot_shown[i] = lbl
@@ -515,7 +528,7 @@ local function make_ant_clear()
           if tray_bug[i] then game.despawn(tray_bug[i]); tray_bug[i] = nil end
           if lbl ~= "" then
             tray_bug[i] = T.sprite(xx - TRAY_W * 0.26, yy + TRAY_W * 0.24, TRAY_W * 0.34, TRAY_W * 0.34, "ant_hero")
-            game.set_color(tray_bug[i], 1, 1, 1, a)
+            if b then tint(tray_bug[i], b.color, a) end   -- marker ant = species colour
             tray_txt[i] = num_make(lbl, TRAY_W * 0.5, a)
           end
           tray_shown[i] = lbl
