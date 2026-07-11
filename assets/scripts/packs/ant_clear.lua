@@ -230,6 +230,7 @@ local function make_ant_clear()
   local dispatch_cd = 0        -- ants leave the nest ONE AT A TIME (single file)
   local DISPATCH_GAP = 0.45    -- seconds between departures
   local muted = false          -- sound toggle (music + sfx)
+  local win_t = 0              -- celebration timer -> auto-advance to next level
   local HW, HH, built = 0, 0, false
   local back, was_stuck = nil, false
   local palette = PALETTE5
@@ -703,8 +704,8 @@ local function make_ant_clear()
 
   local function status()
     if not SETTINGS.hud then return end
-    if stuck then game.set_text("卡住了 — 点一个满槽位取消(看广告)") return end
-    game.set_text(mode == "manual" and free_slot() and queue_total() > 0 and "点一个颜色" or "")
+    -- only the stuck rescue prompt is ever shown; no idle hint text
+    game.set_text(stuck and "卡住了 — 点一个满槽位取消(看广告)" or "")
   end
 
   -- ---- build ---------------------------------------------------------------
@@ -853,7 +854,7 @@ local function make_ant_clear()
   end
 
   local function win()
-    playing, won = false, true
+    playing, won, win_t = false, true, 0
     game.set_text("")                    -- no caption; the stars/confetti say it
     -- advance the saved progression; the next tap rebuilds into the new level
     cur_lvl = (cur_lvl % #LEVELS) + 1
@@ -901,7 +902,15 @@ local function make_ant_clear()
       if not built then build(hw, hh) end
       update_drifters(math.min(dt, MAX_DT))   -- ambient motion, even on the win card
       update_buttons(math.min(dt, MAX_DT))    -- ease button press/selected states
-      if not playing then return end
+      if not playing then
+        -- won: hold the celebration briefly, then AUTO-ADVANCE to the next level
+        -- (no caption, no tap needed; a tap during the hold skips ahead)
+        if won then
+          win_t = win_t + math.min(dt, MAX_DT)
+          if win_t >= 2.2 then win_t = 0; T.clear(); build(HW, HH) end
+        end
+        return
+      end
       dt = math.min(dt, MAX_DT)
       dispatch_cd = math.max(0, dispatch_cd - dt * (speed2 and 2 or 1))
       if dirty then recompute_field() end
