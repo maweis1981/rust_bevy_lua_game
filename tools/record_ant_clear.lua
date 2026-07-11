@@ -41,6 +41,11 @@ game = setmetatable({
   spawn = function(x, y, w, h, r, g, b, a) return add(x, y, w, h, r, g, b, a, "rect") end,
   spawn_sprite = function(x, y, w, h, name) return add(x, y, w, h, 1, 1, 1, 1, name) end,
   spawn_sheet = function(x, y, w, h, name) return add(x, y, w, h, 1, 1, 1, 1, name or "ant_sheet") end,
+  -- rigs record as a single ant_hero entity (the offline renderer approximates
+  -- the skeletal ant with the hero sprite; scale 110 mirrors spawn_ant's maths)
+  spawn_rig = function(x, y, _, scale) return add(x, y, (scale or 1) * 110, (scale or 1) * 110, 1, 1, 1, 1, "ant_hero") end,
+  play_anim = function() end,
+  set_bone = function() end,
   spawn_text = function(x, y, size, r, g, b, a, str) return add(x, y, 0, size, r, g, b, a, "text", str) end,
   move_to = function(id, x, y) local e = ents[id]; if e then e.x, e.y = x, y end end,
   set_color = function(id, r, g, b, a) local e = ents[id]; if e then e.r, e.g, e.b, e.a = r, g, b, a end end,

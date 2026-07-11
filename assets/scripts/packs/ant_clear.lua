@@ -372,14 +372,14 @@ local function make_ant_clear()
 
   -- ---- ants (spritesheet walk + facing + carry) ---------------------------
   local function spawn_ant(slot_i)
-    -- ant_sheet is 8 frames of 48x48 (see tools/gen_ant_sheet.py). spawn_sheet
-    -- needs (x,y,w,h,name, frame_w, frame_h, cols, frames) — all nine, or the
-    -- host binding errors (which stalled the web build).
     local sh = game.spawn_sprite(NESTX, NESTY, CELL * ANT_SIZE * 0.9, CELL * ANT_SIZE * 0.6, "ant_shadow")
     game.set_color(sh, 1, 1, 1, 0.5)
-    -- one detailed red ant (Floniks). It stays its natural red; the COLOUR it is
-    -- hauling is shown by the tinted cube it carries, so the ant body is never tinted.
-    local id = game.spawn_sprite(NESTX, NESTY, CELL * ANT_SIZE, CELL * ANT_SIZE, "ant_hero")
+    -- SKELETAL ant (assets/rigs/ant.rig): a body part + six legs driven by a
+    -- looping tripod-gait clip, so the legs genuinely walk. The rig root scales
+    -- the authored 156px body down to the game's ant size; set_color on the
+    -- root tints every bone (species colour) — the engine propagates it.
+    local id = game.spawn_rig(NESTX, NESTY, "ant", CELL * ANT_SIZE / 110)
+    game.play_anim(id, "walk")
     ants[#ants + 1] = { id = id, shadow = sh, slot = slot_i, state = "idle", x = NESTX, y = NESTY,
                         pi = 1, path = nil, tr = 0, tc = 0, anim = 0, carry = nil, cc = 0, tintc = -1,
                         phase = (#ants % 8) * 0.8, dust = 0 }
