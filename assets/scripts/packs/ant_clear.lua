@@ -516,6 +516,7 @@ local function make_ant_clear()
   local lvl_num                        -- bitmap-digit level number (in the badge)
   local prog_x0, prog_w, prog_fill, prog_stars = 0, 1, nil, {}   -- star progress bar
   local prog_y, prog_h = 0, 8          -- fill centre-line + thickness (set in build)
+  local prog_star_pos = {}             -- bar-star coordinates (win-show flight targets)
   local drifters = {}                  -- ambient floating leaves/motes (bg motion)
   local buttons = {}                   -- tappable UI buttons with press-state feedback
 
@@ -795,10 +796,11 @@ local function make_ant_clear()
     game.set_color(groove, 0.22, 0.13, 0.08, 0.9)
     prog_fill = T.sprite(prog_x0, prog_y, 1, prog_h, "tile_sq")
     game.set_color(prog_fill, 1.0, 0.78, 0.20, 1)
-    prog_stars = {}
+    prog_stars, prog_star_pos = {}, {}
     for k, f in ipairs({ 0.38, 0.505, 0.63 }) do
       prog_stars[k] = T.sprite(bfx(f), by + 1, bar_h * 0.52, bar_h * 0.52, "icon_star")
       game.set_color(prog_stars[k], 0.42, 0.32, 0.24, 1)    -- unlit until earned
+      prog_star_pos[k] = { bfx(f), by + 1 }                 -- flight targets (win show)
     end
     T.sprite(bfx(0.80), by, 28, 28, "icon_coin")
     coin_num, coin_shown = nil, nil                         -- live score (set in refresh)
@@ -869,17 +871,26 @@ local function make_ant_clear()
 
   local function win()
     playing, won, win_t = false, true, 0
-    game.set_text("")                    -- no caption; the stars/confetti say it
-    -- advance the saved progression; the next tap rebuilds into the new level
+    game.set_text("")                    -- no caption; the star show says it
+    -- advance the saved progression; the celebration auto-advances into it
     cur_lvl = (cur_lvl % #LEVELS) + 1
     if game.save then game.save("ant_clear_lvl", cur_lvl) end
     game.play_sound("ac_win"); game.haptic("success"); game.shake(0.5); game.log("ant_clear win")
-    -- celebration: spark bursts scattered across where the picture was
-    local py = TOPY - 0.5 * CELL * H
-    for i = 1, 9 do
-      game.emit("spark", (math.random() * 2 - 1) * CELL * W * 0.4, py + (math.random() * 2 - 1) * CELL * H * 0.4, 8)
-    end
     game.zoom(0.6)
+    -- WIN SHOW: three big stars rise from where the picture was and fly one by
+    -- one into their bar sockets (overshoot ease), each launch with confetti
+    local py = TOPY - 0.5 * CELL * H
+    for k = 1, 3 do
+      local sp = prog_star_pos[k]
+      if sp then
+        local st = T.sprite(0, py, 46, 46, "icon_star")
+        game.tween(st, sp[1], sp[2], 0.55, 0.62, "back", 0.18 + (k - 1) * 0.34, 2.0)
+      end
+    end
+    for i = 1, 6 do
+      game.emit("confetti", (math.random() * 2 - 1) * CELL * W * 0.4,
+                py + (math.random() * 2 - 1) * CELL * H * 0.3, 14)
+    end
   end
 
   return {
@@ -920,8 +931,15 @@ local function make_ant_clear()
         -- won: hold the celebration briefly, then AUTO-ADVANCE to the next level
         -- (no caption, no tap needed; a tap during the hold skips ahead)
         if won then
-          win_t = win_t + math.min(dt, MAX_DT)
-          if win_t >= 2.2 then win_t = 0; T.clear(); build(HW, HH) end
+          local step = math.min(dt, MAX_DT)
+          -- confetti keeps popping every ~0.35s while the star show plays
+          if math.floor((win_t + step) / 0.35) ~= math.floor(win_t / 0.35) and win_t < 1.6 then
+            game.emit("confetti", (math.random() * 2 - 1) * HW * 0.6,
+                      (math.random() * 2 - 1) * HH * 0.3, 12)
+            game.play_sound("ac_deposit")
+          end
+          win_t = win_t + step
+          if win_t >= 2.8 then win_t = 0; T.clear(); build(HW, HH) end
         end
         return
       end
