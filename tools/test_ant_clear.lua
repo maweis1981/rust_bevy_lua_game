@@ -217,7 +217,12 @@ end
 
 D.set_mode("manual")   -- flip the shared mode before the fresh build auto-fills
 D = rebuild()
-check(D.free_slots() == 4 and D.painted() == total0, "manual: starts with empty slots, nothing auto-loads")
+-- a win advances the saved level, so the rebuild may be a DIFFERENT picture:
+-- compare painted against the rebuilt grid's own cell count, not level 1's.
+local g1 = D.grid()
+local total1 = 0
+for r = 1, #g1 do for c = 1, #g1[1] do if g1[r][c] ~= 0 then total1 = total1 + 1 end end end
+check(D.free_slots() == 4 and D.painted() == total1, "manual: starts with empty slots, nothing auto-loads")
 local fb, buried_b = drive(D, safe_policy)
 check(buried_b, "PATHFINDING holds under manual play too")
 check(D.won(), "STRATEGY: manual top-row (column-head) play clears the board (in " .. fb .. " frames)")
