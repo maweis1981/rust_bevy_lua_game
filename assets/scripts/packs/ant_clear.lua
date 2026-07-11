@@ -142,7 +142,8 @@ local function make_ant_clear()
   local SLOTS = LEVEL.slots or 4   -- active slots (< palette size on purpose)
   local ANTS_PER_SLOT = 4
   local ANT_SPEED = 75       -- world units / sec (slow, calm)
-  local ANT_SIZE = 2.3       -- ant sprite size in cells (big + clear)
+  local ANT_SIZE = 1.6       -- ant BODY LENGTH in cells (small vs the blocks,
+                             -- like the reference — was reading 3+ cells)
   local MAX_DT = 1 / 30
   local mode = "manual"      -- "manual" (tap to load) | "auto" (autoplay/tests)
 
@@ -375,16 +376,19 @@ local function make_ant_clear()
 
   -- ---- ants (spritesheet walk + facing + carry) ---------------------------
   local function spawn_ant(slot_i)
-    local sh = game.spawn_sprite(NESTX, NESTY, CELL * ANT_SIZE * 0.9, CELL * ANT_SIZE * 0.6, "ant_shadow")
-    game.set_color(sh, 1, 1, 1, 0.5)
+    local sh = game.spawn_sprite(NESTX, NESTY, CELL * ANT_SIZE * 0.7, CELL * ANT_SIZE * 0.45, "ant_shadow")
+    game.set_color(sh, 1, 1, 1, 0)
     -- SKELETAL ant (assets/rigs/ant.rig): a body part + six legs driven by a
     -- looping tripod-gait clip, so the legs genuinely walk. The rig root scales
-    -- the authored 156px body down to the game's ant size; set_color on the
-    -- root tints every bone (species colour) — the engine propagates it.
-    local id = game.spawn_rig(NESTX, NESTY, "ant", CELL * ANT_SIZE / 110)
+    -- the authored 156px-tall body to ANT_SIZE cells of length; set_color on
+    -- the root tints every bone (species colour) — the engine propagates it.
+    -- Ants start HIDDEN: idle ants live inside the nest, not piled on the hole.
+    local rig_s = CELL * ANT_SIZE / 156
+    local id = game.spawn_rig(NESTX, NESTY, "ant", rig_s)
     game.play_anim(id, "walk")
     ants[#ants + 1] = { id = id, shadow = sh, slot = slot_i, state = "idle", x = NESTX, y = NESTY,
-                        pi = 1, path = nil, tr = 0, tc = 0, anim = 0, carry = nil, cc = 0, tintc = -1,
+                        pi = 1, path = nil, tr = 0, tc = 0, anim = 0, carry = nil, cc = 0,
+                        rig_s = rig_s, hidden = true, tintk = nil,
                         phase = (#ants % 8) * 0.8, dust = 0 }
   end
   -- Colour each ant to its slot's colour (a red slot -> red ants), so the swarm
@@ -394,13 +398,17 @@ local function make_ant_clear()
   -- chocolate, sugar-white ants haul sugar, ...). Idle ants with no slot rest as
   -- a natural warm brown. Only re-set on change.
   local IDLE_ANT = { 0.62, 0.42, 0.28 }
+  -- species colour + visibility in one place: hidden ants (resting INSIDE the
+  -- nest) are fully transparent, so idle workers never pile up on the hole.
   local function tint_ant(a)
     local s = slots[a.slot]
     local ci = s and s.color or 0
-    if ci ~= a.tintc then
-      if ci == 0 then game.set_color(a.id, IDLE_ANT[1], IDLE_ANT[2], IDLE_ANT[3], 1)
-      else local c = palette[ci]; game.set_color(a.id, c[1], c[2], c[3], 1) end
-      a.tintc = ci
+    local key = ci .. (a.hidden and "h" or "v")
+    if key ~= a.tintk then
+      local c = (ci == 0) and IDLE_ANT or palette[ci]
+      game.set_color(a.id, c[1], c[2], c[3], a.hidden and 0 or 1)
+      if a.shadow then game.set_color(a.shadow, 1, 1, 1, a.hidden and 0 or 0.5) end
+      a.tintk = key
     end
   end
   local function pick_target(color)
@@ -450,13 +458,7 @@ local function make_ant_clear()
       if a.dust > CELL * 0.85 then a.dust = 0; game.emit("dust", rx, ry - CELL * 0.15, 3) end
     end
     game.move_to(a.id, rx, ry)
-    if a.shadow then game.move_to(a.shadow, rx, ry - CELL * 0.55) end
-    -- emerge scale-in as the ant leaves the nest
-    if a.emerge and a.emerge < 1 then
-      a.emerge = math.min(1, a.emerge + dt * 5)
-      local sz = CELL * ANT_SIZE * (0.35 + 0.65 * a.emerge)
-      game.set_size(a.id, sz, sz)
-    end
+    if a.shadow then game.move_to(a.shadow, rx, ry - CELL * 0.40) end
     -- carried pixel pops up from nothing, then rides the ant
     if a.carry then
       a.carry_t = math.min(1, (a.carry_t or 1) + dt * 8)
@@ -477,7 +479,10 @@ local function make_ant_clear()
       reserved[(r-1)*W+c] = true
       s.n = s.n - 1                     -- reserve the count at DISPATCH so a slot
       slot_pulse[a.slot] = 1            -- animate the count tick-down
-      a.emerge = 0                      -- scale-in as it leaves the nest
+      a.hidden = false; tint_ant(a)     -- step out of the nest, visible again
+      -- emerge pop: rig scale grows from a quarter to full (tween is absolute
+      -- Transform scale, so the target is the rig's own base scale)
+      game.tween(a.id, nil, nil, a.rig_s, 0.35, "back", 0, a.rig_s * 0.25)
       dispatch_cd = DISPATCH_GAP        -- next ant waits its turn at the nest
       a.tr, a.tc, a.path, a.pi, a.state = r, c, p, 1, "out"   -- never over-sends ants
     elseif a.state == "out" then
@@ -502,6 +507,7 @@ local function make_ant_clear()
           game.emit("spark", NESTX, NESTY - CELL * 0.4, 5)   -- deposit sparkle at the hole
           game.zoom(0.12)                                     -- tiny satisfying punch
         end
+        a.hidden = true; tint_ant(a)     -- slip back INSIDE the nest (no pile-up)
         a.state = "idle"
       end
     end
