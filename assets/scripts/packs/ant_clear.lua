@@ -141,7 +141,8 @@ local function make_ant_clear()
   -- ---- tunables ------------------------------------------------------------
   local SLOTS = LEVEL.slots or 4   -- active slots (< palette size on purpose)
   local ANTS_PER_SLOT = 4
-  local ANT_SPEED = 75       -- world units / sec (slow, calm)
+  local ANT_SPEED = 48       -- world units / sec (a leisurely, casual crawl —
+                             -- premium casual games amble, they don't scurry)
   local ANT_SIZE = 1.6       -- ant BODY LENGTH in cells (small vs the blocks,
                              -- like the reference — was reading 3+ cells)
   local MAX_DT = 1 / 30
