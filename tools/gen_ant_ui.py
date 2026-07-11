@@ -156,6 +156,24 @@ def petal():
     save(im.resize((N, N), Image.LANCZOS), "petal")
 
 
+def icon_sound():
+    """A small speaker icon (body + two sound arcs), warm cream on transparent —
+    the pack tints it; the mute state draws a strike line over it in-engine."""
+    N = 48
+    im = Image.new("RGBA", (N * SS, N * SS), (0, 0, 0, 0))
+    d = ImageDraw.Draw(im)
+    u = SS
+    C = (255, 248, 236, 255)
+    # speaker: box + cone
+    d.rounded_rectangle([8 * u, 19 * u, 16 * u, 29 * u], 2 * u, fill=C)
+    d.polygon([(14 * u, 24 * u), (24 * u, 13 * u), (24 * u, 35 * u)], fill=C)
+    # two sound arcs
+    for r, wd in ((7, 2.6), (12, 2.6)):
+        d.arc([24 * u - r * u, 24 * u - r * u, 24 * u + r * u, 24 * u + r * u],
+              -55, 55, fill=C, width=int(wd * u))
+    save(im.resize((N, N), Image.LANCZOS), "icon_sound")
+
+
 candy_tile(); hole(); ad_play(); cat_face(); ant_shadow()
 icon_speed(); icon_x2(); icon_gift()
-leaf(); petal()
+leaf(); petal(); icon_sound()

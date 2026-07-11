@@ -23,34 +23,35 @@ local function make_ant_clear()
   local K = GAME_KIT
   local T = K.tracker()
 
-  -- ---- level (generated: tools/gen_level.py --pattern cat) -----------------
+  -- ---- level (generated: tools/gen_level.py --pattern donut) ---------------
   local LEVEL = {
     id = 1, slots = 4,       -- level number + active-slot count (level-driven)
     w = 20, h = 17,
     -- FOOD palette (dirt-world v3): every colour reads as something ants haul —
-    -- 1 chocolate, 2 bread crust, 3 white sugar, 4 strawberry candy, 5 mint candy.
+    -- 1 chocolate, 2 dough, 3 white sugar, 4 strawberry icing, 5 mint sprinkle.
     -- The same colours tint the cubes (the food) AND the ant species carrying it.
+    -- The picture is a strawberry-iced DONUT the colony carries off crumb by crumb.
     palette = { {0.290,0.180,0.125}, {1.000,0.624,0.110}, {1.000,0.953,0.863}, {1.000,0.353,0.416}, {0.224,0.788,0.722} },
     grid = {
-      {0,0,0,0,1,1,0,0,0,0,0,0,0,0,1,1,0,0,0,0},
-      {0,0,0,1,4,4,1,0,0,0,0,0,0,1,4,4,1,0,0,0},
-      {0,0,0,1,4,2,1,0,0,0,0,0,0,1,2,4,1,0,0,0},
-      {0,0,1,1,2,2,1,1,0,0,0,0,1,1,2,2,1,1,0,0},
-      {0,0,1,2,2,2,2,2,1,1,1,1,2,2,2,2,2,1,0,0},
-      {0,1,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,1,0,0},
-      {0,1,2,2,3,3,3,3,3,3,3,3,3,3,3,2,2,1,0,0},
-      {0,1,2,3,3,3,3,3,3,3,3,3,3,3,3,3,2,1,0,0},
-      {1,2,3,3,5,5,3,3,3,3,3,3,5,5,3,3,3,2,1,0},
-      {1,2,3,3,5,5,3,3,3,3,3,3,5,5,3,3,3,2,1,0},
-      {1,2,3,3,3,3,3,3,3,4,4,3,3,3,3,3,3,2,1,0},
-      {1,2,3,3,3,3,3,3,4,4,4,4,3,3,3,3,3,2,1,0},
-      {1,2,2,3,3,3,3,3,3,3,3,3,3,3,3,3,2,2,1,0},
-      {0,1,2,2,3,3,3,3,3,3,3,3,3,3,2,2,1,0,0,0},
-      {0,1,1,2,2,2,3,3,3,3,3,2,2,2,1,1,0,0,0,0},
-      {0,0,0,1,1,2,2,2,2,2,2,2,1,1,1,1,0,0,0,0},
-      {0,0,0,0,0,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0},
+      {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+      {0,0,0,0,0,0,4,4,4,4,4,4,4,4,0,0,0,0,0,0},
+      {0,0,0,0,4,4,4,4,4,4,4,3,4,4,4,4,0,0,0,0},
+      {0,0,0,4,4,4,4,4,5,4,4,4,4,4,4,4,4,0,0,0},
+      {0,0,4,4,3,4,4,4,4,4,4,4,4,4,4,4,5,4,0,0},
+      {0,5,4,4,4,4,4,4,4,4,4,4,3,4,4,4,4,4,4,0},
+      {0,4,4,4,4,4,4,4,4,0,0,4,4,4,4,4,4,4,4,0},
+      {0,4,4,2,4,3,2,0,0,0,0,0,0,2,4,4,4,5,4,0},
+      {0,4,2,2,4,2,2,0,0,0,0,0,0,2,4,2,2,4,4,0},
+      {0,4,2,2,2,2,2,0,0,0,0,0,0,2,2,2,2,4,2,0},
+      {0,2,2,2,2,2,2,2,2,0,0,2,2,2,2,2,2,2,2,0},
+      {0,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,0},
+      {0,0,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,0,0},
+      {0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0},
+      {0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0},
+      {0,0,0,0,0,0,1,1,1,1,1,1,1,1,0,0,0,0,0,0},
+      {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
     },
-    tray = { {1,8},{1,8},{1,8},{1,8},{1,8},{2,8},{2,8},{2,8},{2,8},{1,8},{2,8},{3,8},{3,8},{3,8},{1,8},{2,8},{3,8},{3,8},{3,8},{3,8},{3,8},{2,8},{3,8},{3,8},{3,8},{4,8},{3,8},{2,8},{5,8},{1,6},{4,4},{2,2},{3,2} },
+    tray = { {4,8}, {4,8}, {4,8}, {4,8}, {4,8}, {4,8}, {4,8}, {4,8}, {4,8}, {2,8}, {2,8}, {2,8}, {2,8}, {2,8}, {4,8}, {2,8}, {2,8}, {1,8}, {1,8}, {1,8}, {2,8}, {4,8}, {1,8}, {2,6}, {3,4}, {4,4}, {5,4}, {1,2} },
   }
 
   -- ---- tunables ------------------------------------------------------------
@@ -133,6 +134,9 @@ local function make_ant_clear()
   local col_adv = {}                    -- per-column slide-up animation timer
   local slot_pulse = {}   -- brief scale bump when a slot's count ticks down
   local playing, won, stuck, speed2 = true, false, false, false
+  local dispatch_cd = 0        -- ants leave the nest ONE AT A TIME (single file)
+  local DISPATCH_GAP = 0.45    -- seconds between departures
+  local muted = false          -- sound toggle (music + sfx)
   local HW, HH, built = 0, 0, false
   local back, was_stuck = nil, false
   local palette = LEVEL.palette
@@ -214,6 +218,9 @@ local function make_ant_clear()
   local function tint(id, ci, a)
     local col = palette[ci]; game.set_color(id, col[1], col[2], col[3], a or 1)
   end
+  -- Each colour is a REAL food object (rendered sprites, not tinted cubes):
+  -- the picture/queue/carried blocks read as actual chocolate/bread/sugar/candy.
+  local FOOD = { "food_choc", "food_bread", "food_sugar", "food_berry", "food_mint" }
 
   -- ---- bitmap number font (num_font.png: 10 candy digits, 52x68) -----------
   local NUMA = 52 / 68
@@ -244,8 +251,8 @@ local function make_ant_clear()
       for c = 1, W do
         local ci = grid[r][c]
         if ci ~= 0 then
-          local id = T.sprite(cx(c), cy(r), CELL, CELL, "cube")
-          tint(id, ci); cell_id[r][c] = id; painted = painted + 1
+          local id = T.sprite(cx(c), cy(r), CELL, CELL, FOOD[ci])
+          cell_id[r][c] = id; painted = painted + 1
         end
       end
     end
@@ -325,8 +332,11 @@ local function make_ant_clear()
     local rx, ry = a.x, a.y
     if tl > 0.01 then
       local px, py = -tdy / tl, tdx / tl
-      local sway = math.sin(a.anim * 0.85 + a.phase) * CELL * 0.18
-      rx, ry = a.x + px * sway, a.y + py * sway
+      -- TWO-WAY ANT ROAD: everyone shares one trail; outbound ants keep to one
+      -- side, returning ants to the other, so opposite streams pass cleanly.
+      local lane = (a.state == "out" and 1 or -1) * CELL * 0.24
+      local sway = math.sin(a.anim * 0.85 + a.phase) * CELL * 0.12
+      rx, ry = a.x + px * (sway + lane), a.y + py * (sway + lane)
       a.dust = a.dust + moved
       if a.dust > CELL * 0.85 then a.dust = 0; game.emit("dust", rx, ry - CELL * 0.15, 3) end
     end
@@ -352,21 +362,22 @@ local function make_ant_clear()
     tint_ant(a)
     if a.state == "idle" then
       if not s or s.n <= 0 then return end
+      if dispatch_cd > 0 then return end   -- single file: one ant leaves at a time
       local r, c = pick_target(s.color); if not r then return end
       local p = path_to(r, c); if not p then return end
       reserved[(r-1)*W+c] = true
       s.n = s.n - 1                     -- reserve the count at DISPATCH so a slot
       slot_pulse[a.slot] = 1            -- animate the count tick-down
       a.emerge = 0                      -- scale-in as it leaves the nest
+      dispatch_cd = DISPATCH_GAP        -- next ant waits its turn at the nest
       a.tr, a.tc, a.path, a.pi, a.state = r, c, p, 1, "out"   -- never over-sends ants
     elseif a.state == "out" then
       if move_along(a, dt) then
         if grid[a.tr][a.tc] ~= 0 then
           a.cc = grid[a.tr][a.tc]
           clear_cell(a.tr, a.tc)
-          a.carry = game.spawn_sprite(a.x, a.y - CELL * 0.5, CELL * 0.72, CELL * 0.72, "cube")
-          a.carry_t = 0                 -- pop the picked cube up from nothing
-          tint(a.carry, a.cc)
+          a.carry = game.spawn_sprite(a.x, a.y - CELL * 0.5, CELL * 0.72, CELL * 0.72, FOOD[a.cc])
+          a.carry_t = 0                 -- pop the picked morsel up from nothing
           game.shake(0.02); game.haptic("light")   -- grab: subtle (deposit is the sound)
         end
         reserved[(a.tr-1)*W+a.tc] = nil
@@ -376,7 +387,12 @@ local function make_ant_clear()
       end
     elseif a.state == "back" then
       if move_along(a, dt) then
-        if a.carry then game.despawn(a.carry); a.carry = nil; game.play_sound("ac_deposit") end
+        if a.carry then
+          game.despawn(a.carry); a.carry = nil
+          game.play_sound("ac_deposit")
+          game.emit("spark", NESTX, NESTY - CELL * 0.4, 5)   -- deposit sparkle at the hole
+          game.zoom(0.12)                                     -- tiny satisfying punch
+        end
         a.state = "idle"
       end
     end
@@ -384,6 +400,7 @@ local function make_ant_clear()
 
   -- ---- HUD tiles (slots + tray) -------------------------------------------
   local slot_bg, slot_txt, slot_bug, tray_bg, tray_txt, tray_bug = {}, {}, {}, {}, {}, {}
+  local slot_food = {}                 -- mini food sprite sitting in each spice box
   local slot_shown, tray_shown = {}, {}
   local coin_num                       -- bitmap-digit coin counter
   local drifters = {}                  -- ambient floating leaves/motes (bg motion)
@@ -479,41 +496,44 @@ local function make_ant_clear()
     local q_cy = (row_y(0) + row_y(QROWS - 1)) / 2
     T.sprite(0, q_cy, NCOL * (TRAY_W + 8) + 44, QROWS * (TRAY_W + QYGAP) + 28, "tray_wood")
     for i = 1, SLOTS do
-      slot_bg[i] = T.sprite(slot_x(i), SLOT_Y, SLOT_W, SLOT_W, "cube")
-      game.set_color(slot_bg[i], 0.80, 0.76, 0.70, 1)
+      -- each slot is a little kitchen SPICE BOX; the food it's committed to sits
+      -- inside it (mini food sprite), so the container matches the narrative
+      slot_bg[i] = T.sprite(slot_x(i), SLOT_Y, SLOT_W * 1.14, SLOT_W * 1.14, "spice_box")
       slot_shown[i] = nil
     end
     for c = 1, NCOL do for row = 0, QROWS - 1 do
       local i = qi(c, row)
-      tray_bg[i] = T.sprite(col_x(c), row_y(row), TRAY_W, TRAY_W, "cube")
-      game.set_color(tray_bg[i], 0.80, 0.76, 0.70, 0)
+      tray_bg[i] = nil            -- queue tiles are per-food sprites, spawned on demand
       tray_shown[i] = nil
     end end
   end
   local function refresh_hud()
     for i = 1, SLOTS do
       local s = slots[i]
-      if s then tint(slot_bg[i], s.color) else game.set_color(slot_bg[i], 0.80, 0.76, 0.70, 1) end
-      -- count-tick pulse: scale the slot tile up briefly, then ease back
+      -- count-tick pulse: scale the spice box up briefly, then ease back
       local p = slot_pulse[i] or 0
       if p > 0.01 then
-        local sc = SLOT_W * (1 + 0.18 * p); game.set_size(slot_bg[i], sc, sc)
+        local sc = SLOT_W * 1.14 * (1 + 0.18 * p); game.set_size(slot_bg[i], sc, sc)
         slot_pulse[i] = p * 0.82
       elseif slot_pulse[i] then
-        game.set_size(slot_bg[i], SLOT_W, SLOT_W); slot_pulse[i] = nil
+        game.set_size(slot_bg[i], SLOT_W * 1.14, SLOT_W * 1.14); slot_pulse[i] = nil
       end
-      local lbl = s and tostring(s.n) or ""
+      -- key includes the colour: respawn the mini food + markers when it changes
+      local lbl = s and (tostring(s.n) .. ":" .. s.color) or ""
       if lbl ~= slot_shown[i] then
         num_free(slot_txt[i]); slot_txt[i] = nil
+        if slot_food[i] then game.despawn(slot_food[i]); slot_food[i] = nil end
         if slot_bug[i] then game.despawn(slot_bug[i]); slot_bug[i] = nil end
-        if lbl ~= "" then
-          slot_bug[i] = T.sprite(slot_x(i) - SLOT_W * 0.26, SLOT_Y + SLOT_W * 0.26, SLOT_W * 0.36, SLOT_W * 0.36, "ant_hero")
-          if s then tint(slot_bug[i], s.color) end   -- marker ant = the species colour
-          slot_txt[i] = num_make(lbl, SLOT_W * 0.52, 1)
+        if s then
+          -- the committed food sits IN the box, ant marker + count on top
+          slot_food[i] = T.sprite(slot_x(i), SLOT_Y + SLOT_W * 0.06, SLOT_W * 0.62, SLOT_W * 0.62, FOOD[s.color])
+          slot_bug[i] = T.sprite(slot_x(i) - SLOT_W * 0.30, SLOT_Y + SLOT_W * 0.30, SLOT_W * 0.36, SLOT_W * 0.36, "ant_hero")
+          tint(slot_bug[i], s.color)                 -- marker ant = the species colour
+          slot_txt[i] = num_make(tostring(s.n), SLOT_W * 0.52, 1)
         end
         slot_shown[i] = lbl
       end
-      num_place(slot_txt[i], slot_x(i) + SLOT_W * 0.12, SLOT_Y - SLOT_W * 0.02)
+      num_place(slot_txt[i], slot_x(i) + SLOT_W * 0.16, SLOT_Y - SLOT_W * 0.18)
     end
     for c = 1, NCOL do
       local slide = (col_adv[c] or 0)
@@ -525,19 +545,23 @@ local function make_ant_clear()
         local a = head and 1 or 0.5                 -- only the head row is "live"
         local yy = row_y(row) - slide * (TRAY_W + QYGAP)   -- slide up from one row below
         local xx = col_x(c)
-        game.move_to(tray_bg[i], xx, yy)
-        if b then tint(tray_bg[i], b.color, a) else game.set_color(tray_bg[i], 0.80, 0.76, 0.70, 0) end
-        local lbl = b and tostring(b.n) or ""
+        -- key includes the colour: queue tiles are REAL food sprites, so a colour
+        -- change (column advancing) respawns the tile with the right texture
+        local lbl = b and (tostring(b.n) .. ":" .. b.color) or ""
         if lbl ~= tray_shown[i] then
           num_free(tray_txt[i]); tray_txt[i] = nil
+          if tray_bg[i] then game.despawn(tray_bg[i]); tray_bg[i] = nil end
           if tray_bug[i] then game.despawn(tray_bug[i]); tray_bug[i] = nil end
-          if lbl ~= "" then
+          if b then
+            tray_bg[i] = T.sprite(xx, yy, TRAY_W, TRAY_W, FOOD[b.color])
+            game.set_color(tray_bg[i], 1, 1, 1, a)
             tray_bug[i] = T.sprite(xx - TRAY_W * 0.26, yy + TRAY_W * 0.24, TRAY_W * 0.34, TRAY_W * 0.34, "ant_hero")
-            if b then tint(tray_bug[i], b.color, a) end   -- marker ant = species colour
-            tray_txt[i] = num_make(lbl, TRAY_W * 0.5, a)
+            tint(tray_bug[i], b.color, a)            -- marker ant = species colour
+            tray_txt[i] = num_make(tostring(b.n), TRAY_W * 0.5, a)
           end
           tray_shown[i] = lbl
         end
+        if tray_bg[i] then game.move_to(tray_bg[i], xx, yy) end
         if tray_bug[i] then game.move_to(tray_bug[i], xx - TRAY_W * 0.26, yy + TRAY_W * 0.24) end
         num_place(tray_txt[i], xx + TRAY_W * 0.06, yy - TRAY_W * 0.04)
       end
@@ -589,6 +613,7 @@ local function make_ant_clear()
     end
     slots, reserved, ants, dirty = {}, {}, {}, true
     playing, won, stuck, speed2, was_stuck = true, false, false, false, false
+    dispatch_cd = 0
 
     -- full-screen cozy background (generated art), behind everything
     T.sprite(0, 0, math.max(2 * hw, 2 * hh * 512 / 768) + 4, 2 * hh + 4, "game_bg")
@@ -634,7 +659,17 @@ local function make_ant_clear()
     draw_board()
     draw_hud()
     back = { x = -hw + 34, y = hh - 34, w = 44, h = 44 }
-    T.sprite(back.x, back.y, back.w, back.h, "icon_find")
+    T.sprite(back.x, back.y, back.w, back.h, "badge_wood")   -- wooden medallion = back
+    T.text(back.x, back.y, 20, 1.00, 0.96, 0.88, 1, "<")
+    -- sound on/off toggle (wooden medallion + speaker icon; dark icon = muted)
+    local snd_b = T.sprite(back.x + 50, back.y, 40, 40, "badge_wood")
+    local snd_i = T.sprite(back.x + 50, back.y, 26, 26, "icon_sound")
+    add_button(snd_b, { x = back.x + 50, y = back.y, w = 40, h = 40 }, { 1, 1, 1 }, function()
+      muted = not muted
+      local v = muted and 0 or 1
+      game.set_volume("music", v); game.set_volume("sfx", v)
+      game.set_color(snd_i, 1, 1, 1, muted and 0.25 or 1)
+    end)
     fill_slots()
     for i = 1, SLOTS do for _ = 1, ANTS_PER_SLOT do spawn_ant(i) end end
     recompute_field(); status(); built = true
@@ -667,6 +702,12 @@ local function make_ant_clear()
     playing, won = false, true
     game.set_text("恭喜完成！\n点击再玩一次")
     game.play_sound("ac_win"); game.haptic("success"); game.shake(0.5); game.log("ant_clear win")
+    -- celebration: spark bursts scattered across where the picture was
+    local py = TOPY - 0.5 * CELL * H
+    for i = 1, 9 do
+      game.emit("spark", (math.random() * 2 - 1) * CELL * W * 0.4, py + (math.random() * 2 - 1) * CELL * H * 0.4, 8)
+    end
+    game.zoom(0.6)
   end
 
   return {
@@ -699,6 +740,7 @@ local function make_ant_clear()
       update_buttons(math.min(dt, MAX_DT))    -- ease button press/selected states
       if not playing then return end
       dt = math.min(dt, MAX_DT)
+      dispatch_cd = math.max(0, dispatch_cd - dt * (speed2 and 2 or 1))
       if dirty then recompute_field() end
       fill_slots()
       for _, a in ipairs(ants) do update_ant(a, dt) end

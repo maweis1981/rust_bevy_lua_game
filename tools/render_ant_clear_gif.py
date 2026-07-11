@@ -31,7 +31,9 @@ CAP = {"stuck": ("卡住了 · 取消一个槽位", (196, 72, 72)),
 TEX = {}
 for n in ("ant_sheet", "cat_face", "hole", "ad_play", "ant_shadow", "ant_icon",
           "icon_speed", "icon_x2", "icon_gift", "game_bg", "btn_pill", "num_font",
-          "leaf", "petal", "cube", "ant_hero", "btn_base", "bar_wood", "tray_wood"):
+          "leaf", "petal", "cube", "ant_hero", "btn_base", "bar_wood", "tray_wood",
+          "badge_wood", "icon_coin", "icon_sound", "spice_box",
+          "food_choc", "food_bread", "food_sugar", "food_berry", "food_mint"):
     p = f"assets/textures/{n}.png"
     TEX[n] = Image.open(p).convert("RGBA") if os.path.exists(p) else None
 AF = TEX["ant_sheet"].width // 8 if TEX["ant_sheet"] else 48
@@ -134,11 +136,14 @@ def draw_frame(bg, rec):
             w = max(1, int(e[2] * SCALE)); h = max(1, int(e[3] * SCALE))
             s = t.resize((w, h), Image.LANCZOS)
             im.paste(s, (int(wx(e[0]) - w/2), int(wy(e[1]) - h/2)), s)
-    # rendered 3D cubes (Floniks), tinted per colour: board picture + slots + queue
-    # + the cube an ant carries. One texture, multiplied to the cell's colour.
-    tc = TEX.get("cube")
-    if tc is not None:
-        for e in bytex("cube"):
+    # rendered tokens: real food sprites (board/queue/carried), the spice-box
+    # slots, the neutral cube (legacy), and small badge/coin/sound icons.
+    # Colour channels multiply (foods are spawned 1,1,1 so they draw natural).
+    for nm in ("cube", "spice_box", "food_choc", "food_bread", "food_sugar",
+               "food_berry", "food_mint", "badge_wood", "icon_coin", "icon_sound"):
+        tc = TEX.get(nm)
+        if tc is None: continue
+        for e in bytex(nm):
             w = max(1, int(e[2] * SCALE)); h = max(1, int(e[3] * SCALE))
             s = tc.resize((w, h), Image.LANCZOS)
             rr, gg, bb, aa = s.split()

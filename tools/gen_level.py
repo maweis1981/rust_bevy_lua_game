@@ -41,6 +41,15 @@ PALETTES = {
         (0.20, 0.18, 0.22),   # 2 dark (eyes/mouth)
         (0.95, 0.55, 0.20),   # 3 orange cheeks
     ],
+    # FOOD theme (matches the game's ant-species palette): a strawberry-iced
+    # donut with sprinkles — the picture itself is the food the ants haul away.
+    "donut": [
+        (0.29, 0.18, 0.125),  # 1 chocolate (bottom shade / drizzle)
+        (1.00, 0.624, 0.11),  # 2 dough / bread crust
+        (1.00, 0.953, 0.863), # 3 white sugar sprinkle
+        (1.00, 0.353, 0.416), # 4 strawberry icing
+        (0.224, 0.788, 0.722),# 5 mint sprinkle
+    ],
 }
 
 
@@ -159,6 +168,29 @@ def build_grid(pattern, w, h):
                 for ex in (-0.62, 0.62):
                     if (dx - ex * rad) ** 2 + (dy - 0.2 * rad) ** 2 < (0.12 * rad) ** 2 and col == 1:
                         col = 3
+                grid[r][c] = col
+    elif pattern == "donut":
+        # a strawberry-iced donut: dough torus, icing over the top half with a
+        # wavy drip edge, deterministic sprinkles, chocolate shade at the bottom
+        import math
+        cx, cy = (w - 1) / 2, (h - 1) / 2
+        rx, ry = w * 0.47, h * 0.46
+        hole = 0.30                                 # hole radius (fraction)
+        for r in range(h):
+            for c in range(w):
+                nx, ny = (c - cx) / rx, (r - cy) / ry
+                d = nx * nx + ny * ny
+                if d > 1.0 or d < hole * hole:
+                    continue
+                # wavy icing edge: icing covers the top, dipping in drips
+                drip = 0.16 * math.sin(c * 1.9) + 0.08 * math.sin(c * 0.7 + 2)
+                col = 4 if ny < drip else 2          # icing / dough
+                if col == 2 and ny > 0.62:
+                    col = 1                          # chocolate shade at the base
+                if col == 4:
+                    hsh = (c * 7 + r * 13) % 23      # deterministic sprinkles
+                    if hsh == 3: col = 5
+                    elif hsh == 11: col = 3
                 grid[r][c] = col
     else:
         raise SystemExit(f"unknown pattern: {pattern}")
