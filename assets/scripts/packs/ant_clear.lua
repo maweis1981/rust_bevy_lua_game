@@ -23,35 +23,30 @@ local function make_ant_clear()
   local K = GAME_KIT
   local T = K.tracker()
 
-  -- ---- level (generated: tools/gen_level.py --pattern donut) ---------------
+  -- ---- level (generated: tools/gen_level.py --pattern fox) -----------------
   local LEVEL = {
     id = 1, slots = 4,       -- level number + active-slot count (level-driven)
-    w = 20, h = 17,
-    -- FOOD palette (dirt-world v3): every colour reads as something ants haul —
-    -- 1 chocolate, 2 dough, 3 white sugar, 4 strawberry icing, 5 mint sprinkle.
-    -- The same colours tint the cubes (the food) AND the ant species carrying it.
-    -- The picture is a strawberry-iced DONUT the colony carries off crumb by crumb.
+    w = 16, h = 13,
+    -- FOOD palette: 1 chocolate, 2 bread, 3 sugar, 4 berry, 5 mint. The picture
+    -- is the approved-mockup FOX on a mint backdrop — a full rectangle mosaic,
+    -- chunky 16x13 cells, every block a real food token the colony hauls off.
     palette = { {0.290,0.180,0.125}, {1.000,0.624,0.110}, {1.000,0.953,0.863}, {1.000,0.353,0.416}, {0.224,0.788,0.722} },
     grid = {
-      {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
-      {0,0,0,0,0,0,4,4,4,4,4,4,4,4,0,0,0,0,0,0},
-      {0,0,0,0,4,4,4,4,4,4,4,3,4,4,4,4,0,0,0,0},
-      {0,0,0,4,4,4,4,4,5,4,4,4,4,4,4,4,4,0,0,0},
-      {0,0,4,4,3,4,4,4,4,4,4,4,4,4,4,4,5,4,0,0},
-      {0,5,4,4,4,4,4,4,4,4,4,4,3,4,4,4,4,4,4,0},
-      {0,4,4,4,4,4,4,4,4,0,0,4,4,4,4,4,4,4,4,0},
-      {0,4,4,2,4,3,2,0,0,0,0,0,0,2,4,4,4,5,4,0},
-      {0,4,2,2,4,2,2,0,0,0,0,0,0,2,4,2,2,4,4,0},
-      {0,4,2,2,2,2,2,0,0,0,0,0,0,2,2,2,2,4,2,0},
-      {0,2,2,2,2,2,2,2,2,0,0,2,2,2,2,2,2,2,2,0},
-      {0,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,0},
-      {0,0,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,0,0},
-      {0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0},
-      {0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0},
-      {0,0,0,0,0,0,1,1,1,1,1,1,1,1,0,0,0,0,0,0},
-      {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+      {5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5},
+      {5,2,5,5,5,5,5,5,5,5,5,5,5,5,2,5},
+      {5,2,2,5,5,5,5,5,5,5,5,5,5,2,2,5},
+      {5,2,2,2,5,5,5,5,5,5,5,5,2,2,2,5},
+      {5,2,2,2,2,5,5,5,5,5,5,2,2,2,2,5},
+      {5,2,2,2,2,2,2,2,2,2,2,2,2,2,2,5},
+      {5,2,2,2,1,2,2,2,2,2,2,1,2,2,2,5},
+      {5,2,3,3,2,2,2,2,2,2,2,2,3,3,2,5},
+      {5,2,4,3,3,2,2,1,1,2,2,3,3,4,2,5},
+      {5,2,3,3,3,3,3,1,1,3,3,3,3,3,2,5},
+      {5,2,2,3,3,3,3,4,4,3,3,3,3,2,2,5},
+      {5,5,2,2,3,3,3,3,3,3,3,3,2,2,5,5},
+      {5,5,5,5,2,2,2,2,2,2,2,2,5,5,5,5},
     },
-    tray = { {4,8}, {4,8}, {4,8}, {4,8}, {4,8}, {4,8}, {4,8}, {4,8}, {4,8}, {2,8}, {2,8}, {2,8}, {2,8}, {2,8}, {4,8}, {2,8}, {2,8}, {1,8}, {1,8}, {1,8}, {2,8}, {4,8}, {1,8}, {2,6}, {3,4}, {4,4}, {5,4}, {1,2} },
+    tray = { {5,8}, {5,8}, {5,8}, {5,8}, {5,8}, {5,8}, {5,8}, {5,8}, {2,8}, {2,8}, {2,8}, {2,8}, {2,8}, {2,8}, {5,8}, {2,8}, {2,8}, {3,8}, {2,8}, {3,8}, {3,8}, {5,8}, {2,8}, {3,8}, {1,6}, {4,4}, {5,4}, {3,2} },
   }
 
   -- ---- tunables ------------------------------------------------------------
@@ -129,7 +124,8 @@ local function make_ant_clear()
 
   -- ---- slots / tray / ants -------------------------------------------------
   local tray, slots, reserved, ants = {}, {}, {}, {}
-  local NCOL, QROWS = 4, 2              -- queue = 4 fixed columns, 2 rows visible
+  local NCOL, QROWS = 4, 3              -- queue = 4 fixed columns, 3 rows visible
+                                        -- (denser tray, like the approved mockup)
   local cols = { {}, {}, {}, {} }       -- each column is a stack; only the head loads
   local col_adv = {}                    -- per-column slide-up animation timer
   local slot_pulse = {}   -- brief scale bump when a slot's count ticks down
@@ -403,6 +399,8 @@ local function make_ant_clear()
   local slot_food = {}                 -- mini food sprite sitting in each spice box
   local slot_shown, tray_shown = {}, {}
   local coin_num                       -- bitmap-digit coin counter
+  local lvl_num                        -- bitmap-digit level number (in the badge)
+  local prog_x0, prog_w, prog_fill, prog_stars = 0, 1, nil, {}   -- star progress bar
   local drifters = {}                  -- ambient floating leaves/motes (bg motion)
   local buttons = {}                   -- tappable UI buttons with press-state feedback
 
@@ -480,6 +478,8 @@ local function make_ant_clear()
     for c = 1, NCOL do for row = 0, QROWS - 1 do num_free(tray_txt[qi and qi(c, row) or ((c-1)*QROWS+row+1)]); end end
     tray_txt = {}
     num_free(coin_num); coin_num = nil
+    num_free(lvl_num); lvl_num = nil
+    prog_fill, prog_stars = nil, {}   -- tracker-owned sprites; drop stale refs
     for _, d in ipairs(drifters) do game.despawn(d.id) end; drifters = {}
     buttons = {}   -- pill sprites are tracker-owned (T.clear despawns them); drop stale refs
   end
@@ -507,7 +507,21 @@ local function make_ant_clear()
       tray_shown[i] = nil
     end end
   end
+  local total_cells = 0   -- set in build; drives the star progress bar
   local function refresh_hud()
+    -- star progress: fill tracks the cleared fraction, stars light at 1/3 2/3 3/3
+    if prog_fill and total_cells > 0 then
+      local frac = 1 - painted / total_cells
+      local fw = math.max(1, prog_w * frac)
+      game.set_size(prog_fill, fw, 10)
+      game.move_to(prog_fill, prog_x0 + fw / 2, HH - 34)
+      for k = 1, 3 do
+        if prog_stars[k] then
+          if frac >= k / 3 - 0.001 then game.set_color(prog_stars[k], 1, 1, 1, 1)
+          else game.set_color(prog_stars[k], 0.45, 0.35, 0.28, 1) end
+        end
+      end
+    end
     for i = 1, SLOTS do
       local s = slots[i]
       -- count-tick pulse: scale the spice box up briefly, then ease back
@@ -618,11 +632,27 @@ local function make_ant_clear()
     -- full-screen cozy background (generated art), behind everything
     T.sprite(0, 0, math.max(2 * hw, 2 * hh * 512 / 768) + 4, 2 * hh + 4, "game_bg")
     spawn_drifters()   -- ambient floating leaves/motes over the background
-    -- top status bar: settings (left) · 关卡 N (centre) · coins (right)
-    T.sprite(0, hh - 34, 2 * hw - 20, 50, "bar_wood")
-    T.text(0, hh - 34, 22, 1.00, 0.96, 0.88, 1, "关卡 " .. (LEVEL.id or 1))
-    T.sprite(hw - 96, hh - 34, 26, 26, "icon_coin")
-    coin_num = num_make("1240", 22, 1); num_place(coin_num, hw - 54, hh - 34)
+    -- top status bar (mockup layout): level BADGE with the number inside (left)
+    -- · star PROGRESS BAR (centre, fills as the picture clears) · coin (right)
+    local by = hh - 34
+    T.sprite(6, by, 2 * hw - 64, 46, "bar_wood")
+    T.sprite(-hw + 52, by, 56, 56, "badge_wood")
+    lvl_num = num_make(tostring(LEVEL.id or 1), 24, 1)
+    num_place(lvl_num, -hw + 52, by)
+    -- progress groove + fill + three stars (fill/stars update in refresh_hud)
+    local gx0, gx1 = -hw + 96, hw - 116                     -- groove extent
+    prog_x0, prog_w = gx0, gx1 - gx0
+    local groove = T.sprite(gx0 + prog_w / 2, by, prog_w, 14, "tile_sq")
+    game.set_color(groove, 0.24, 0.15, 0.09, 0.85)
+    prog_fill = T.sprite(gx0, by, 1, 10, "tile_sq")
+    game.set_color(prog_fill, 1.0, 0.78, 0.20, 1)
+    prog_stars = {}
+    for k = 1, 3 do
+      prog_stars[k] = T.sprite(gx0 + prog_w * (k / 3) - 6, by + 1, 24, 24, "icon_star")
+      game.set_color(prog_stars[k], 0.45, 0.35, 0.28, 1)   -- unlit until earned
+    end
+    T.sprite(hw - 82, by, 30, 30, "icon_coin")
+    coin_num = num_make("1240", 20, 1); num_place(coin_num, hw - 42, by)
     -- per the approved mockup the picture sits DIRECTLY on the soil — only a very
     -- faint contact shading grounds it (no card, no heavy patch)
     local panel = T.sprite(0, TOPY - 0.5 * CELL * H, W * CELL + 16, H * CELL + 16, "tile_sq")
@@ -651,20 +681,31 @@ local function make_ant_clear()
       local on_tap = (b[3] == "icon_x2") and function() speed2 = not speed2 end or nil
       local sel = (b[3] == "icon_x2") and function() return speed2 end or nil
       add_button(id, { x = bxc, y = BAR_CY, w = bw, h = BAR_H + 10 }, b[2], on_tap, sel)
-      local ic = T.sprite(bxc - bw * 0.28, BAR_CY, BAR_H * 0.66, BAR_H * 0.66, b[3])
+      -- mockup buttons carry a single centred ICON, no label
+      local ic = T.sprite(bxc, BAR_CY, BAR_H * 0.78, BAR_H * 0.78, b[3])
       if b[3] == "icon_x2" then game.set_color(ic, 0.30, 0.20, 0.10, 1) end
-      T.text(bxc + bw * 0.10, BAR_CY, 17, 1, 1, 1, 1, b[1])
+    end
+    -- crumb debris: a few fallen morsels scattered under the picture (mockup decor)
+    for k = 1, 6 do
+      local fx = (math.random() * 2 - 1) * CELL * W * 0.42
+      local fy = board_bottom - 10 - math.random() * 26
+      local cr = T.sprite(fx, fy, CELL * (0.28 + math.random() * 0.22), CELL * (0.28 + math.random() * 0.22),
+                          FOOD[math.random(1, #FOOD)])
+      game.set_color(cr, 1, 1, 1, 0.9)
+      game.set_rotation(cr, math.random() * 6.28)
     end
 
     draw_board()
+    total_cells = painted            -- progress bar denominator (set once per build)
     draw_hud()
-    back = { x = -hw + 34, y = hh - 34, w = 44, h = 44 }
-    T.sprite(back.x, back.y, back.w, back.h, "badge_wood")   -- wooden medallion = back
-    T.text(back.x, back.y, 20, 1.00, 0.96, 0.88, 1, "<")
-    -- sound on/off toggle (wooden medallion + speaker icon; dark icon = muted)
-    local snd_b = T.sprite(back.x + 50, back.y, 40, 40, "badge_wood")
-    local snd_i = T.sprite(back.x + 50, back.y, 26, 26, "icon_sound")
-    add_button(snd_b, { x = back.x + 50, y = back.y, w = 40, h = 40 }, { 1, 1, 1 }, function()
+    -- back + sound: two small wooden medallions tucked under the bar's left end
+    -- (the bar itself is badge · star progress · coin, exactly like the mockup)
+    back = { x = -hw + 30, y = hh - 76, w = 38, h = 38 }
+    T.sprite(back.x, back.y, back.w, back.h, "badge_wood")
+    T.text(back.x, back.y, 17, 1.00, 0.96, 0.88, 1, "<")
+    local snd_b = T.sprite(back.x + 44, back.y, 36, 36, "badge_wood")
+    local snd_i = T.sprite(back.x + 44, back.y, 23, 23, "icon_sound")
+    add_button(snd_b, { x = back.x + 44, y = back.y, w = 36, h = 36 }, { 1, 1, 1 }, function()
       muted = not muted
       local v = muted and 0 or 1
       game.set_volume("music", v); game.set_volume("sfx", v)

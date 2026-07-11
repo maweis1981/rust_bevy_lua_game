@@ -57,6 +57,34 @@ PALETTES = {
 # '0' = empty). Natural colour regions give natural burial (interior colours are
 # only reachable once the surrounding ones are carried away).
 PIXEL_ART = {
+    # The approved-mockup picture: a fox face on a mint backdrop, the whole
+    # rectangle filled so the mosaic reads as a framed picture. Colours map to
+    # the real-food tokens: 1 chocolate (eyes/nose/mouth), 2 bread (fur),
+    # 3 sugar (muzzle/cheeks), 4 berry (blush/tongue), 5 mint (backdrop).
+    "fox": {
+        "palette": [
+            (0.29, 0.18, 0.125),  # 1 chocolate
+            (1.00, 0.624, 0.11),  # 2 bread / fur
+            (1.00, 0.953, 0.863), # 3 sugar / cream
+            (1.00, 0.353, 0.416), # 4 berry
+            (0.224, 0.788, 0.722),# 5 mint backdrop
+        ],
+        "rows": [
+            "5555555555555555",
+            "5255555555555525",
+            "5225555555555225",
+            "5222555555552225",
+            "5222255555522225",
+            "5222222222222225",
+            "5222122222212225",
+            "5233222222223325",
+            "5243322112233425",
+            "5233333113333325",
+            "5223333443333225",
+            "5522333333332255",
+            "5555222222225555",
+        ],
+    },
     "cat": {
         "palette": [
             (0.22, 0.15, 0.11),   # 1 dark outline
