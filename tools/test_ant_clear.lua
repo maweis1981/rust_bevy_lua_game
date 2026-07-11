@@ -50,6 +50,7 @@ game = {
   play_sound = function() end,
   play_music = function() end,
   stop_music = function() end,
+  set_volume = function() end,
   haptic = function() end,
   track = function() end,
   set_bg_theme = function() end,
@@ -118,14 +119,18 @@ check(D.painted() == total0, "board painted count = sum of colour counts (" .. t
 -- helper: every empty cell must be reachable from OUTSIDE via empties
 -- (i.e. no buried/enclosed cleared cell — proves frontier-only removal)
 ----------------------------------------------------------------------
-local function all_empties_reachable(g)
+-- Returns the set (keyed) of empty cells NOT reachable from outside via empties.
+-- Shapes with an enclosed hole (the donut) legitimately START with such cells;
+-- the invariant is that no NEW ones ever appear (every cleared cell must have
+-- been outside-reachable when it was cleared).
+local function key_rc(w, r, c) return r * (w + 2) + c end
+local function unreachable_empties(g)
   local h, w = #g, #g[1]
   local seen = {}
   local q, head = {}, 1
-  local function key(r, c) return r * (w + 2) + c end
   for r = 1, h do for c = 1, w do
     if g[r][c] == 0 and (r == 1 or c == 1 or r == h or c == w) then
-      local k = key(r, c); if not seen[k] then seen[k] = true; q[#q + 1] = { r, c } end
+      local k = key_rc(w, r, c); if not seen[k] then seen[k] = true; q[#q + 1] = { r, c } end
     end
   end end
   while head <= #q do
@@ -134,13 +139,21 @@ local function all_empties_reachable(g)
     for _, p in ipairs({ {r+1,c},{r-1,c},{r,c+1},{r,c-1} }) do
       local rr, cc = p[1], p[2]
       if rr >= 1 and rr <= h and cc >= 1 and cc <= w and g[rr][cc] == 0 then
-        local k = key(rr, cc); if not seen[k] then seen[k] = true; q[#q + 1] = { rr, cc } end
+        local k = key_rc(w, rr, cc); if not seen[k] then seen[k] = true; q[#q + 1] = { rr, cc } end
       end
     end
   end
+  local out = {}
   for r = 1, h do for c = 1, w do
-    if g[r][c] == 0 and not seen[key(r, c)] then return false, r, c end
+    if g[r][c] == 0 and not seen[key_rc(w, r, c)] then out[key_rc(w, r, c)] = true end
   end end
+  return out
+end
+-- true iff every unreachable empty in g was ALREADY an (unreachable) empty at start
+local function no_new_enclosed(g, initial)
+  for k in pairs(unreachable_empties(g)) do
+    if not initial[k] then return false end
+  end
   return true
 end
 
@@ -154,13 +167,14 @@ local BOUND = 460 * (1 / 30) * 2 + 2   -- ANT_SPEED * MAX_DT * (2x) + slack
 -- is called each frame and may load/cancel slots. Stuck is NOT terminal.
 local function drive(Dh, policy)
   local prev = Dh.ant_xy()
+  local initial = unreachable_empties(Dh.grid())   -- pre-enclosed holes (donut)
   local buried_ok, teleport_ok = true, true
   local frames, MAXF = 0, 30000
   while not Dh.won() and frames < MAXF do
     if policy then policy(Dh) end
     scene.update(DT, HW, HH)
     frames = frames + 1
-    if not all_empties_reachable(Dh.grid()) then buried_ok = false end
+    if not no_new_enclosed(Dh.grid(), initial) then buried_ok = false end
     local cur = Dh.ant_xy()
     for i = 1, math.min(#cur, #prev) do
       local dx, dy = cur[i][1] - prev[i][1], cur[i][2] - prev[i][2]

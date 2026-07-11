@@ -2447,6 +2447,10 @@ fn apply_lua(
     // De-dup identical SFX within this frame so a burst of the same impact plays
     // once rather than stacking into a harsh cluster.
     let mut sfx_this_frame: std::collections::HashSet<String> = std::collections::HashSet::new();
+    // A music track spawned by an earlier command in THIS drain isn't in the
+    // World yet, so `music_q` misses it. Track it so two `play_music` calls in
+    // one frame (menu boots, then AUTOBOOT switches scenes) can't stack tracks.
+    let mut music_spawned_this_drain: Option<Entity> = None;
     // Particles spawned by earlier commands in THIS drain aren't in the World
     // yet; count them so a burst of emits still respects PARTICLE_CAP.
     let mut emitted_this_frame: usize = 0;
@@ -2990,8 +2994,15 @@ fn apply_lua(
                 // playing, do nothing (re-requesting it on scene re-entry must not
                 // restart or double it). Otherwise stop the old track and start new.
                 let same = current_music.0.as_deref() == Some(name.as_str());
-                if !(same && !music_q.is_empty()) {
+                let already = !music_q.is_empty() || music_spawned_this_drain.is_some();
+                if !(same && already) {
                     for e in music_q.iter() {
+                        commands.entity(e).despawn();
+                    }
+                    // also stop a track spawned earlier in THIS drain (not yet
+                    // visible to music_q) — otherwise two same-frame play_music
+                    // calls stack two looping tracks.
+                    if let Some(e) = music_spawned_this_drain.take() {
                         commands.entity(e).despawn();
                     }
                     let handle = assets.load::<AudioSource>(format!("audio/{name}.wav"));
@@ -2999,7 +3010,10 @@ fn apply_lua(
                         volume: Volume::Linear(volumes.music),
                         ..PlaybackSettings::LOOP
                     };
-                    commands.spawn((AudioPlayer::new(handle), settings, MusicSound));
+                    let id = commands
+                        .spawn((AudioPlayer::new(handle), settings, MusicSound))
+                        .id();
+                    music_spawned_this_drain = Some(id);
                     current_music.0 = Some(name);
                 }
             }
