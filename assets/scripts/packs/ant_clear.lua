@@ -606,14 +606,14 @@ local function make_ant_clear()
   local function qi(c, row) return (c - 1) * QROWS + row + 1 end          -- 0-based row
 
   local function draw_hud()
-    -- CLEAN trays (empty Floniks wooden trays — no baked content, no cover
-    -- hacks): the slot strip and the queue tray each hold only live sprites
+    -- CLEAN trays (empty Floniks wooden trays), drawn as 9-SLICE panels so the
+    -- rounded rim stays native-crisp at any stretch (a plain scaled sprite blurs)
     local strip_w = SLOTS * (SLOT_W + 8) + 44
-    T.sprite(0, SLOT_Y, strip_w, SLOT_W + 26, "tray_wood")
+    T.panel(0, SLOT_Y, strip_w, SLOT_W + 26, "tray_wood", 60)
     local q_cy = (row_y(0) + row_y(QROWS - 1)) / 2
     local q_w = NCOL * (TRAY_W + 8) + 44
     local q_h = QROWS * (TRAY_W + QYGAP) + 26
-    T.sprite(0, q_cy, q_w, q_h, "tray_wood")
+    T.panel(0, q_cy, q_w, q_h, "tray_wood", 60)
     for i = 1, SLOTS do
       -- slot sockets are BAKED into the sliced strip; slot_bg is a dark cover
       -- that hides the baked colour block while the slot is empty
@@ -779,12 +779,16 @@ local function make_ant_clear()
     -- full-screen cozy background (generated art), behind everything
     T.sprite(0, 0, math.max(2 * hw, 2 * hh * 512 / 768) + 4, 2 * hh + 4, "game_bg")
     spawn_drifters()   -- ambient floating leaves/motes over the background
+    -- full-screen vignette + warm grade, topmost among sprites (layer 90) but
+    -- below the text tier — focuses the eye centre-screen, HUD text stays crisp
+    local vig = T.sprite(0, 0, 2 * hw + 4, 2 * hh + 4, "vignette")
+    game.set_layer(vig, 90)
     -- top status bar: SEPARATE live sprites (no baked values) — wooden plank,
     -- level badge + live digits, star progress groove, coin + live score
     local by = hh - 34
     local bar_w = 2 * hw - 16
     local bar_h = 46
-    T.sprite(0, by, bar_w, bar_h, "bar_wood")
+    T.panel(0, by, bar_w, bar_h, "bar_wood", 34)
     local function bfx(f) return -bar_w / 2 + f * bar_w end -- fraction -> x
     T.sprite(bfx(0.09), by, bar_h * 1.25, bar_h * 1.25, "badge_wood")
     lvl_num = num_make(tostring(cur_lvl), bar_h * 0.46, 1)

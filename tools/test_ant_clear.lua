@@ -46,6 +46,8 @@ game = {
   play_anim = function() end,
   set_bone = function() end,
   tween = function() end,
+  spawn_panel = function(x, y) max_id = max_id + 1; pos[max_id] = { x = x, y = y }; return max_id end,
+  set_layer = function() end,
   despawn = function(id) pos[id] = nil end,
   set_text = function() end,
   shake = function() end,
@@ -83,6 +85,7 @@ GAME_KIT = {
     return {
       spawn = function(...) local id = game.spawn(...); ids[#ids + 1] = id; return id end,
       sprite = function(...) local id = game.spawn_sprite(...); ids[#ids + 1] = id; return id end,
+      panel = function(...) local id = game.spawn_panel(...); ids[#ids + 1] = id; return id end,
       text = function(...) local id = game.spawn_text(...); ids[#ids + 1] = id; return id end,
       clear = function() for _, id in ipairs(ids) do game.despawn(id) end; ids = {} end,
     }

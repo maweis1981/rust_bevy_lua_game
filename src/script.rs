@@ -767,6 +767,19 @@ enum LuaCommand {
         delay: f32,
         from_scale: Option<f32>,
     },
+    SetLayer {
+        id: u32,
+        z: f32,
+    },
+    SpawnPanel {
+        id: u32,
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+        image: String,
+        border: f32,
+    },
     SetSpriteImage {
         id: u32,
         image: String,
@@ -1274,6 +1287,39 @@ fn register_api(lua: &Lua) -> mlua::Result<()> {
                 image,
             });
             Ok(id)
+        })?,
+    )?;
+
+    game.set(
+        "spawn_panel",
+        lua.create_function(
+            |lua, (x, y, w, h, image, border): (f32, f32, f32, f32, String, f32)| {
+                let mut bridge = lua
+                    .app_data_mut::<Bridge>()
+                    .ok_or_else(|| mlua::Error::runtime("bridge missing"))?;
+                bridge.next_id += 1;
+                let id = bridge.next_id;
+                bridge.queue.push(LuaCommand::SpawnPanel {
+                    id,
+                    x,
+                    y,
+                    w,
+                    h,
+                    image,
+                    border,
+                });
+                Ok(id)
+            },
+        )?,
+    )?;
+
+    game.set(
+        "set_layer",
+        lua.create_function(|lua, (id, z): (u32, f32)| {
+            if let Some(mut bridge) = lua.app_data_mut::<Bridge>() {
+                bridge.queue.push(LuaCommand::SetLayer { id, z });
+            }
+            Ok(())
         })?,
     )?;
 
@@ -1997,6 +2043,24 @@ fn register_api(lua: &mut Lua, bridge: Rc<RefCell<Bridge>>) {
         game.set(ctx, "set_frame", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
             let (id, frame): (u32, i64) = stack.consume(ctx)?;
             b.borrow_mut().queue.push(LuaCommand::SetFrame { id, frame });
+            Ok(CallbackReturn::Return)
+        })).unwrap();
+
+        let b = bridge.clone();
+        game.set(ctx, "spawn_panel", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let (x, y, w, h, image, border): (f32, f32, f32, f32, ottavino::String, f32) =
+                stack.consume(ctx)?;
+            let id = { let mut br = b.borrow_mut(); br.next_id += 1; let id = br.next_id;
+                br.queue.push(LuaCommand::SpawnPanel { id, x, y, w, h,
+                    image: image.to_str().unwrap_or("").to_string(), border }); id };
+            stack.replace(ctx, id as i64);
+            Ok(CallbackReturn::Return)
+        })).unwrap();
+
+        let b = bridge.clone();
+        game.set(ctx, "set_layer", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let (id, z): (u32, f32) = stack.consume(ctx)?;
+            b.borrow_mut().queue.push(LuaCommand::SetLayer { id, z });
             Ok(CallbackReturn::Return)
         })).unwrap();
 
@@ -2804,6 +2868,57 @@ fn apply_lua(
                     ))
                     .id();
                 registry.0.insert(id, entity);
+            }
+            LuaCommand::SpawnPanel {
+                id,
+                x,
+                y,
+                w,
+                h,
+                image,
+                border,
+            } => {
+                // 9-slice panel: corners stay at native crispness while the
+                // centre/edges stretch — trays and bars keep sharp rounded
+                // corners at ANY size (a plain stretched sprite blurs them).
+                let z = 0.001 * id as f32;
+                let handle = tex_cache
+                    .0
+                    .entry(image.clone())
+                    .or_insert_with(|| assets.load(format!("textures/{image}.png")))
+                    .clone();
+                let entity = commands
+                    .spawn((
+                        Sprite {
+                            image: handle,
+                            custom_size: Some(Vec2::new(w, h)),
+                            image_mode: SpriteImageMode::Sliced(TextureSlicer {
+                                border: BorderRect::all(border),
+                                ..default()
+                            }),
+                            ..default()
+                        },
+                        Transform::from_xyz(x, y, z),
+                    ))
+                    .id();
+                registry.0.insert(id, entity);
+            }
+            LuaCommand::SetLayer { id, z } => {
+                // explicit render tier: z = layer + the id epsilon (keeps the
+                // relative order of same-layer sprites stable). Sprites sit at
+                // 0.001*id, text at 100+; e.g. a vignette overlay at 90 covers
+                // every game sprite but leaves the HUD text crisp.
+                if let Some(&entity) = registry.0.get(&id) {
+                    let zz = z + 0.001;
+                    if let Ok(mut transform) = transforms.get_mut(entity) {
+                        transform.translation.z = zz;
+                    } else {
+                        commands
+                            .entity(entity)
+                            .entry::<Transform>()
+                            .and_modify(move |mut t| t.translation.z = zz);
+                    }
+                }
             }
             LuaCommand::SpawnSprite {
                 id,
