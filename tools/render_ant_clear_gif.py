@@ -31,7 +31,7 @@ CAP = {"stuck": ("卡住了 · 取消一个槽位", (196, 72, 72)),
 TEX = {}
 for n in ("ant_sheet", "cat_face", "hole", "ad_play", "ant_shadow", "ant_icon",
           "icon_speed", "icon_x2", "icon_gift", "game_bg", "btn_pill", "num_font",
-          "leaf", "petal"):
+          "leaf", "petal", "cube", "ant_hero", "btn_base"):
     p = f"assets/textures/{n}.png"
     TEX[n] = Image.open(p).convert("RGBA") if os.path.exists(p) else None
 AF = TEX["ant_sheet"].width // 8 if TEX["ant_sheet"] else 48
@@ -119,26 +119,36 @@ def draw_frame(bg, rec):
         candy(dr, [wx(e[0]) - e[2] * SCALE / 2, wy(e[1]) - e[3] * SCALE / 2,
                    wx(e[0]) + e[2] * SCALE / 2, wy(e[1]) + e[3] * SCALE / 2], (196, 150, 96))
         dr.text((wx(e[0]), wy(e[1])), "←", font=font(int(e[3] * SCALE * 0.6)), fill=(255, 255, 255), anchor="mm")
-    # candy tiles: board cells + slots + queue
+    # soft background panels (status bar + recessed soil patch): plain rounded
+    # rects honouring alpha (these stay "tile_sq" in-engine)
     for e in bytex("tile_sq"):
-        col = (int(e[4] * 255), int(e[5] * 255), int(e[6] * 255))
+        col = (int(e[4] * 255), int(e[5] * 255), int(e[6] * 255), int(e[7] * 255))
         hw, hh = e[2] * 0.5 * SCALE, e[3] * 0.5 * SCALE
-        candy(dr, [wx(e[0]) - hw, wy(e[1]) - hh, wx(e[0]) + hw, wy(e[1]) + hh], col)
-    # pill buttons (generated art, tinted)
-    tp = TEX["btn_pill"]
+        dr.rounded_rectangle([wx(e[0]) - hw, wy(e[1]) - hh, wx(e[0]) + hw, wy(e[1]) + hh],
+                             min(hw, hh) * 0.4, col)
+    # rendered 3D cubes (Floniks), tinted per colour: board picture + slots + queue
+    # + the cube an ant carries. One texture, multiplied to the cell's colour.
+    tc = TEX.get("cube")
+    if tc is not None:
+        for e in bytex("cube"):
+            w = max(1, int(e[2] * SCALE)); h = max(1, int(e[3] * SCALE))
+            s = tc.resize((w, h), Image.LANCZOS)
+            rr, gg, bb, aa = s.split()
+            if e[7] < 0.999:
+                aa = aa.point(lambda v: int(v * e[7]))
+            s = Image.merge("RGBA", (rr.point(lambda v: int(v*e[4])), gg.point(lambda v: int(v*e[5])),
+                                     bb.point(lambda v: int(v*e[6])), aa))
+            im.paste(s, (int(wx(e[0]) - w/2), int(wy(e[1]) - h/2)), s)
+    # buttons (Floniks button base, tinted)
+    tp = TEX.get("btn_base")
     if tp is not None:
-        for e in bytex("btn_pill"):
+        for e in bytex("btn_base"):
             w = max(1, int(e[2] * SCALE)); h = max(1, int(e[3] * SCALE))
             s = tp.resize((w, h), Image.LANCZOS)
             rr, gg, bb, aa = s.split()
             s = Image.merge("RGBA", (rr.point(lambda v: int(v*e[4])), gg.point(lambda v: int(v*e[5])),
                                      bb.point(lambda v: int(v*e[6])), aa))
             im.paste(s, (int(wx(e[0]) - w/2), int(wy(e[1]) - h/2)), s)
-    # carried pixels
-    for e in bytex("rect"):
-        col = (int(e[4] * 255), int(e[5] * 255), int(e[6] * 255), int(e[7] * 255))
-        hw, hh = e[2] * 0.5 * SCALE, e[3] * 0.5 * SCALE
-        dr.rounded_rectangle([wx(e[0]) - hw, wy(e[1]) - hh, wx(e[0]) + hw, wy(e[1]) + hh], hw * 0.3, col)
     # ant shadows (under the ants, above the board)
     ts = TEX["ant_shadow"]
     if ts is not None:
@@ -154,31 +164,20 @@ def draw_frame(bg, rec):
         for k, rr in enumerate((7, 4.5)):
             dr.ellipse([ex - rr * SS, ey - rr * SS, ex + rr * SS, ey + rr * SS],
                        fill=(210, 194, 170, 90 - k * 30))
-    # ants — tinted to the entity colour (= its slot colour), so a red slot's
-    # ants are red. Multiply RGB, keep alpha, then rotate to face travel.
-    t = TEX["ant_sheet"]
-    for e in bytex("ant_sheet"):
-        fr = max(0, min(7, int(e[11])))
-        sp = t.crop((fr * AF, 0, fr * AF + AF, t.height)).convert("RGBA")
-        rch, gch, bch, ach = sp.split()
-        rch = rch.point(lambda v: int(v * e[4]))
-        gch = gch.point(lambda v: int(v * e[5]))
-        bch = bch.point(lambda v: int(v * e[6]))
-        sp = Image.merge("RGBA", (rch, gch, bch, ach))
-        sp = sp.rotate(-math.degrees(e[10]), expand=True, resample=Image.BICUBIC)
-        d = int(e[2] * SCALE)
-        sp = sp.resize((d, d), Image.LANCZOS)
-        im.paste(sp, (int(wx(e[0]) - d / 2), int(wy(e[1]) - d / 2)), sp)
-    # tile bug-icons (single-frame ant, tinted dark)
-    ti = TEX["ant_icon"]
-    if ti is not None:
-        for e in bytex("ant_icon"):
+    # ants — one detailed red hero sprite (Floniks), rotated to face travel; not
+    # tinted (colour is shown by the cube it carries). Slot/queue count-markers are
+    # the same texture, upright (rot 0), possibly dimmed via alpha.
+    t = TEX.get("ant_hero")
+    if t is not None:
+        for e in bytex("ant_hero"):
+            sp = t
+            if e[7] < 0.999:
+                rr, gg, bb, aa = sp.split(); sp = Image.merge("RGBA", (rr, gg, bb, aa.point(lambda v: int(v*e[7]))))
+            if abs(e[10]) > 1e-3:
+                sp = sp.rotate(-math.degrees(e[10]), expand=True, resample=Image.BICUBIC)
             d = max(1, int(e[2] * SCALE))
-            s = ti.resize((d, d), Image.LANCZOS)
-            rr, gg, bb, aa = s.split()
-            s = Image.merge("RGBA", (rr.point(lambda v: int(v*e[4])), gg.point(lambda v: int(v*e[5])),
-                                     bb.point(lambda v: int(v*e[6])), aa))
-            im.paste(s, (int(wx(e[0]) - d / 2), int(wy(e[1]) - d / 2)), s)
+            sp = sp.resize((d, d), Image.LANCZOS)
+            im.paste(sp, (int(wx(e[0]) - d / 2), int(wy(e[1]) - d / 2)), sp)
     # bitmap-font digits (num_font.png: 10 candy digits, cropped by frame)
     nf = TEX["num_font"]
     if nf is not None:
