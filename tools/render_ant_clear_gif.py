@@ -28,8 +28,10 @@ CAP = {"stuck": ("卡住了 · 取消一个槽位", (196, 72, 72)),
        "cancel": ("看广告 · 槽位已释放", (70, 150, 90)),
        "done": ("恭喜完成！", (70, 150, 90))}
 
+CELLS = tuple(f"cell_{f}_{v}" for f in ("choc", "bread", "sugar", "berry", "mint")
+              for v in (1, 2, 3, 4))
 TEX = {}
-for n in ("ant_sheet", "cat_face", "hole", "ad_play", "ant_shadow", "ant_icon",
+for n in CELLS + ("ant_sheet", "cat_face", "hole", "ad_play", "ant_shadow", "ant_icon",
           "icon_speed", "icon_x2", "icon_gift", "game_bg", "btn_pill", "num_font",
           "leaf", "petal", "cube", "ant_hero", "btn_base", "bar_wood", "tray_wood",
           "badge_wood", "icon_coin", "icon_sound", "icon_star", "spice_box",
@@ -131,9 +133,9 @@ def draw_frame(bg, rec):
     # rendered tokens: real food sprites (board/queue/carried), the spice-box
     # slots, the neutral cube (legacy), and small badge/coin/sound icons.
     # Colour channels multiply (foods are spawned 1,1,1 so they draw natural).
-    for nm in ("cube", "spice_box", "food_choc", "food_bread", "food_sugar",
-               "food_berry", "food_mint", "badge_wood", "icon_coin", "icon_sound",
-               "icon_star"):
+    for nm in CELLS + ("cube", "spice_box", "food_choc", "food_bread", "food_sugar",
+                       "food_berry", "food_mint", "badge_wood", "icon_coin", "icon_sound",
+                       "icon_star"):
         tc = TEX.get(nm)
         if tc is None: continue
         for e in bytex(nm):
