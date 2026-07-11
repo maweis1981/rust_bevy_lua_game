@@ -45,6 +45,7 @@ game = {
   spawn_rig = function(x, y) max_id = max_id + 1; pos[max_id] = { x = x, y = y }; return max_id end,
   play_anim = function() end,
   set_bone = function() end,
+  tween = function() end,
   despawn = function(id) pos[id] = nil end,
   set_text = function() end,
   shake = function() end,

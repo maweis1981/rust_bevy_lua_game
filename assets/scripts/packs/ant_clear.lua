@@ -354,6 +354,9 @@ local function make_ant_clear()
           local v = (r * 7 + c * 13) % 4 + 1
           local id = T.sprite(cx(c, r), cy(r), CELL * rs(r) * 1.02, CELL * rs(r) * 1.02,
                               "cell_" .. CFOOD[ci] .. "_" .. v)
+          -- level intro: each block POPS in (0 -> overshoot -> 1), staggered in a
+          -- diagonal wave across the picture — the board builds itself in ~1s
+          game.tween(id, nil, nil, 1.0, 0.30, "back", (r + c) * 0.028, 0)
           -- depth lighting (receding rows darker) + tiny per-cell tone jitter so
           -- the surface reads organic, not printed
           local k = (1 - 0.30 * (1 - rs(r))) * (0.94 + 0.06 * (((r * 31 + c * 17) % 7) / 6))
@@ -668,6 +671,7 @@ local function make_ant_clear()
         if s then
           -- the dark socket stays visible; the committed food sits IN it
           slot_food[i] = T.sprite(slot_x(i), SLOT_Y, SLOT_W * 0.72, SLOT_W * 0.72, FOOD[s.color])
+          game.tween(slot_food[i], nil, nil, 1.0, 0.26, "back", 0, 0.3)   -- pop into the box
           slot_bug[i] = T.sprite(slot_x(i) - SLOT_W * 0.30, SLOT_Y + SLOT_W * 0.26, SLOT_W * 0.36, SLOT_W * 0.36, "ant_hero")
           tint(slot_bug[i], s.color)                 -- marker ant = the species colour
           slot_txt[i] = num_make(tostring(s.n), SLOT_W * 0.50, 1)
@@ -696,6 +700,7 @@ local function make_ant_clear()
           if b then
             tray_bg[i] = T.sprite(xx, yy, TRAY_W, TRAY_W, FOOD[b.color])
             game.set_color(tray_bg[i], 1, 1, 1, a)
+            game.tween(tray_bg[i], nil, nil, 1.0, 0.24, "back", 0, 0.4)   -- pop on arrival
             tray_bug[i] = T.sprite(xx - TRAY_W * 0.26, yy + TRAY_W * 0.24, TRAY_W * 0.34, TRAY_W * 0.34, "ant_hero")
             tint(tray_bug[i], b.color, a)            -- marker ant = species colour
             tray_txt[i] = num_make(tostring(b.n), TRAY_W * 0.5, a)

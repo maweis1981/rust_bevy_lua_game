@@ -65,6 +65,14 @@
 //!                                               that grows/shrinks)
 //!   game.set_rotation(id, radians)             (rotate a sprite about z; e.g. a
 //!                                               rolling ball, a kick lunge)
+//!   game.tween(id, x, y, scale, dur, ease, delay, from_scale)
+//!                                              (Rust-driven eased motion: move
+//!                                               to x,y and/or scale over dur
+//!                                               seconds. ease = "linear"/"out"/
+//!                                               "in"/"inout"/"back"; nil x/y =
+//!                                               scale-only; from_scale sets the
+//!                                               start scale, e.g. 0 for pop-in.
+//!                                               A new tween replaces the old.)
 //!   game.despawn(id)
 //!   game.spawn_text(x, y, size, r, g, b, a, s) -> id (world-space Text2d label,
 //!                                               centered at x,y; for menus/titles)
@@ -178,6 +186,7 @@ impl Plugin for ScriptPlugin {
                     apply_lua,
                     flush_save,
                     particle_update,
+                    tween_update,
                     build_rigs,
                     animate_rigs,
                     camera_shake,
@@ -370,6 +379,116 @@ fn lcg(seed: &mut u64) -> f32 {
 /// How many particles an emit may actually spawn under the global cap.
 fn emit_count_allowed(alive: usize, requested: u32, cap: usize) -> u32 {
     (cap.saturating_sub(alive)).min(requested as usize) as u32
+}
+
+// ---------------------------------------------------------------------------
+// Tweens: Rust-driven eased motion for Lua entities (`game.tween`). Scripts
+// fire-and-forget; the engine animates every frame, so motion stays smooth
+// regardless of the Lua tick. A new tween on the same entity replaces the old.
+// ---------------------------------------------------------------------------
+
+/// Easing kinds for [`TweenAnim`] (indices match `ease_from_name`).
+#[derive(Clone, Copy, PartialEq)]
+enum Ease {
+    Linear,
+    Out,
+    In,
+    InOut,
+    Back,
+}
+
+fn ease_from_name(name: &str) -> Ease {
+    match name {
+        "linear" => Ease::Linear,
+        "in" => Ease::In,
+        "inout" => Ease::InOut,
+        "back" | "pop" => Ease::Back,
+        _ => Ease::Out,
+    }
+}
+
+fn ease_apply(e: Ease, t: f32) -> f32 {
+    let t = t.clamp(0.0, 1.0);
+    match e {
+        Ease::Linear => t,
+        Ease::Out => 1.0 - (1.0 - t).powi(3),
+        Ease::In => t.powi(3),
+        Ease::InOut => {
+            if t < 0.5 {
+                4.0 * t * t * t
+            } else {
+                1.0 - (-2.0 * t + 2.0).powi(3) / 2.0
+            }
+        }
+        // back-out: overshoots the target slightly, then settles (juicy pops)
+        Ease::Back => {
+            let c1 = 1.70158_f32;
+            let c3 = c1 + 1.0;
+            1.0 + c3 * (t - 1.0).powi(3) + c1 * (t - 1.0).powi(2)
+        }
+    }
+}
+
+/// An in-flight `game.tween`: eased translation and/or uniform scale.
+#[derive(Component)]
+struct TweenAnim {
+    to_xy: Option<Vec2>,
+    to_scale: Option<f32>,
+    from_scale: Option<f32>,   // explicit start scale (e.g. 0 for a pop-in)
+    from_xy: Option<Vec2>,     // captured on the first ticked frame
+    from_scale_cur: f32,
+    t: f32,
+    dur: f32,
+    delay: f32,
+    ease: Ease,
+    started: bool,
+}
+
+/// Advance tweens: wait out the delay, capture the start state, ease to the
+/// target, snap + detach on completion.
+fn tween_update(
+    time: Res<Time>,
+    mut commands: Commands,
+    mut tweens: Query<(Entity, &mut TweenAnim, &mut Transform)>,
+) {
+    let dt = time.delta_secs();
+    for (entity, mut tw, mut transform) in &mut tweens {
+        if tw.delay > 0.0 {
+            tw.delay -= dt;
+            if tw.delay > 0.0 {
+                continue;
+            }
+        }
+        if !tw.started {
+            tw.started = true;
+            tw.from_xy = Some(transform.translation.truncate());
+            tw.from_scale_cur = tw.from_scale.unwrap_or(transform.scale.x);
+            if let Some(fs) = tw.from_scale {
+                transform.scale = Vec3::splat(fs);
+            }
+        }
+        tw.t += dt;
+        let k = ease_apply(tw.ease, if tw.dur > 0.0 { tw.t / tw.dur } else { 1.0 });
+        if let (Some(from), Some(to)) = (tw.from_xy, tw.to_xy) {
+            let p = from.lerp(to, k);
+            transform.translation.x = p.x;
+            transform.translation.y = p.y;
+        }
+        if let Some(to_s) = tw.to_scale {
+            let s = tw.from_scale_cur + (to_s - tw.from_scale_cur) * k;
+            transform.scale = Vec3::splat(s);
+        }
+        if tw.t >= tw.dur {
+            if let Some(to) = tw.to_xy {
+                transform.translation.x = to.x;
+                transform.translation.y = to.y;
+            }
+            if let Some(to_s) = tw.to_scale {
+                transform.scale = Vec3::splat(to_s);
+            }
+            commands.entity(entity).remove::<TweenAnim>();
+        }
+    }
 }
 
 /// Linear fade: full alpha at birth, zero at death.
@@ -637,6 +756,16 @@ enum LuaCommand {
     SetRotation {
         id: u32,
         radians: f32,
+    },
+    Tween {
+        id: u32,
+        x: Option<f32>,
+        y: Option<f32>,
+        scale: Option<f32>,
+        dur: f32,
+        ease: String,
+        delay: f32,
+        from_scale: Option<f32>,
     },
     SetSpriteImage {
         id: u32,
@@ -1063,6 +1192,37 @@ fn register_api(lua: &Lua) -> mlua::Result<()> {
             }
             Ok(())
         })?,
+    )?;
+
+    game.set(
+        "tween",
+        lua.create_function(
+            |lua,
+             (id, x, y, scale, dur, ease, delay, from_scale): (
+                u32,
+                Option<f32>,
+                Option<f32>,
+                Option<f32>,
+                f32,
+                Option<String>,
+                Option<f32>,
+                Option<f32>,
+            )| {
+                if let Some(mut bridge) = lua.app_data_mut::<Bridge>() {
+                    bridge.queue.push(LuaCommand::Tween {
+                        id,
+                        x,
+                        y,
+                        scale,
+                        dur,
+                        ease: ease.unwrap_or_else(|| "out".into()),
+                        delay: delay.unwrap_or(0.0),
+                        from_scale,
+                    });
+                }
+                Ok(())
+            },
+        )?,
     )?;
 
     game.set(
@@ -1784,6 +1944,22 @@ fn register_api(lua: &mut Lua, bridge: Rc<RefCell<Bridge>>) {
         game.set(ctx, "set_sprite_image", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
             let (id, image): (u32, ottavino::String) = stack.consume(ctx)?;
             b.borrow_mut().queue.push(LuaCommand::SetSpriteImage { id, image: image.to_str().unwrap_or("").to_string() });
+            Ok(CallbackReturn::Return)
+        })).unwrap();
+
+        let b = bridge.clone();
+        game.set(ctx, "tween", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let (id, x, y, scale, dur, ease, delay, from_scale): (
+                u32, Option<f32>, Option<f32>, Option<f32>, f32,
+                Option<ottavino::String>, Option<f32>, Option<f32>,
+            ) = stack.consume(ctx)?;
+            b.borrow_mut().queue.push(LuaCommand::Tween {
+                id, x, y, scale, dur,
+                ease: ease.and_then(|s| s.to_str().ok().map(|s| s.to_string()))
+                          .unwrap_or_else(|| "out".into()),
+                delay: delay.unwrap_or(0.0),
+                from_scale,
+            });
             Ok(CallbackReturn::Return)
         })).unwrap();
 
@@ -2557,6 +2733,35 @@ fn apply_lua(
                             .entry::<Transform>()
                             .and_modify(move |mut t| t.rotation = Quat::from_rotation_z(radians));
                     }
+                }
+            }
+            LuaCommand::Tween {
+                id,
+                x,
+                y,
+                scale,
+                dur,
+                ease,
+                delay,
+                from_scale,
+            } => {
+                if let Some(&entity) = registry.0.get(&id) {
+                    let to_xy = match (x, y) {
+                        (Some(px), Some(py)) => Some(Vec2::new(px, py)),
+                        _ => None,
+                    };
+                    commands.entity(entity).insert(TweenAnim {
+                        to_xy,
+                        to_scale: scale,
+                        from_scale,
+                        from_xy: None,
+                        from_scale_cur: 1.0,
+                        t: 0.0,
+                        dur: dur.max(0.001),
+                        delay,
+                        ease: ease_from_name(&ease),
+                        started: false,
+                    });
                 }
             }
             LuaCommand::SetSpriteImage { id, image } => {
