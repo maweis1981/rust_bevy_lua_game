@@ -23,31 +23,120 @@ local function make_ant_clear()
   local K = GAME_KIT
   local T = K.tracker()
 
-  -- ---- level (generated: tools/gen_level.py --pattern fox) -----------------
-  local LEVEL = {
-    id = 1, slots = 4,       -- level number + active-slot count (level-driven)
-    w = 16, h = 13,
-    -- FOOD palette: 1 chocolate, 2 bread, 3 sugar, 4 berry, 5 mint. The picture
-    -- is the approved-mockup FOX on a mint backdrop — a full rectangle mosaic,
-    -- chunky 16x13 cells, every block a real food token the colony hauls off.
-    palette = { {0.290,0.180,0.125}, {1.000,0.624,0.110}, {1.000,0.953,0.863}, {1.000,0.353,0.416}, {0.224,0.788,0.722} },
-    grid = {
-      {5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5},
-      {5,2,5,5,5,5,5,5,5,5,5,5,5,5,2,5},
-      {5,2,2,5,5,5,5,5,5,5,5,5,5,2,2,5},
-      {5,2,2,2,5,5,5,5,5,5,5,5,2,2,2,5},
-      {5,2,2,2,2,5,5,5,5,5,5,2,2,2,2,5},
-      {5,2,2,2,2,2,2,2,2,2,2,2,2,2,2,5},
-      {5,2,2,2,1,2,2,2,2,2,2,1,2,2,2,5},
-      {5,2,3,3,2,2,2,2,2,2,2,2,3,3,2,5},
-      {5,2,4,3,3,2,2,1,1,2,2,3,3,4,2,5},
-      {5,2,3,3,3,3,3,1,1,3,3,3,3,3,2,5},
-      {5,2,2,3,3,3,3,4,4,3,3,3,3,2,2,5},
-      {5,5,2,2,3,3,3,3,3,3,3,3,2,2,5,5},
-      {5,5,5,5,2,2,2,2,2,2,2,2,5,5,5,5},
+  -- ---- levels (generated: tools/gen_level.py, all validated solvable@4) -----
+  -- Shared FOOD palette: 1 chocolate, 2 bread, 3 sugar, 4 berry, 5 mint. Every
+  -- picture is a food mosaic the colony hauls off crumb by crumb. Progression
+  -- is saved (game.save "ant_clear_lvl") and wraps around.
+  local LEVELS = {
+    { -- 1: the approved-mockup FOX on a mint backdrop (full-rectangle mosaic)
+      slots = 4, w = 16, h = 13,
+      grid = {
+        {5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5},
+        {5,2,5,5,5,5,5,5,5,5,5,5,5,5,2,5},
+        {5,2,2,5,5,5,5,5,5,5,5,5,5,2,2,5},
+        {5,2,2,2,5,5,5,5,5,5,5,5,2,2,2,5},
+        {5,2,2,2,2,5,5,5,5,5,5,2,2,2,2,5},
+        {5,2,2,2,2,2,2,2,2,2,2,2,2,2,2,5},
+        {5,2,2,2,1,2,2,2,2,2,2,1,2,2,2,5},
+        {5,2,3,3,2,2,2,2,2,2,2,2,3,3,2,5},
+        {5,2,4,3,3,2,2,1,1,2,2,3,3,4,2,5},
+        {5,2,3,3,3,3,3,1,1,3,3,3,3,3,2,5},
+        {5,2,2,3,3,3,3,4,4,3,3,3,3,2,2,5},
+        {5,5,2,2,3,3,3,3,3,3,3,3,2,2,5,5},
+        {5,5,5,5,2,2,2,2,2,2,2,2,5,5,5,5},
+      },
+      tray = { {5,8},{5,8},{5,8},{5,8},{5,8},{5,8},{5,8},{5,8},{2,8},{2,8},{2,8},{2,8},{2,8},{2,8},{5,8},{2,8},{2,8},{3,8},{2,8},{3,8},{3,8},{5,8},{2,8},{3,8},{1,6},{4,4},{5,4},{3,2} },
     },
-    tray = { {5,8}, {5,8}, {5,8}, {5,8}, {5,8}, {5,8}, {5,8}, {5,8}, {2,8}, {2,8}, {2,8}, {2,8}, {2,8}, {2,8}, {5,8}, {2,8}, {2,8}, {3,8}, {2,8}, {3,8}, {3,8}, {5,8}, {2,8}, {3,8}, {1,6}, {4,4}, {5,4}, {3,2} },
+    { -- 2: strawberry-iced DONUT with sprinkles (enclosed hole = extra strategy)
+      slots = 4, w = 20, h = 17,
+      grid = {
+        {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+        {0,0,0,0,0,0,4,4,4,4,4,4,4,4,0,0,0,0,0,0},
+        {0,0,0,0,4,4,4,4,4,4,4,3,4,4,4,4,0,0,0,0},
+        {0,0,0,4,4,4,4,4,5,4,4,4,4,4,4,4,4,0,0,0},
+        {0,0,4,4,3,4,4,4,4,4,4,4,4,4,4,4,5,4,0,0},
+        {0,5,4,4,4,4,4,4,4,4,4,4,3,4,4,4,4,4,4,0},
+        {0,4,4,4,4,4,4,4,4,0,0,4,4,4,4,4,4,4,4,0},
+        {0,4,4,2,4,3,2,0,0,0,0,0,0,2,4,4,4,5,4,0},
+        {0,4,2,2,4,2,2,0,0,0,0,0,0,2,4,2,2,4,4,0},
+        {0,4,2,2,2,2,2,0,0,0,0,0,0,2,2,2,2,4,2,0},
+        {0,2,2,2,2,2,2,2,2,0,0,2,2,2,2,2,2,2,2,0},
+        {0,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,0},
+        {0,0,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,0,0},
+        {0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0},
+        {0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0},
+        {0,0,0,0,0,0,1,1,1,1,1,1,1,1,0,0,0,0,0,0},
+        {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+      },
+      tray = { {4,8},{4,8},{4,8},{4,8},{4,8},{4,8},{4,8},{4,8},{4,8},{2,8},{2,8},{2,8},{2,8},{2,8},{4,8},{2,8},{2,8},{1,8},{1,8},{1,8},{2,8},{4,8},{1,8},{2,6},{3,4},{4,4},{5,4},{1,2} },
+    },
+    { -- 3: the CAT (hand-authored pixel art; interior colours buried)
+      slots = 4, w = 20, h = 17,
+      grid = {
+        {0,0,0,0,1,1,0,0,0,0,0,0,0,0,1,1,0,0,0,0},
+        {0,0,0,1,4,4,1,0,0,0,0,0,0,1,4,4,1,0,0,0},
+        {0,0,0,1,4,2,1,0,0,0,0,0,0,1,2,4,1,0,0,0},
+        {0,0,1,1,2,2,1,1,0,0,0,0,1,1,2,2,1,1,0,0},
+        {0,0,1,2,2,2,2,2,1,1,1,1,2,2,2,2,2,1,0,0},
+        {0,1,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,1,0,0},
+        {0,1,2,2,3,3,3,3,3,3,3,3,3,3,3,2,2,1,0,0},
+        {0,1,2,3,3,3,3,3,3,3,3,3,3,3,3,3,2,1,0,0},
+        {1,2,3,3,5,5,3,3,3,3,3,3,5,5,3,3,3,2,1,0},
+        {1,2,3,3,5,5,3,3,3,3,3,3,5,5,3,3,3,2,1,0},
+        {1,2,3,3,3,3,3,3,3,4,4,3,3,3,3,3,3,2,1,0},
+        {1,2,3,3,3,3,3,3,4,4,4,4,3,3,3,3,3,2,1,0},
+        {1,2,2,3,3,3,3,3,3,3,3,3,3,3,3,3,2,2,1,0},
+        {0,1,2,2,3,3,3,3,3,3,3,3,3,3,2,2,1,0,0,0},
+        {0,1,1,2,2,2,3,3,3,3,3,2,2,2,1,1,0,0,0,0},
+        {0,0,0,1,1,2,2,2,2,2,2,2,1,1,1,1,0,0,0,0},
+        {0,0,0,0,0,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0},
+      },
+      tray = { {1,8},{1,8},{1,8},{1,8},{1,8},{2,8},{2,8},{2,8},{2,8},{1,8},{2,8},{3,8},{3,8},{3,8},{1,8},{2,8},{3,8},{3,8},{3,8},{3,8},{3,8},{2,8},{3,8},{3,8},{3,8},{4,8},{3,8},{2,8},{5,8},{1,6},{4,4},{2,2},{3,2} },
+    },
+    { -- 4: a cookie HEART (3 colours: chocolate body, bread point, sugar shine)
+      slots = 4, w = 16, h = 14,
+      grid = {
+        {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+        {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+        {0,0,1,3,3,3,1,0,0,1,1,1,1,1,0,0},
+        {0,1,3,3,3,3,3,1,1,1,1,1,1,1,1,0},
+        {0,1,3,3,3,3,3,1,1,1,1,1,1,1,1,0},
+        {1,1,3,3,3,3,3,1,1,1,1,1,1,1,1,1},
+        {1,1,3,3,3,3,3,1,1,1,1,1,1,1,1,1},
+        {0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0},
+        {0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0},
+        {0,0,1,1,1,1,1,1,1,1,1,1,1,1,0,0},
+        {0,0,1,1,1,1,1,1,1,1,1,1,1,1,0,0},
+        {0,0,0,2,2,2,2,2,2,2,2,2,2,0,0,0},
+        {0,0,0,0,2,2,2,2,2,2,2,2,0,0,0,0},
+        {0,0,0,0,0,0,2,2,2,2,0,0,0,0,0,0},
+      },
+      tray = { {1,8},{1,8},{1,8},{1,8},{1,8},{1,8},{1,8},{1,8},{1,8},{1,8},{3,8},{1,8},{3,8},{1,8},{2,8},{2,8},{3,7},{2,6},{1,3} },
+    },
+    { -- 5: a SMILEY cookie (chocolate face details on a bread base)
+      slots = 4, w = 15, h = 14,
+      grid = {
+        {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+        {0,0,0,0,1,1,1,1,1,1,1,0,0,0,0},
+        {0,0,0,1,1,1,1,1,1,1,1,1,0,0,0},
+        {0,0,1,1,1,1,1,1,1,1,1,1,1,0,0},
+        {0,0,1,1,1,1,1,1,1,1,1,1,1,0,0},
+        {0,1,1,1,2,2,1,1,1,2,2,1,1,1,0},
+        {0,1,1,1,1,1,1,1,1,1,1,1,1,1,0},
+        {0,1,1,1,1,1,1,1,1,1,1,1,1,1,0},
+        {0,1,1,3,2,1,1,1,1,1,2,3,1,1,0},
+        {0,0,1,1,2,1,1,1,1,1,2,1,1,0,0},
+        {0,0,1,1,2,2,2,1,2,2,2,1,1,0,0},
+        {0,0,0,1,1,1,2,2,2,1,1,1,0,0,0},
+        {0,0,0,0,1,1,1,1,1,1,1,0,0,0,0},
+        {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
+      },
+      tray = { {1,8},{1,8},{1,8},{1,8},{1,8},{1,8},{1,8},{1,8},{1,8},{1,8},{1,8},{1,8},{2,8},{1,8},{2,8},{1,5},{3,2},{2,1} },
+    },
   }
+  local cur_lvl = 1
+  local LEVEL = LEVELS[1]
+  local PALETTE5 = { {0.290,0.180,0.125}, {1.000,0.624,0.110}, {1.000,0.953,0.863}, {1.000,0.353,0.416}, {0.224,0.788,0.722} }
 
   -- ---- tunables ------------------------------------------------------------
   local SLOTS = LEVEL.slots or 4   -- active slots (< palette size on purpose)
@@ -74,6 +163,7 @@ local function make_ant_clear()
   local function cy(r) return ROWY[r] or (TOPY - (r - 0.5) * CELL) end
 
   -- ---- flow field over an open ring (rows/cols 0..H+1, 0..W+1) -------------
+  -- NW/NEST are level-sized; re-derived in build() when the level changes.
   local NW = W + 2
   local function node(r, c) return r * NW + c end
   local NEST = node(H + 1, math.floor(W / 2) + 1)
@@ -142,7 +232,7 @@ local function make_ant_clear()
   local muted = false          -- sound toggle (music + sfx)
   local HW, HH, built = 0, 0, false
   local back, was_stuck = nil, false
-  local palette = LEVEL.palette
+  local palette = PALETTE5
 
   local function reachable_count(color)
     if dirty then recompute_field() end
@@ -254,7 +344,9 @@ local function make_ant_clear()
       for c = 1, W do
         local ci = grid[r][c]
         if ci ~= 0 then
-          local id = T.sprite(cx(c, r), cy(r), CELL * rs(r), CELL * rs(r), FOOD[ci])
+          -- draw slightly LARGER than the pitch so neighbouring blocks touch and
+          -- the mosaic reads as ONE picture (the token's shadow fills the seams)
+          local id = T.sprite(cx(c, r), cy(r), CELL * rs(r) * 1.10, CELL * rs(r) * 1.10, FOOD[ci])
           -- depth lighting: receding rows sit a touch darker, near rows full-lit
           local k = 1 - 0.30 * (1 - rs(r))
           game.set_color(id, k, k, k, 1)
@@ -408,7 +500,8 @@ local function make_ant_clear()
   local slot_bg, slot_txt, slot_bug, tray_bg, tray_txt, tray_bug = {}, {}, {}, {}, {}, {}
   local slot_food = {}                 -- mini food sprite sitting in each spice box
   local slot_shown, tray_shown = {}, {}
-  local coin_num                       -- bitmap-digit coin counter
+  local coin_num, coin_shown           -- bitmap-digit LIVE score (cleared blocks)
+  local coin_x, coin_y = 0, 0          -- where the score digits sit (set in build)
   local lvl_num                        -- bitmap-digit level number (in the badge)
   local prog_x0, prog_w, prog_fill, prog_stars = 0, 1, nil, {}   -- star progress bar
   local prog_y, prog_h = 0, 8          -- fill centre-line + thickness (set in build)
@@ -495,28 +588,20 @@ local function make_ant_clear()
     buttons = {}   -- pill sprites are tracker-owned (T.clear despawns them); drop stale refs
   end
   local QYGAP = 6
-  -- the sliced strip's four sockets sit at these fractions of its width — anchor
-  -- the slot positions (draws AND taps) to the baked art, not to even spacing
-  local SOCKF = { 0.108, 0.349, 0.582, 0.829 }
-  local function slot_x(i)
-    local w = SLOTS * (SLOT_W + 8) + 44
-    return -w / 2 + (SOCKF[i] or (i / (SLOTS + 1))) * w
-  end
+  local function slot_x(i) return (i - (SLOTS + 1) / 2) * (SLOT_W + 8) end
   local function col_x(c) return (c - (NCOL + 1) / 2) * (TRAY_W + 8) end
   local function row_y(row) return TRAY_Y - row * (TRAY_W + QYGAP) end   -- row 0 = head (top)
   local function qi(c, row) return (c - 1) * QROWS + row + 1 end          -- 0-based row
 
   local function draw_hud()
-    -- the mockup's OWN slot strip and queue tray (sliced from the concept art);
-    -- the tray's baked tiles get covered by a dark inner panel, then live tiles
+    -- CLEAN trays (empty Floniks wooden trays — no baked content, no cover
+    -- hacks): the slot strip and the queue tray each hold only live sprites
     local strip_w = SLOTS * (SLOT_W + 8) + 44
-    T.sprite(0, SLOT_Y, strip_w, strip_w * 78 / 416, "mock_slots")
+    T.sprite(0, SLOT_Y, strip_w, SLOT_W + 26, "tray_wood")
     local q_cy = (row_y(0) + row_y(QROWS - 1)) / 2
     local q_w = NCOL * (TRAY_W + 8) + 44
-    local q_h = QROWS * (TRAY_W + QYGAP) + 28
-    T.sprite(0, q_cy, q_w, q_h, "mock_tray")
-    local cover = T.sprite(0, q_cy, q_w - 12, q_h - 12, "tile_sq")
-    game.set_color(cover, 0.30, 0.19, 0.11, 1)
+    local q_h = QROWS * (TRAY_W + QYGAP) + 26
+    T.sprite(0, q_cy, q_w, q_h, "tray_wood")
     for i = 1, SLOTS do
       -- slot sockets are BAKED into the sliced strip; slot_bg is a dark cover
       -- that hides the baked colour block while the slot is empty
@@ -541,9 +626,18 @@ local function make_ant_clear()
       game.move_to(prog_fill, prog_x0 + fw / 2, prog_y or (HH - 34))
       for k = 1, 3 do
         if prog_stars[k] then
-          game.set_color(prog_stars[k], 1, 1, 1, frac >= k / 3 - 0.001 and 1 or 0)
+          if frac >= k / 3 - 0.001 then game.set_color(prog_stars[k], 1, 1, 1, 1)
+          else game.set_color(prog_stars[k], 0.42, 0.32, 0.24, 1) end
         end
       end
+      -- LIVE score: cleared blocks, as bitmap digits next to the coin
+      local score = tostring(total_cells - painted)
+      if score ~= coin_shown then
+        num_free(coin_num)
+        coin_num = num_make(score, 18, 1)
+        coin_shown = score
+      end
+      num_place(coin_num, coin_x, coin_y)
     end
     for i = 1, SLOTS do
       local s = slots[i]
@@ -617,14 +711,18 @@ local function make_ant_clear()
   local function build(hw, hh)
     HW, HH = hw, hh
     despawn_dynamic()   -- clear any leftover ants / bitmap digits before a rebuild
+    -- pick the current level and re-derive the level-sized geometry
+    LEVEL = LEVELS[((cur_lvl - 1) % #LEVELS) + 1]
+    W, H = LEVEL.w, LEVEL.h
+    NW = W + 2
+    NEST = node(H + 1, math.floor(W / 2) + 1)
 
     -- ---- deterministic layout, stacked BOTTOM-UP so nothing ever overlaps ----
-    local M, BAR_H = 30, 46
-    local BAR_CY = -hh + M + BAR_H / 2
+    local M = 26                       -- bottom margin (power-up bar removed)
     TRAY_W = math.min((2 * hw - 44) / 4 - 8, 54)
     SLOT_W = math.min((2 * hw - 60) / 5 - 8, 50)
     -- reserve QROWS visible queue rows above the bar (head row at the top)
-    local q_bot = BAR_CY + BAR_H / 2 + 22 + TRAY_W / 2      -- bottom queue row centre
+    local q_bot = -hh + M + 14 + TRAY_W / 2                 -- bottom queue row centre
     TRAY_Y = q_bot + (QROWS - 1) * (TRAY_W + 6)             -- head row (row 0, top)
     SLOT_Y = (TRAY_Y + TRAY_W / 2) + 38 + SLOT_W / 2        -- slots above the queue
                                                             -- (extra air so the two
@@ -667,60 +765,39 @@ local function make_ant_clear()
     -- full-screen cozy background (generated art), behind everything
     T.sprite(0, 0, math.max(2 * hw, 2 * hh * 512 / 768) + 4, 2 * hh + 4, "game_bg")
     spawn_drifters()   -- ambient floating leaves/motes over the background
-    -- top status bar: the mockup's OWN strip (badge + star groove + coin pill,
-    -- sliced from the concept art). Live data overlays at measured fractions.
+    -- top status bar: SEPARATE live sprites (no baked values) — wooden plank,
+    -- level badge + live digits, star progress groove, coin + live score
     local by = hh - 34
     local bar_w = 2 * hw - 16
-    local bar_h = bar_w * 88 / 564                          -- keep slice aspect
-    T.sprite(0, by, bar_w, bar_h, "mock_bar")
+    local bar_h = 46
+    T.sprite(0, by, bar_w, bar_h, "bar_wood")
     local function bfx(f) return -bar_w / 2 + f * bar_w end -- fraction -> x
-    -- cover the badge's baked "12" with a badge-green patch, then live digits
-    local bcov = T.sprite(bfx(0.0975), by - bar_h * 0.02, bar_h * 0.46, bar_h * 0.40, "tile_sq")
-    game.set_color(bcov, 0.36, 0.42, 0.18, 1)
-    lvl_num = num_make(tostring(LEVEL.id or 1), bar_h * 0.40, 1)
-    num_place(lvl_num, bfx(0.0975), by)
-    -- live progress fill over the baked groove, then the three stars
-    prog_x0, prog_w = bfx(0.2199), bar_w * (0.7305 - 0.2199)
-    prog_y, prog_h = by + bar_h * 0.03, bar_h * 0.16
+    T.sprite(bfx(0.09), by, bar_h * 1.25, bar_h * 1.25, "badge_wood")
+    lvl_num = num_make(tostring(cur_lvl), bar_h * 0.46, 1)
+    num_place(lvl_num, bfx(0.09), by)
+    -- progress groove + live fill, then the three stars (dark until earned)
+    prog_x0, prog_w = bfx(0.21), bar_w * (0.72 - 0.21)
+    prog_y, prog_h = by, bar_h * 0.22
+    local groove = T.sprite(prog_x0 + prog_w / 2, prog_y, prog_w, prog_h + 6, "tile_sq")
+    game.set_color(groove, 0.22, 0.13, 0.08, 0.9)
     prog_fill = T.sprite(prog_x0, prog_y, 1, prog_h, "tile_sq")
     game.set_color(prog_fill, 1.0, 0.78, 0.20, 1)
     prog_stars = {}
-    for k, f in ipairs({ 0.390, 0.5035, 0.617 }) do
-      prog_stars[k] = T.sprite(bfx(f), by + bar_h * 0.02, bar_h * 0.44, bar_h * 0.44, "icon_star")
-      game.set_color(prog_stars[k], 1, 1, 1, 0)             -- invisible until earned
+    for k, f in ipairs({ 0.38, 0.505, 0.63 }) do
+      prog_stars[k] = T.sprite(bfx(f), by + 1, bar_h * 0.52, bar_h * 0.52, "icon_star")
+      game.set_color(prog_stars[k], 0.42, 0.32, 0.24, 1)    -- unlit until earned
     end
-    coin_num = num_make("1240", bar_h * 0.36, 1)
-    num_place(coin_num, bfx(0.872), by)
+    T.sprite(bfx(0.80), by, 28, 28, "icon_coin")
+    coin_num, coin_shown = nil, nil                         -- live score (set in refresh)
+    coin_x, coin_y = bfx(0.895), by
     -- per the approved mockup the picture sits DIRECTLY on the soil — only a very
     -- faint contact shading grounds it (sized to the perspective trapezoid's box)
     local b_bot = ROWY[H] and (ROWY[H] - CELL * PS[H] / 2) or (TOPY - H * CELL)
     local panel = T.sprite(0, (TOPY + b_bot) / 2, W * CELL + 16, (TOPY - b_bot) + 16, "tile_sq")
     game.set_color(panel, 0.22, 0.14, 0.09, 0.12)
-    -- nest hole (generated art) + the two rewarded-ad unlock buttons flanking it
+    -- nest hole (generated art). The unlock buttons and the shovel/bomb power-up
+    -- buttons are removed for now (no function behind them yet).
     T.sprite(NESTX, NESTY, HOLE_R * 2.6, HOLE_R * 2.6, "hole")
-    for _, sx in ipairs({ -1, 1 }) do
-      local bx = sx * (hw - 44)
-      local ub = T.sprite(bx, NESTY, 80, 54, "btn_base")
-      add_button(ub, { x = bx, y = NESTY, w = 80, h = 54 }, { 0.93, 0.80, 0.55 })
-      T.sprite(bx, NESTY + 8, 26, 20, "ad_play")
-      T.text(bx, NESTY - 14, 17, 0.42, 0.32, 0.18, 1, "解锁")
-    end
-    -- bottom bar: TWO big friendly buttons, like the approved mockup (the unlock
-    -- buttons already flank the nest hole, so they don't repeat here)
-    local BM, BG = 20, 14
-    local bw = (2 * hw - 2 * BM - BG) / 2
-    -- the mockup's own two buttons, icons baked in (green shovel = 速度升级,
-    -- amber bomb = 速度x2 toggle)
-    local btns = {
-      { "btn_green", nil, nil },
-      { "btn_amber", function() speed2 = not speed2 end, function() return speed2 end },
-    }
-    for i, b in ipairs(btns) do
-      local bxc = -hw + BM + bw / 2 + (i - 1) * (bw + BG)
-      local bh = bw * 88 / 198                              -- keep slice aspect
-      local id = T.sprite(bxc, BAR_CY, bw, bh, b[1])
-      add_button(id, { x = bxc, y = BAR_CY, w = bw, h = bh }, { 1, 1, 1 }, b[2], b[3])
-    end
     -- crumb debris: a few fallen morsels scattered under the picture (mockup decor)
     for k = 1, 6 do
       local fx = (math.random() * 2 - 1) * CELL * W * 0.42
@@ -777,7 +854,10 @@ local function make_ant_clear()
 
   local function win()
     playing, won = false, true
-    game.set_text("恭喜完成！\n点击再玩一次")
+    game.set_text("")                    -- no caption; the stars/confetti say it
+    -- advance the saved progression; the next tap rebuilds into the new level
+    cur_lvl = (cur_lvl % #LEVELS) + 1
+    if game.save then game.save("ant_clear_lvl", cur_lvl) end
     game.play_sound("ac_win"); game.haptic("success"); game.shake(0.5); game.log("ant_clear win")
     -- celebration: spark bursts scattered across where the picture was
     local py = TOPY - 0.5 * CELL * H
@@ -788,7 +868,13 @@ local function make_ant_clear()
   end
 
   return {
-    enter = function() built = false; game.play_music("ac_bgm") end,
+    enter = function()
+      built = false
+      -- (assign first: a host whose `load` returns no values must read as nil)
+      local saved = game.load and game.load("ant_clear_lvl")
+      cur_lvl = tonumber(saved) or cur_lvl
+      game.play_music("ac_bgm")
+    end,
     leave = function() T.clear(); despawn_dynamic(); ants = {}; built = false; game.stop_music() end,
     tap = function(x, y)
       if back and K.in_rect(back, x, y) then K.switch("menu"); return end
