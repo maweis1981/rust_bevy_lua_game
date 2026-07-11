@@ -255,6 +255,9 @@ local function make_ant_clear()
         local ci = grid[r][c]
         if ci ~= 0 then
           local id = T.sprite(cx(c, r), cy(r), CELL * rs(r), CELL * rs(r), FOOD[ci])
+          -- depth lighting: receding rows sit a touch darker, near rows full-lit
+          local k = 1 - 0.30 * (1 - rs(r))
+          game.set_color(id, k, k, k, 1)
           cell_id[r][c] = id; painted = painted + 1
         end
       end
