@@ -28,6 +28,7 @@ local function tracker()
   return {
     spawn = function(...) local id = game.spawn(...); ids[#ids + 1] = id; return id end,
     sprite = function(...) local id = game.spawn_sprite(...); ids[#ids + 1] = id; return id end,
+    panel = function(...) local id = game.spawn_panel(...); ids[#ids + 1] = id; return id end,
     text = function(...) local id = game.spawn_text(...); ids[#ids + 1] = id; return id end,
     clear = function() for _, id in ipairs(ids) do game.despawn(id) end; ids = {} end,
   }
