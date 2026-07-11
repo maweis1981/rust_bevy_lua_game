@@ -232,7 +232,7 @@ local function make_ant_clear()
   local DISPATCH_GAP = 0.45    -- seconds between departures
   local muted = false          -- sound toggle (music + sfx)
   local win_t = 0              -- celebration timer -> auto-advance to next level
-  local intro = { ids = {} }   -- level-intro title card ("第 N 关") state
+  local intro = { ids = {} }   -- level-intro title card ("LEVEL N") state
   local HW, HH, built = 0, 0, false
   local back, was_stuck = nil, false
   local palette = PALETTE5
@@ -727,10 +727,10 @@ local function make_ant_clear()
   local function status()
     if not SETTINGS.hud then return end
     -- only the stuck rescue prompt is ever shown; no idle hint text
-    game.set_text(stuck and "卡住了 — 点一个满槽位取消(看广告)" or "")
+    game.set_text(stuck and "Stuck? Tap a filled slot to cancel (watch ad)" or "")
   end
 
-  -- ---- level-intro title card ("第 N 关") ----------------------------------
+  -- ---- level-intro title card ("LEVEL N") ----------------------------------
   -- A clear "new level" beat (Supercell-style): a wooden plate + the level title
   -- sweeps down from above, holds, then lifts away and fades. Self-animated in
   -- update_intro (position + alpha), spawned untracked so despawn_dynamic reaps
@@ -744,7 +744,7 @@ local function make_ant_clear()
     local y = HH * 0.34
     local plate = game.spawn_sprite(0, y, 300, 96, "bar_wood")
     game.set_layer(plate, 95)               -- above the vignette (layer 90)
-    local txt = game.spawn_text(0, y, 42, 1.00, 0.96, 0.86, 1, "第 " .. cur_lvl .. " 关")
+    local txt = game.spawn_text(0, y, 42, 1.00, 0.96, 0.86, 1, "LEVEL " .. cur_lvl)
     intro.ids, intro.plate, intro.txt, intro.y, intro.t = { plate, txt }, plate, txt, y, 0
   end
   local function update_intro(dt)
