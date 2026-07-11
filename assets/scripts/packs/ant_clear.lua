@@ -27,8 +27,9 @@ local function make_ant_clear()
   local LEVEL = {
     id = 1, slots = 4,       -- level number + active-slot count (level-driven)
     w = 20, h = 17,
-    -- candy palette (art-direction v2): cocoa outline, tangerine fur, cream face,
-    -- strawberry ears/nose, mint eyes — bright + high-contrast, no muddy browns.
+    -- FOOD palette (dirt-world v3): every colour reads as something ants haul —
+    -- 1 chocolate, 2 bread crust, 3 white sugar, 4 strawberry candy, 5 mint candy.
+    -- The same colours tint the cubes (the food) AND the ant species carrying it.
     palette = { {0.290,0.180,0.125}, {1.000,0.624,0.110}, {1.000,0.953,0.863}, {1.000,0.353,0.416}, {0.224,0.788,0.722} },
     grid = {
       {0,0,0,0,1,1,0,0,0,0,0,0,0,0,1,1,0,0,0,0},
@@ -243,7 +244,7 @@ local function make_ant_clear()
       for c = 1, W do
         local ci = grid[r][c]
         if ci ~= 0 then
-          local id = T.sprite(cx(c), cy(r), CELL - 1, CELL - 1, "tile_sq")
+          local id = T.sprite(cx(c), cy(r), CELL, CELL, "cube")
           tint(id, ci); cell_id[r][c] = id; painted = painted + 1
         end
       end
@@ -261,20 +262,27 @@ local function make_ant_clear()
     -- ant_sheet is 8 frames of 48x48 (see tools/gen_ant_sheet.py). spawn_sheet
     -- needs (x,y,w,h,name, frame_w, frame_h, cols, frames) — all nine, or the
     -- host binding errors (which stalled the web build).
-    local sh = game.spawn_sprite(NESTX, NESTY, CELL * ANT_SIZE * 0.85, CELL * ANT_SIZE * 0.5, "ant_shadow")
-    game.set_color(sh, 1, 1, 1, 0.55)
-    local id = game.spawn_sheet(NESTX, NESTY, CELL * ANT_SIZE, CELL * ANT_SIZE, "ant_sheet", 48, 48, 8, 8)
+    local sh = game.spawn_sprite(NESTX, NESTY, CELL * ANT_SIZE * 0.9, CELL * ANT_SIZE * 0.6, "ant_shadow")
+    game.set_color(sh, 1, 1, 1, 0.5)
+    -- one detailed red ant (Floniks). It stays its natural red; the COLOUR it is
+    -- hauling is shown by the tinted cube it carries, so the ant body is never tinted.
+    local id = game.spawn_sprite(NESTX, NESTY, CELL * ANT_SIZE, CELL * ANT_SIZE, "ant_hero")
     ants[#ants + 1] = { id = id, shadow = sh, slot = slot_i, state = "idle", x = NESTX, y = NESTY,
                         pi = 1, path = nil, tr = 0, tc = 0, anim = 0, carry = nil, cc = 0, tintc = -1,
                         phase = (#ants % 8) * 0.8, dust = 0 }
   end
   -- Colour each ant to its slot's colour (a red slot -> red ants), so the swarm
   -- reads as "these ants are carrying THIS colour". Only re-set on change.
+  -- ANT SPECIES BY COLOUR: ant_hero.png is a light luminance master, so tinting
+  -- it turns the whole ant into a different-coloured species (chocolate ants haul
+  -- chocolate, sugar-white ants haul sugar, ...). Idle ants with no slot rest as
+  -- a natural warm brown. Only re-set on change.
+  local IDLE_ANT = { 0.62, 0.42, 0.28 }
   local function tint_ant(a)
     local s = slots[a.slot]
     local ci = s and s.color or 0
     if ci ~= a.tintc then
-      if ci == 0 then game.set_color(a.id, 0.55, 0.48, 0.44, 1)
+      if ci == 0 then game.set_color(a.id, IDLE_ANT[1], IDLE_ANT[2], IDLE_ANT[3], 1)
       else local c = palette[ci]; game.set_color(a.id, c[1], c[2], c[3], 1) end
       a.tintc = ci
     end
@@ -309,8 +317,7 @@ local function make_ant_clear()
       if d <= step then a.x, a.y, a.pi, step, moved = nx, ny, a.pi + 1, step - d, moved + d
       else a.x, a.y, step, moved = a.x + dx / d * step, a.y + dy / d * step, 0, moved + step end
     end
-    a.anim = (a.anim + moved * 0.16) % 8
-    game.set_frame(a.id, math.floor(a.anim))
+    a.anim = (a.anim + moved * 0.16) % 8   -- drives the sway timing (single sprite, no frames)
     -- gentle side-to-side meander perpendicular to travel (visual only — logical
     -- position stays on the path), plus little dust puffs while walking.
     local tdx, tdy = a.x - sx0, a.y - sy0
@@ -357,8 +364,8 @@ local function make_ant_clear()
         if grid[a.tr][a.tc] ~= 0 then
           a.cc = grid[a.tr][a.tc]
           clear_cell(a.tr, a.tc)
-          a.carry = game.spawn(a.x, a.y - CELL * 0.5, 1, 1, 1, 1, 1, 1)
-          a.carry_t = 0                 -- pop the picked pixel up from nothing
+          a.carry = game.spawn_sprite(a.x, a.y - CELL * 0.5, CELL * 0.72, CELL * 0.72, "cube")
+          a.carry_t = 0                 -- pop the picked cube up from nothing
           tint(a.carry, a.cc)
           game.shake(0.02); game.haptic("light")   -- grab: subtle (deposit is the sound)
         end
@@ -467,13 +474,13 @@ local function make_ant_clear()
 
   local function draw_hud()
     for i = 1, SLOTS do
-      slot_bg[i] = T.sprite(slot_x(i), SLOT_Y, SLOT_W, SLOT_W, "tile_sq")
+      slot_bg[i] = T.sprite(slot_x(i), SLOT_Y, SLOT_W, SLOT_W, "cube")
       game.set_color(slot_bg[i], 0.80, 0.76, 0.70, 1)
       slot_shown[i] = nil
     end
     for c = 1, NCOL do for row = 0, QROWS - 1 do
       local i = qi(c, row)
-      tray_bg[i] = T.sprite(col_x(c), row_y(row), TRAY_W, TRAY_W, "tile_sq")
+      tray_bg[i] = T.sprite(col_x(c), row_y(row), TRAY_W, TRAY_W, "cube")
       game.set_color(tray_bg[i], 0.80, 0.76, 0.70, 0)
       tray_shown[i] = nil
     end end
@@ -495,8 +502,8 @@ local function make_ant_clear()
         num_free(slot_txt[i]); slot_txt[i] = nil
         if slot_bug[i] then game.despawn(slot_bug[i]); slot_bug[i] = nil end
         if lbl ~= "" then
-          slot_bug[i] = T.sprite(slot_x(i) - SLOT_W * 0.26, SLOT_Y + SLOT_W * 0.26, SLOT_W * 0.3, SLOT_W * 0.3, "ant_icon")
-          game.set_color(slot_bug[i], 0.20, 0.16, 0.14, 1)
+          slot_bug[i] = T.sprite(slot_x(i) - SLOT_W * 0.26, SLOT_Y + SLOT_W * 0.26, SLOT_W * 0.36, SLOT_W * 0.36, "ant_hero")
+          if s then tint(slot_bug[i], s.color) end   -- marker ant = the species colour
           slot_txt[i] = num_make(lbl, SLOT_W * 0.52, 1)
         end
         slot_shown[i] = lbl
@@ -520,8 +527,8 @@ local function make_ant_clear()
           num_free(tray_txt[i]); tray_txt[i] = nil
           if tray_bug[i] then game.despawn(tray_bug[i]); tray_bug[i] = nil end
           if lbl ~= "" then
-            tray_bug[i] = T.sprite(xx - TRAY_W * 0.26, yy + TRAY_W * 0.24, TRAY_W * 0.28, TRAY_W * 0.28, "ant_icon")
-            game.set_color(tray_bug[i], 0.20, 0.16, 0.14, a)
+            tray_bug[i] = T.sprite(xx - TRAY_W * 0.26, yy + TRAY_W * 0.24, TRAY_W * 0.34, TRAY_W * 0.34, "ant_hero")
+            if b then tint(tray_bug[i], b.color, a) end   -- marker ant = species colour
             tray_txt[i] = num_make(lbl, TRAY_W * 0.5, a)
           end
           tray_shown[i] = lbl
@@ -585,14 +592,15 @@ local function make_ant_clear()
     T.text(0, hh - 34, 22, 0.30, 0.22, 0.16, 1, "关卡 " .. (LEVEL.id or 1))
     T.sprite(hw - 96, hh - 34, 26, 26, "icon_coin")
     coin_num = num_make("1240", 22, 1); num_place(coin_num, hw - 54, hh - 34)
-    -- board panel (white picture frame) behind the cells
-    local panel = T.sprite(0, TOPY - 0.5 * CELL * H, W * CELL + 20, H * CELL + 20, "tile_sq")
-    game.set_color(panel, 0.99, 0.97, 0.93, 1)
+    -- soft recessed soil patch behind the picture (not a white card — the cubes
+    -- sit in the dirt like the reference)
+    local panel = T.sprite(0, TOPY - 0.5 * CELL * H, W * CELL + 24, H * CELL + 24, "tile_sq")
+    game.set_color(panel, 0.26, 0.17, 0.11, 0.30)
     -- nest hole (generated art) + the two rewarded-ad unlock buttons flanking it
-    T.sprite(NESTX, NESTY, HOLE_R * 2.5, HOLE_R * 2.4, "hole")
+    T.sprite(NESTX, NESTY, HOLE_R * 2.6, HOLE_R * 2.6, "hole")
     for _, sx in ipairs({ -1, 1 }) do
       local bx = sx * (hw - 44)
-      local ub = T.sprite(bx, NESTY, 80, 54, "btn_pill")
+      local ub = T.sprite(bx, NESTY, 80, 54, "btn_base")
       add_button(ub, { x = bx, y = NESTY, w = 80, h = 54 }, { 0.93, 0.80, 0.55 })
       T.sprite(bx, NESTY + 8, 26, 20, "ad_play")
       T.text(bx, NESTY - 14, 17, 0.42, 0.32, 0.18, 1, "解锁")
@@ -608,7 +616,7 @@ local function make_ant_clear()
     }
     for i, b in ipairs(btns) do
       local bxc = -hw + BM + bw / 2 + (i - 1) * (bw + BG)
-      local id = T.sprite(bxc, BAR_CY, bw, BAR_H + 6, "btn_pill")
+      local id = T.sprite(bxc, BAR_CY, bw, BAR_H + 6, "btn_base")
       -- the speed x2 button toggles the demo double-speed and lights up while on
       local on_tap = (b[3] == "icon_x2") and function() speed2 = not speed2 end or nil
       local sel = (b[3] == "icon_x2") and function() return speed2 end or nil
