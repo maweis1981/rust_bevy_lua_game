@@ -315,6 +315,10 @@ local function make_ant_clear()
   -- Each colour is a REAL food object (rendered sprites, not tinted cubes):
   -- the picture/queue/carried blocks read as actual chocolate/bread/sugar/candy.
   local FOOD = { "food_choc", "food_bread", "food_sugar", "food_berry", "food_mint" }
+  -- BOARD cells use flat matte tiles (cell_<food>_<1..4>, tools/board_cells.py):
+  -- no per-cell shadow, four texture variants so same-colour runs don't repeat —
+  -- the mosaic reads as ONE continuous picture, like the reference.
+  local CFOOD = { "choc", "bread", "sugar", "berry", "mint" }
 
   -- ---- bitmap number font (num_font.png: 10 candy digits, 52x68) -----------
   local NUMA = 52 / 68
@@ -345,11 +349,14 @@ local function make_ant_clear()
       for c = 1, W do
         local ci = grid[r][c]
         if ci ~= 0 then
-          -- draw slightly LARGER than the pitch so neighbouring blocks touch and
-          -- the mosaic reads as ONE picture (the token's shadow fills the seams)
-          local id = T.sprite(cx(c, r), cy(r), CELL * rs(r) * 1.10, CELL * rs(r) * 1.10, FOOD[ci])
-          -- depth lighting: receding rows sit a touch darker, near rows full-lit
-          local k = 1 - 0.30 * (1 - rs(r))
+          -- flat matte cell, one of four texture variants (deterministic pick) so
+          -- same-colour runs never repeat; sized to the pitch for thin even seams
+          local v = (r * 7 + c * 13) % 4 + 1
+          local id = T.sprite(cx(c, r), cy(r), CELL * rs(r) * 1.02, CELL * rs(r) * 1.02,
+                              "cell_" .. CFOOD[ci] .. "_" .. v)
+          -- depth lighting (receding rows darker) + tiny per-cell tone jitter so
+          -- the surface reads organic, not printed
+          local k = (1 - 0.30 * (1 - rs(r))) * (0.94 + 0.06 * (((r * 31 + c * 17) % 7) / 6))
           game.set_color(id, k, k, k, 1)
           cell_id[r][c] = id; painted = painted + 1
         end
@@ -791,11 +798,13 @@ local function make_ant_clear()
     T.sprite(bfx(0.80), by, 28, 28, "icon_coin")
     coin_num, coin_shown = nil, nil                         -- live score (set in refresh)
     coin_x, coin_y = bfx(0.895), by
-    -- per the approved mockup the picture sits DIRECTLY on the soil — only a very
-    -- faint contact shading grounds it (sized to the perspective trapezoid's box)
+    -- ONE soft shadow under the whole picture (cells carry no per-cell shadow
+    -- any more): a grounded contact shade, slightly deeper at the bottom edge
     local b_bot = ROWY[H] and (ROWY[H] - CELL * PS[H] / 2) or (TOPY - H * CELL)
-    local panel = T.sprite(0, (TOPY + b_bot) / 2, W * CELL + 16, (TOPY - b_bot) + 16, "tile_sq")
-    game.set_color(panel, 0.22, 0.14, 0.09, 0.12)
+    local panel = T.sprite(0, (TOPY + b_bot) / 2 - 3, W * CELL + 18, (TOPY - b_bot) + 20, "tile_sq")
+    game.set_color(panel, 0.20, 0.12, 0.07, 0.22)
+    local lip = T.sprite(0, b_bot - 4, W * CELL * PS[H] + 10, 10, "tile_sq")
+    game.set_color(lip, 0.16, 0.10, 0.06, 0.28)
     -- nest hole (generated art). The unlock buttons and the shovel/bomb power-up
     -- buttons are removed for now (no function behind them yet).
     T.sprite(NESTX, NESTY, HOLE_R * 2.6, HOLE_R * 2.6, "hole")
