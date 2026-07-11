@@ -318,6 +318,11 @@ local function make_ant_clear()
   -- Each colour is a REAL food object (rendered sprites, not tinted cubes):
   -- the picture/queue/carried blocks read as actual chocolate/bread/sugar/candy.
   local FOOD = { "food_choc", "food_bread", "food_sugar", "food_berry", "food_mint" }
+  -- ANT SPECIES tokens: one cute Animal-Crossing-style ant per colour, each
+  -- hugging its own food (chocolate/bread/sugar/strawberry/mint). The queue/slot
+  -- token IS this illustrated bug — a real themed object, not a tinted chip.
+  -- Colours are BAKED into the art, so these are placed untinted.
+  local SPECIES = { "antkind_choc", "antkind_bread", "antkind_sugar", "antkind_berry", "antkind_mint" }
   -- BOARD cells use flat matte tiles (cell_<food>_<1..4>, tools/board_cells.py):
   -- no per-cell shadow, four texture variants so same-colour runs don't repeat —
   -- the mosaic reads as ONE continuous picture, like the reference.
@@ -518,6 +523,7 @@ local function make_ant_clear()
 
   -- ---- HUD tiles (slots + tray) -------------------------------------------
   local slot_bg, slot_txt, slot_bug, tray_bg, tray_txt, tray_bug = {}, {}, {}, {}, {}, {}
+  local tray_badge = {}                 -- per-queue-cell dark count-badge disc
   local slot_food = {}                 -- mini food sprite sitting in each spice box
   local slot_shown, tray_shown = {}, {}
   local coin_num, coin_shown           -- bitmap-digit LIVE score (cleared blocks)
@@ -626,16 +632,16 @@ local function make_ant_clear()
     local q_h = QROWS * (TRAY_W + QYGAP) + 26
     T.panel(0, q_cy, q_w, q_h, "tray_wood", 60)
     for i = 1, SLOTS do
-      -- a wooden TOKEN cup (covers the baked socket); empty = bare cup, filled =
-      -- a colour-tinted ant sits in it. Mid wood tone so both dark (choc) and
-      -- light (sugar) ants stay legible on top.
-      slot_bg[i] = T.sprite(slot_x(i), SLOT_Y, SLOT_W * 0.94, SLOT_W * 0.86, "tile_sq")
-      game.set_color(slot_bg[i], 0.58, 0.45, 0.32, 1)
+      -- a soft recessed CUP socket (covers the baked block); empty = bare cup,
+      -- filled = the cute species-ant character sits in it. Neutral dark so the
+      -- illustrated ant (its own colour + shading) reads on top.
+      slot_bg[i] = T.sprite(slot_x(i), SLOT_Y, SLOT_W * 0.98, SLOT_W * 0.90, "tile_sq")
+      game.set_color(slot_bg[i], 0.31, 0.23, 0.16, 1)
       slot_shown[i] = nil
     end
     for c = 1, NCOL do for row = 0, QROWS - 1 do
       local i = qi(c, row)
-      tray_bg[i] = nil            -- queue tiles are per-food sprites, spawned on demand
+      tray_bg[i], tray_bug[i], tray_badge[i] = nil, nil, nil   -- queue cells spawn on demand
       tray_shown[i] = nil
     end end
   end
@@ -669,10 +675,10 @@ local function make_ant_clear()
       local p = slot_pulse[i] or 0
       if slot_food[i] then
         if p > 0.01 then
-          local sc = SLOT_W * 0.80 * (1 + 0.20 * p); game.set_size(slot_food[i], sc, sc)
+          local sc = SLOT_W * 0.98 * (1 + 0.18 * p); game.set_size(slot_food[i], sc, sc)
           slot_pulse[i] = p * 0.82
         elseif slot_pulse[i] then
-          game.set_size(slot_food[i], SLOT_W * 0.80, SLOT_W * 0.80); slot_pulse[i] = nil
+          game.set_size(slot_food[i], SLOT_W * 0.98, SLOT_W * 0.98); slot_pulse[i] = nil
         end
       end
       -- key includes the colour: respawn the ant + count when it changes
@@ -682,12 +688,14 @@ local function make_ant_clear()
         if slot_food[i] then game.despawn(slot_food[i]); slot_food[i] = nil end
         if slot_bug[i] then game.despawn(slot_bug[i]); slot_bug[i] = nil end
         if s then
-          -- a big COLOUR-TINTED ANT sits in the token = "these ants are this
-          -- colour" (was a food block, which read as candy not ants)
-          slot_food[i] = T.sprite(slot_x(i), SLOT_Y, SLOT_W * 0.80, SLOT_W * 0.80, "ant_hero")
-          tint(slot_food[i], s.color)
+          -- the cute SPECIES-ANT character (hugging its food) sits in the cup —
+          -- an illustrated themed object, not a tinted chip. Colour is baked in.
+          slot_food[i] = T.sprite(slot_x(i), SLOT_Y, SLOT_W * 0.98, SLOT_W * 0.98, SPECIES[s.color])
           game.tween(slot_food[i], nil, nil, 1.0, 0.26, "back", 0, 0.3)   -- pop into the cup
-          slot_txt[i] = num_make(tostring(s.n), SLOT_W * 0.46, 1)
+          -- count badge: a dark disc + digits in the corner (clear quantity read)
+          slot_bug[i] = T.sprite(slot_x(i) + SLOT_W * 0.30, SLOT_Y - SLOT_W * 0.30, SLOT_W * 0.44, SLOT_W * 0.44, "tile_sq")
+          game.set_color(slot_bug[i], 0.16, 0.10, 0.07, 0.92)
+          slot_txt[i] = num_make(tostring(s.n), SLOT_W * 0.34, 1)
         end
         slot_shown[i] = lbl
       end
@@ -711,18 +719,23 @@ local function make_ant_clear()
           num_free(tray_txt[i]); tray_txt[i] = nil
           if tray_bg[i] then game.despawn(tray_bg[i]); tray_bg[i] = nil end
           if tray_bug[i] then game.despawn(tray_bug[i]); tray_bug[i] = nil end
+          if tray_badge[i] then game.despawn(tray_badge[i]); tray_badge[i] = nil end
           if b then
-            tray_bg[i] = T.sprite(xx, yy, TRAY_W, TRAY_W * 0.92, "tile_sq")
-            game.set_color(tray_bg[i], 0.58, 0.45, 0.32, a)   -- wooden token cup
+            -- soft cup socket + the cute SPECIES-ANT character + a count badge
+            tray_bg[i] = T.sprite(xx, yy, TRAY_W * 0.98, TRAY_W * 0.92, "tile_sq")
+            game.set_color(tray_bg[i], 0.31, 0.23, 0.16, a)   -- neutral cup socket
             game.tween(tray_bg[i], nil, nil, 1.0, 0.24, "back", 0, 0.4)   -- pop on arrival
-            tray_bug[i] = T.sprite(xx, yy, TRAY_W * 0.80, TRAY_W * 0.80, "ant_hero")
-            tint(tray_bug[i], b.color, a)            -- the ant IS the species colour
-            tray_txt[i] = num_make(tostring(b.n), TRAY_W * 0.46, a)
+            tray_bug[i] = T.sprite(xx, yy, TRAY_W * 0.98, TRAY_W * 0.98, SPECIES[b.color])
+            game.set_color(tray_bug[i], 1, 1, 1, a)  -- illustrated ant (baked colour), dim deep rows
+            tray_badge[i] = T.sprite(xx + TRAY_W * 0.30, yy - TRAY_W * 0.30, TRAY_W * 0.42, TRAY_W * 0.42, "tile_sq")
+            game.set_color(tray_badge[i], 0.16, 0.10, 0.07, 0.92 * a)
+            tray_txt[i] = num_make(tostring(b.n), TRAY_W * 0.32, a)
           end
           tray_shown[i] = lbl
         end
         if tray_bg[i] then game.move_to(tray_bg[i], xx, yy) end
         if tray_bug[i] then game.move_to(tray_bug[i], xx, yy) end
+        if tray_badge[i] then game.move_to(tray_badge[i], xx + TRAY_W * 0.30, yy - TRAY_W * 0.30) end
         num_place(tray_txt[i], xx + TRAY_W * 0.30, yy - TRAY_W * 0.30)
       end
     end
