@@ -361,8 +361,9 @@ local function make_ant_clear()
           -- diagonal wave across the picture — the board builds itself in ~1s
           game.tween(id, nil, nil, 1.0, 0.30, "back", (r + c) * 0.028, 0)
           -- depth lighting (receding rows darker) + tiny per-cell tone jitter so
-          -- the surface reads organic, not printed
-          local k = (1 - 0.30 * (1 - rs(r))) * (0.94 + 0.06 * (((r * 31 + c * 17) % 7) / 6))
+          -- the surface reads organic, not printed. Kept LIGHT so the picture stays
+          -- vivid and pops off the dirt (was dimming far rows up to 30% -> muddy).
+          local k = (1 - 0.12 * (1 - rs(r))) * (0.96 + 0.04 * (((r * 31 + c * 17) % 7) / 6))
           game.set_color(id, k, k, k, 1)
           cell_id[r][c] = id; painted = painted + 1
         end
@@ -625,10 +626,11 @@ local function make_ant_clear()
     local q_h = QROWS * (TRAY_W + QYGAP) + 26
     T.panel(0, q_cy, q_w, q_h, "tray_wood", 60)
     for i = 1, SLOTS do
-      -- slot sockets are BAKED into the sliced strip; slot_bg is a dark cover
-      -- that hides the baked colour block while the slot is empty
-      slot_bg[i] = T.sprite(slot_x(i), SLOT_Y, SLOT_W * 0.92, SLOT_W * 0.80, "tile_sq")
-      game.set_color(slot_bg[i], 0.26, 0.16, 0.10, 1)
+      -- a wooden TOKEN cup (covers the baked socket); empty = bare cup, filled =
+      -- a colour-tinted ant sits in it. Mid wood tone so both dark (choc) and
+      -- light (sugar) ants stay legible on top.
+      slot_bg[i] = T.sprite(slot_x(i), SLOT_Y, SLOT_W * 0.94, SLOT_W * 0.86, "tile_sq")
+      game.set_color(slot_bg[i], 0.58, 0.45, 0.32, 1)
       slot_shown[i] = nil
     end
     for c = 1, NCOL do for row = 0, QROWS - 1 do
@@ -667,29 +669,29 @@ local function make_ant_clear()
       local p = slot_pulse[i] or 0
       if slot_food[i] then
         if p > 0.01 then
-          local sc = SLOT_W * 0.72 * (1 + 0.20 * p); game.set_size(slot_food[i], sc, sc)
+          local sc = SLOT_W * 0.80 * (1 + 0.20 * p); game.set_size(slot_food[i], sc, sc)
           slot_pulse[i] = p * 0.82
         elseif slot_pulse[i] then
-          game.set_size(slot_food[i], SLOT_W * 0.72, SLOT_W * 0.72); slot_pulse[i] = nil
+          game.set_size(slot_food[i], SLOT_W * 0.80, SLOT_W * 0.80); slot_pulse[i] = nil
         end
       end
-      -- key includes the colour: respawn the food + markers when it changes
+      -- key includes the colour: respawn the ant + count when it changes
       local lbl = s and (tostring(s.n) .. ":" .. s.color) or ""
       if lbl ~= slot_shown[i] then
         num_free(slot_txt[i]); slot_txt[i] = nil
         if slot_food[i] then game.despawn(slot_food[i]); slot_food[i] = nil end
         if slot_bug[i] then game.despawn(slot_bug[i]); slot_bug[i] = nil end
         if s then
-          -- the dark socket stays visible; the committed food sits IN it
-          slot_food[i] = T.sprite(slot_x(i), SLOT_Y, SLOT_W * 0.72, SLOT_W * 0.72, FOOD[s.color])
-          game.tween(slot_food[i], nil, nil, 1.0, 0.26, "back", 0, 0.3)   -- pop into the box
-          slot_bug[i] = T.sprite(slot_x(i) - SLOT_W * 0.30, SLOT_Y + SLOT_W * 0.26, SLOT_W * 0.36, SLOT_W * 0.36, "ant_hero")
-          tint(slot_bug[i], s.color)                 -- marker ant = the species colour
-          slot_txt[i] = num_make(tostring(s.n), SLOT_W * 0.50, 1)
+          -- a big COLOUR-TINTED ANT sits in the token = "these ants are this
+          -- colour" (was a food block, which read as candy not ants)
+          slot_food[i] = T.sprite(slot_x(i), SLOT_Y, SLOT_W * 0.80, SLOT_W * 0.80, "ant_hero")
+          tint(slot_food[i], s.color)
+          game.tween(slot_food[i], nil, nil, 1.0, 0.26, "back", 0, 0.3)   -- pop into the cup
+          slot_txt[i] = num_make(tostring(s.n), SLOT_W * 0.46, 1)
         end
         slot_shown[i] = lbl
       end
-      num_place(slot_txt[i], slot_x(i) + SLOT_W * 0.16, SLOT_Y - SLOT_W * 0.16)
+      num_place(slot_txt[i], slot_x(i) + SLOT_W * 0.30, SLOT_Y - SLOT_W * 0.30)
     end
     for c = 1, NCOL do
       local slide = (col_adv[c] or 0)
@@ -701,26 +703,27 @@ local function make_ant_clear()
         local a = head and 1 or 0.5                 -- only the head row is "live"
         local yy = row_y(row) - slide * (TRAY_W + QYGAP)   -- slide up from one row below
         local xx = col_x(c)
-        -- key includes the colour: queue tiles are REAL food sprites, so a colour
-        -- change (column advancing) respawns the tile with the right texture
+        -- a wooden TOKEN + a colour-tinted ANT + count, so the queue reads
+        -- "N ants of this colour" (was a food block, which read as candy).
+        -- Head row is bright; deeper rows dim via alpha `a`.
         local lbl = b and (tostring(b.n) .. ":" .. b.color) or ""
         if lbl ~= tray_shown[i] then
           num_free(tray_txt[i]); tray_txt[i] = nil
           if tray_bg[i] then game.despawn(tray_bg[i]); tray_bg[i] = nil end
           if tray_bug[i] then game.despawn(tray_bug[i]); tray_bug[i] = nil end
           if b then
-            tray_bg[i] = T.sprite(xx, yy, TRAY_W, TRAY_W, FOOD[b.color])
-            game.set_color(tray_bg[i], 1, 1, 1, a)
+            tray_bg[i] = T.sprite(xx, yy, TRAY_W, TRAY_W * 0.92, "tile_sq")
+            game.set_color(tray_bg[i], 0.58, 0.45, 0.32, a)   -- wooden token cup
             game.tween(tray_bg[i], nil, nil, 1.0, 0.24, "back", 0, 0.4)   -- pop on arrival
-            tray_bug[i] = T.sprite(xx - TRAY_W * 0.26, yy + TRAY_W * 0.24, TRAY_W * 0.34, TRAY_W * 0.34, "ant_hero")
-            tint(tray_bug[i], b.color, a)            -- marker ant = species colour
-            tray_txt[i] = num_make(tostring(b.n), TRAY_W * 0.5, a)
+            tray_bug[i] = T.sprite(xx, yy, TRAY_W * 0.80, TRAY_W * 0.80, "ant_hero")
+            tint(tray_bug[i], b.color, a)            -- the ant IS the species colour
+            tray_txt[i] = num_make(tostring(b.n), TRAY_W * 0.46, a)
           end
           tray_shown[i] = lbl
         end
         if tray_bg[i] then game.move_to(tray_bg[i], xx, yy) end
-        if tray_bug[i] then game.move_to(tray_bug[i], xx - TRAY_W * 0.26, yy + TRAY_W * 0.24) end
-        num_place(tray_txt[i], xx + TRAY_W * 0.06, yy - TRAY_W * 0.04)
+        if tray_bug[i] then game.move_to(tray_bug[i], xx, yy) end
+        num_place(tray_txt[i], xx + TRAY_W * 0.30, yy - TRAY_W * 0.30)
       end
     end
   end
@@ -858,13 +861,20 @@ local function make_ant_clear()
     T.sprite(bfx(0.80), by, 28, 28, "icon_coin")
     coin_num, coin_shown = nil, nil                         -- live score (set in refresh)
     coin_x, coin_y = bfx(0.895), by
-    -- ONE soft shadow under the whole picture (cells carry no per-cell shadow
-    -- any more): a grounded contact shade, slightly deeper at the bottom edge
+    -- RECESSED PLOT: a defined dark mat the mosaic sits in, so the bright food
+    -- blocks POP off the dirt (it used to be a near-invisible shadow). Darker
+    -- than every food colour incl. chocolate, so nothing sinks into the dirt.
+    -- Drop shadow -> dark slab -> warm top rim catch-light -> front lip.
     local b_bot = ROWY[H] and (ROWY[H] - CELL * PS[H] / 2) or (TOPY - H * CELL)
-    local panel = T.sprite(0, (TOPY + b_bot) / 2 - 3, W * CELL + 18, (TOPY - b_bot) + 20, "tile_sq")
-    game.set_color(panel, 0.20, 0.12, 0.07, 0.22)
-    local lip = T.sprite(0, b_bot - 4, W * CELL * PS[H] + 10, 10, "tile_sq")
-    game.set_color(lip, 0.16, 0.10, 0.06, 0.28)
+    local mcx, mw, mh = (TOPY + b_bot) / 2 - 3, W * CELL + 32, (TOPY - b_bot) + 38
+    local sh = T.sprite(0, mcx - 8, mw + 10, mh + 10, "tile_sq")
+    game.set_color(sh, 0.05, 0.03, 0.02, 0.34)                 -- grounding shadow
+    local mat = T.sprite(0, mcx, mw, mh, "tile_sq")
+    game.set_color(mat, 0.15, 0.11, 0.08, 0.94)                -- dark recessed slab
+    local rim = T.sprite(0, mcx + mh / 2 - 3, mw * 0.985, 6, "tile_sq")
+    game.set_color(rim, 0.46, 0.36, 0.24, 0.55)                -- lit top edge
+    local lip = T.sprite(0, b_bot - 5, W * CELL * PS[H] + 14, 11, "tile_sq")
+    game.set_color(lip, 0.10, 0.07, 0.04, 0.42)                -- front lip shade
     -- nest hole (generated art). The unlock buttons and the shovel/bomb power-up
     -- buttons are removed for now (no function behind them yet).
     T.sprite(NESTX, NESTY, HOLE_R * 2.6, HOLE_R * 2.6, "hole")
