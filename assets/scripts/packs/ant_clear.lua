@@ -789,27 +789,30 @@ local function make_ant_clear()
     NEST = node(H + 1, math.floor(W / 2) + 1)
 
     -- ---- deterministic layout, stacked BOTTOM-UP so nothing ever overlaps ----
-    local M = 26                       -- bottom margin (power-up bar removed)
+    -- The PICTURE is the hero and gets the lion's share of the height. A COMPACT
+    -- control panel (queue + slots) sits at the bottom, a SMALL nest hole tucks
+    -- just under the board, and the mosaic fills all the rest up to the HUD.
+    local M = 18                       -- bottom margin
     TRAY_W = math.min((2 * hw - 44) / 4 - 8, 54)
     SLOT_W = math.min((2 * hw - 60) / 5 - 8, 50)
-    -- reserve QROWS visible queue rows above the bar (head row at the top)
-    local q_bot = -hh + M + 14 + TRAY_W / 2                 -- bottom queue row centre
-    TRAY_Y = q_bot + (QROWS - 1) * (TRAY_W + 6)             -- head row (row 0, top)
-    SLOT_Y = (TRAY_Y + TRAY_W / 2) + 38 + SLOT_W / 2        -- slots above the queue
-                                                            -- (extra air so the two
-                                                            -- wooden trays read apart)
-    local HOLE_R = 30
-    NESTY = SLOT_Y + SLOT_W / 2 + 30 + HOLE_R               -- hole above the slots
-    local board_bottom = NESTY + HOLE_R + 46                -- roomy gap: ants exit here
-    -- RESPONSIVE: the picture fills the screen width (like the reference), then
-    -- is capped by whatever vertical space is left — it scales with the device,
-    -- never a fixed size.
-    local board_h = (hh - 82) - board_bottom                -- rest goes to the picture
-    -- perspective rows total H*(1 - PERSP/2) cells of height, so CELL can grow
-    -- to refill the reclaimed space (width cap is the near, full-size row)
-    -- leave ~2.6 blocks of width for the soil-plot rim + inner margin, so the
-    -- mosaic sits inside a generous plot like the concept (not edge-to-edge)
+    -- control panel: QROWS queue rows (head row on top) + one slot row above them
+    local q_bot = -hh + M + TRAY_W / 2                      -- bottom queue row centre
+    TRAY_Y = q_bot + (QROWS - 1) * (TRAY_W + 5)             -- head row (row 0, top)
+    SLOT_Y = (TRAY_Y + TRAY_W / 2) + 20 + SLOT_W / 2        -- slots just above the queue
+    local panel_top = SLOT_Y + SLOT_W / 2                  -- top edge of the control panel
+    -- a small band for the nest hole between the panel and the board's lower edge
+    local HOLE_BAND = 52
+    local board_bottom = panel_top + HOLE_BAND              -- ants exit into the hole here
+    -- RESPONSIVE: the picture fills the screen WIDTH (like the reference), capped
+    -- only by the (now generous) vertical space left up to the HUD — it scales
+    -- with the device, never a fixed size. Leave ~2.6 blocks of width for the
+    -- soil-plot rim + inner margin so the mosaic sits inside a generous plot.
+    local board_h = (hh - 78) - board_bottom
     CELL = math.min((2 * hw - 18) / (W + 2.6), board_h / (H * (1 - PERSP / 2)))
+    -- nest hole: sized to the CELLS (a modest ~2-cell entrance, not a crater) and
+    -- centred in the hole band right under the board — a landmark, not the star.
+    local HOLE_R = CELL * 1.05
+    NESTY = panel_top + HOLE_BAND / 2                       -- hole centre in its band
     OX = -W * CELL / 2
     -- per-row scale (top row most shrunken) + stacked centre-lines, bottom-up
     PS, ROWY = {}, {}
@@ -881,7 +884,7 @@ local function make_ant_clear()
                                                                -- warm amber (bread) blocks pop
     -- nest hole (generated art). The unlock buttons and the shovel/bomb power-up
     -- buttons are removed for now (no function behind them yet).
-    T.sprite(NESTX, NESTY, HOLE_R * 2.6, HOLE_R * 2.6, "hole")
+    T.sprite(NESTX, NESTY, HOLE_R * 2.0, HOLE_R * 2.0, "hole")
     -- crumb debris: a few fallen morsels scattered under the picture (mockup decor)
     for k = 1, 6 do
       local fx = (math.random() * 2 - 1) * CELL * W * 0.42
