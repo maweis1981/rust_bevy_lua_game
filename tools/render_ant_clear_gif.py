@@ -212,8 +212,11 @@ def draw_frame(bg, rec):
             g = nf.crop((fr * fw, 0, fr * fw + fw, nf.height)).convert("RGBA")
             w = max(1, int(e[2] * SCALE)); h = max(1, int(e[3] * SCALE))
             g = g.resize((w, h), Image.LANCZOS)
+            rr, gg, bb, aa = g.split()
+            rr = rr.point(lambda v: int(v * e[4])); gg = gg.point(lambda v: int(v * e[5])); bb = bb.point(lambda v: int(v * e[6]))
             if e[7] < 0.999:
-                g.putalpha(g.split()[3].point(lambda v: int(v * e[7])))
+                aa = aa.point(lambda v: int(v * e[7]))
+            g = Image.merge("RGBA", (rr, gg, bb, aa))
             im.paste(g, (int(wx(e[0]) - w / 2), int(wy(e[1]) - h / 2)), g)
     # labels
     for e in bytex("text"):

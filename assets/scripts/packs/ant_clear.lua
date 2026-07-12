@@ -321,6 +321,10 @@ local function make_ant_clear()
   local function num_free(num)
     if num then for _, id in ipairs(num.ids) do game.despawn(id) end end
   end
+  -- recolour bitmap digits (e.g. dark numbers on a light count-badge pill)
+  local function num_tint(num, r, g, b)
+    if num then for _, id in ipairs(num.ids) do game.set_color(id, r, g, b, 1) end end
+  end
 
   -- ---- rendering: board ----------------------------------------------------
   local function draw_board()
@@ -675,10 +679,12 @@ local function make_ant_clear()
           -- an illustrated themed object, not a tinted chip. Colour is baked in.
           slot_food[i] = T.sprite(slot_x(i), SLOT_Y, SLOT_W * 0.98, SLOT_W * 0.98, SPECIES[s.color])
           game.tween(slot_food[i], nil, nil, 1.0, 0.26, "back", 0, 0.3)   -- pop into the cup
-          -- count badge: a dark disc + digits in the corner (clear quantity read)
-          slot_bug[i] = T.sprite(slot_x(i) + SLOT_W * 0.30, SLOT_Y - SLOT_W * 0.30, SLOT_W * 0.44, SLOT_W * 0.44, "tile_sq")
-          game.set_color(slot_bug[i], 0.16, 0.10, 0.07, 0.92)
+          -- count badge: a light cream pill + dark digits in the corner (concept
+          -- style — a clear quantity read that pops off the ant)
+          slot_bug[i] = T.sprite(slot_x(i) + SLOT_W * 0.30, SLOT_Y - SLOT_W * 0.30, SLOT_W * 0.46, SLOT_W * 0.46, "tile_sq")
+          game.set_color(slot_bug[i], 0.98, 0.92, 0.78, 1)
           slot_txt[i] = num_make(tostring(s.n), SLOT_W * 0.34, 1)
+          num_tint(slot_txt[i], 0.30, 0.21, 0.14)
         end
         slot_shown[i] = lbl
       end
@@ -711,9 +717,10 @@ local function make_ant_clear()
             game.tween(tray_bg[i], nil, nil, 1.0, 0.24, "back", 0, 0.4)   -- pop on arrival
             tray_bug[i] = T.sprite(xx, yy, TRAY_W * 0.98, TRAY_W * 0.98, SPECIES[b.color])
             game.set_color(tray_bug[i], 1, 1, 1, a)  -- illustrated ant (baked colour), dim deep rows
-            tray_badge[i] = T.sprite(xx + TRAY_W * 0.30, yy - TRAY_W * 0.30, TRAY_W * 0.42, TRAY_W * 0.42, "tile_sq")
-            game.set_color(tray_badge[i], 0.16, 0.10, 0.07, 0.92 * a)
+            tray_badge[i] = T.sprite(xx + TRAY_W * 0.30, yy - TRAY_W * 0.30, TRAY_W * 0.44, TRAY_W * 0.44, "tile_sq")
+            game.set_color(tray_badge[i], 0.98, 0.92, 0.78, a)     -- light cream pill
             tray_txt[i] = num_make(tostring(b.n), TRAY_W * 0.32, a)
+            num_tint(tray_txt[i], 0.30, 0.21, 0.14)                -- dark digits
           end
           tray_shown[i] = lbl
         end
