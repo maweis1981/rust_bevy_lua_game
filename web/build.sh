@@ -74,7 +74,13 @@ cp "$ROOT/web/game.html" "$PLAY/index.html"
 # Inject the wasm's true (decompressed) byte size so the loading bar measures
 # progress correctly even when the host serves gzip (compressed Content-Length).
 WASM_BYTES=$(wc -c < "$PLAY/hollowlullaby_bg.wasm" | tr -d ' ')
-sed -i.bak "s/__WASM_SIZE__/$WASM_BYTES/" "$PLAY/index.html" && rm -f "$PLAY/index.html.bak"
+# Cache-bust the glue JS + wasm as a PAIR: a content hash of the (post-wasm-opt)
+# module. It changes iff the wasm changes — so returning players re-download only
+# on a real new build, and the version-locked glue+wasm can never be paired from
+# mismatched cache generations after a deploy (which traps init() -> blank canvas).
+CACHE_VER=$(sha256sum "$PLAY/hollowlullaby_bg.wasm" | cut -c1-12)
+sed -i.bak -e "s/__WASM_SIZE__/$WASM_BYTES/" \
+           -e "s/__CACHE_VER__/$CACHE_VER/g" "$PLAY/index.html" && rm -f "$PLAY/index.html.bak"
 cp -r "$ROOT/assets" "$PLAY/assets"
 
 echo ">> assembling site pages (homepage / blog / docs)"
