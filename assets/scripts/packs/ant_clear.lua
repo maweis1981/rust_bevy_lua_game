@@ -905,7 +905,7 @@ local function make_ant_clear()
     -- (the bar itself is badge · star progress · coin, exactly like the mockup)
     back = { x = -hw + 30, y = hh - 76, w = 38, h = 38 }
     T.sprite(back.x, back.y, back.w, back.h, "badge_wood")
-    T.text(back.x, back.y, 17, 1.00, 0.96, 0.88, 1, "<")
+    T.sprite(back.x, back.y, 22, 22, "icon_back")   -- AC back arrow (was a "<" glyph)
     local snd_b = T.sprite(back.x + 44, back.y, 36, 36, "badge_wood")
     local snd_i = T.sprite(back.x + 44, back.y, 23, 23, "icon_sound")
     add_button(snd_b, { x = back.x + 44, y = back.y, w = 36, h = 36 }, { 1, 1, 1 }, function()

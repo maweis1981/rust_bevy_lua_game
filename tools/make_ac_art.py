@@ -153,3 +153,52 @@ if os.path.exists(f"{SRC}/ac_tray.png"):
     tray = square(rgba, pad=1.0).resize((512, 512), Image.LANCZOS)
     tray.save("assets/textures/tray_wood.png")
     print("wrote tray_wood", tray.size, "suggested 9-slice border px =", int(512 * 0.16))
+
+# ---- walking-ant body (cute AC luminance master for the rig) ----------------
+if os.path.exists(f"{SRC}/ac_ant_body.png"):
+    rgba = key(Image.open(f"{SRC}/ac_ant_body.png"), 70, 150)
+    b = rgba.crop(rgba.getbbox())
+    w, h = b.size
+    ar = 77 / 156                       # pad to the rig body aspect (no stretch)
+    if w / h > ar:
+        nh = int(w / ar); cv = Image.new("RGBA", (w, nh), (0, 0, 0, 0)); cv.paste(b, (0, (nh - h) // 2), b)
+    else:
+        nw = int(h * ar); cv = Image.new("RGBA", (nw, h), (0, 0, 0, 0)); cv.paste(b, ((nw - w) // 2, 0), b)
+    cv.resize((231, 468), Image.LANCZOS).save("assets/textures/ant_body.png")
+    print("wrote ant_body", cv.size)
+
+# ---- nest hole (soft AC soil burrow) ----------------------------------------
+if os.path.exists(f"{SRC}/ac_hole.png"):
+    rgba = key(Image.open(f"{SRC}/ac_hole.png"), 70, 150)
+    hole = square(rgba, pad=1.0).resize((256, 256), Image.LANCZOS)
+    hole.save("assets/textures/hole.png")
+    print("wrote hole", hole.size)
+
+# ---- UI icons: coin, star, sound, back --------------------------------------
+if os.path.exists(f"{SRC}/ac_icons.png"):
+    rgba = key(Image.open(f"{SRC}/ac_icons.png"), 80, 150)
+    boxes = components(rgba)
+    # the speaker + its sound-waves come out as 2 blobs (all inter-icon gaps are
+    # similar, so a gap threshold can't isolate them) — repeatedly fold the
+    # SMALLEST blob into its nearest horizontal neighbour until 4 icons remain.
+    boxes = [list(b) for b in sorted(boxes, key=lambda b: b[0])]
+    while len(boxes) > 4:
+        si = min(range(len(boxes)), key=lambda i: (boxes[i][2] - boxes[i][0]) * (boxes[i][3] - boxes[i][1]))
+        cand = []
+        if si > 0:
+            cand.append((boxes[si][0] - boxes[si - 1][2], si - 1))
+        if si < len(boxes) - 1:
+            cand.append((boxes[si + 1][0] - boxes[si][2], si + 1))
+        ni = min(cand)[1]
+        a, b = boxes[si], boxes[ni]
+        m = [min(a[0], b[0]), min(a[1], b[1]), max(a[2], b[2]), max(a[3], b[3])]
+        keep = [x for k, x in enumerate(boxes) if k not in (si, ni)]
+        boxes = sorted(keep + [m], key=lambda b: b[0])
+    boxes = [tuple(b) for b in boxes]
+    print("icon components (merged):", len(boxes))
+    assert len(boxes) == 4, f"expected 4 icons, got {len(boxes)}"
+    inames = ["icon_coin", "icon_star", "icon_sound", "icon_back"]
+    for i, (x0, y0, x1, y1) in enumerate(boxes):
+        ic = square(rgba.crop((x0, y0, x1, y1)), pad=1.10).resize((128, 128), Image.LANCZOS)
+        ic.save(f"assets/textures/{inames[i]}.png")
+    print("wrote 4 icons:", inames)
