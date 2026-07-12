@@ -80,7 +80,14 @@
   </script>
   <script type="module">
     // Relative import so it works under a GitHub Pages sub-path (…/<repo>/).
-    import init from './hollowlullaby.js';
+    // The `?v=` tag is the wasm's content hash, injected by web/build.sh. It
+    // cache-busts the glue+wasm PAIR together: wasm-bindgen version-locks the JS
+    // glue to its module, and GitHub Pages caches both by filename with
+    // independent ~10-min TTLs — so a returning player could otherwise fetch a
+    // fresh wasm against a stale-cached glue (or vice versa) after a deploy,
+    // trapping init() and leaving a blank/green canvas. A per-build version on
+    // BOTH URLs makes that pairing impossible. (See the matching tag below.)
+    import init from './hollowlullaby.js?v=__CACHE_VER__';
 
     // Stream the wasm ourselves so the overlay can show real download
     // progress (the module is tens of MB). Content-Length is the compressed
@@ -120,15 +127,26 @@
       return new Response(buf, { headers: { 'Content-Type': 'application/wasm' } });
     }
 
-    fetchWasm('./hollowlullaby_bg.wasm')
+    fetchWasm('./hollowlullaby_bg.wasm?v=__CACHE_VER__')
       .then((resp) => init({ module_or_path: resp }))
       .then(() => document.getElementById('loading')?.remove())
       .catch((e) => {
         // winit unwinds its event loop via a JS exception on the web; that's normal.
-        if (!`${e}`.includes('Using exceptions for control flow')) {
-          console.error(e);
-        } else {
+        if (`${e}`.includes('Using exceptions for control flow')) {
           document.getElementById('loading')?.remove();
+          return;
+        }
+        console.error(e);
+        // Self-heal a genuine init failure (a stale cached file that slipped
+        // past the ?v= tag, or a truncated wasm download) instead of leaving a
+        // dead canvas: reload ONCE, bypassing the HTTP cache. A sessionStorage
+        // guard stops it from looping if the failure is not cache-related.
+        if (!sessionStorage.getItem('hl_reloaded')) {
+          sessionStorage.setItem('hl_reloaded', '1');
+          location.reload();
+        } else {
+          const pct = document.getElementById('load-pct');
+          if (pct) pct.textContent = 'failed to load — please refresh';
         }
       });
   </script>
