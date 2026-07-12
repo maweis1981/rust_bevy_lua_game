@@ -108,13 +108,7 @@ local function make_ant_clear()
   }
   local cur_lvl = 1
   local LEVEL = LEVELS[1]
-  -- PIXEL palette: pure, FLAT, high-saturation colours — the board is a simulated
-  -- pixel picture, so each block is one solid vivid colour (no texture, no shading).
-  -- Hue roles are kept so the pictures still read: 1 dark (eyes/outlines), 2 warm
-  -- orange (fox body / smiley), 3 bright light (markings), 4 vivid rose (hearts /
-  -- noses), 5 vivid teal (accents). The worker ants that haul a block are tinted
-  -- to the same colour, so a red pixel is carried by a red ant.
-  local PALETTE5 = { {0.360,0.200,0.110}, {1.000,0.560,0.060}, {1.000,0.980,0.910}, {0.980,0.200,0.330}, {0.050,0.780,0.600} }
+  local PALETTE5 = { {0.290,0.180,0.125}, {1.000,0.624,0.110}, {1.000,0.953,0.863}, {1.000,0.353,0.416}, {0.224,0.788,0.722} }
 
   -- ---- tunables ------------------------------------------------------------
   local SLOTS = LEVEL.slots or 4   -- active slots (< palette size on purpose)
@@ -339,16 +333,20 @@ local function make_ant_clear()
       for c = 1, W do
         local ci = grid[r][c]
         if ci ~= 0 then
-          -- PURE-COLOUR PIXEL: a flat, high-saturation solid square (no texture, no
-          -- shading) — the mosaic reads as a crisp simulated-pixel picture, the most
-          -- important visual in the game. A hair of gap (0.9) lets the dark soil show
-          -- between blocks as pixel-grid grout, so each block reads as its own pixel.
-          local col = palette[ci]
-          local id = T.spawn(cx(c, r), cy(r), CELL * rs(r) * 0.9, CELL * rs(r) * 0.9,
-                             col[1], col[2], col[3], 1)
-          -- level intro: each pixel POPS in (0 -> overshoot -> 1), staggered in a
+          -- soft AC food-block cell, one of four texture variants (deterministic
+          -- pick) so same-colour runs never repeat; drawn a bit OVER the pitch so
+          -- the rounded blocks nearly touch and read as one tight 3D mosaic
+          local v = (r * 7 + c * 13) % 4 + 1
+          local id = T.sprite(cx(c, r), cy(r), CELL * rs(r) * 0.95, CELL * rs(r) * 0.95,
+                              "cell_" .. CFOOD[ci] .. "_" .. v)
+          -- level intro: each block POPS in (0 -> overshoot -> 1), staggered in a
           -- diagonal wave across the picture — the board builds itself in ~1s
           game.tween(id, nil, nil, 1.0, 0.30, "back", (r + c) * 0.028, 0)
+          -- depth lighting (receding rows darker) + tiny per-cell tone jitter so
+          -- the surface reads organic, not printed. Kept LIGHT so the picture stays
+          -- vivid and pops off the dirt (was dimming far rows up to 30% -> muddy).
+          local k = (1 - 0.12 * (1 - rs(r))) * (0.96 + 0.04 * (((r * 31 + c * 17) % 7) / 6))
+          game.set_color(id, k, k, k, 1)
           if game.shadow then game.shadow(id) end
           cell_id[r][c] = id; painted = painted + 1
         end
