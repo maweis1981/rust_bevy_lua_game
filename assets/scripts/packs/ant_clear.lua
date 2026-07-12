@@ -844,10 +844,8 @@ local function make_ant_clear()
     -- full-screen cozy background (generated art), behind everything
     T.sprite(0, 0, math.max(2 * hw, 2 * hh * 512 / 768) + 4, 2 * hh + 4, "game_bg")
     spawn_drifters()   -- ambient floating leaves/motes over the background
-    -- full-screen vignette + warm grade, topmost among sprites (layer 90) but
-    -- below the text tier — focuses the eye centre-screen, HUD text stays crisp
-    local vig = T.sprite(0, 0, 2 * hw + 4, 2 * hh + 4, "vignette")
-    game.set_layer(vig, 90)
+    -- (No dark vignette — Animal Crossing is bright & high-key. Focus comes from
+    -- the soil plot + soft drop-shadows, not from darkening the frame.)
     -- top status bar: SEPARATE live sprites (no baked values) — wooden plank,
     -- level badge + live digits, star progress groove, coin + live score
     local by = hh - 34
@@ -874,20 +872,16 @@ local function make_ant_clear()
     T.sprite(bfx(0.80), by, 28, 28, "icon_coin")
     coin_num, coin_shown = nil, nil                         -- live score (set in refresh)
     coin_x, coin_y = bfx(0.895), by
-    -- RECESSED PLOT: a defined dark mat the mosaic sits in, so the bright food
-    -- blocks POP off the dirt (it used to be a near-invisible shadow). Darker
-    -- than every food colour incl. chocolate, so nothing sinks into the dirt.
-    -- Drop shadow -> dark slab -> warm top rim catch-light -> front lip.
+    -- DUG SOIL PLOT (Animal Crossing look): the mosaic sits in a warm soil bed
+    -- framed by a soft raised earth rim, on the bright grass — a LIGHT surface,
+    -- not a dark mat. A soft drop shadow grounds it. 9-slice keeps the rim crisp.
     local b_bot = ROWY[H] and (ROWY[H] - CELL * PS[H] / 2) or (TOPY - H * CELL)
-    local mcx, mw, mh = (TOPY + b_bot) / 2 - 3, W * CELL + 32, (TOPY - b_bot) + 38
-    local sh = T.sprite(0, mcx - 8, mw + 10, mh + 10, "tile_sq")
-    game.set_color(sh, 0.05, 0.03, 0.02, 0.34)                 -- grounding shadow
-    local mat = T.sprite(0, mcx, mw, mh, "tile_sq")
-    game.set_color(mat, 0.15, 0.11, 0.08, 0.94)                -- dark recessed slab
-    local rim = T.sprite(0, mcx + mh / 2 - 3, mw * 0.985, 6, "tile_sq")
-    game.set_color(rim, 0.46, 0.36, 0.24, 0.55)                -- lit top edge
-    local lip = T.sprite(0, b_bot - 5, W * CELL * PS[H] + 14, 11, "tile_sq")
-    game.set_color(lip, 0.10, 0.07, 0.04, 0.42)                -- front lip shade
+    local pcx = (TOPY + b_bot) / 2 - 2
+    local plot_w = W * CELL + CELL * 1.5
+    local plot_h = (TOPY - b_bot) + CELL * 1.7
+    local sh = T.sprite(0, pcx - CELL * 0.30, plot_w * 0.99, plot_h * 0.99, "tile_sq")
+    game.set_color(sh, 0.22, 0.17, 0.10, 0.20)                 -- soft grounding shadow
+    T.panel(0, pcx, plot_w, plot_h, "soil_plot", 66)           -- soil bed + earth rim
     -- nest hole (generated art). The unlock buttons and the shovel/bomb power-up
     -- buttons are removed for now (no function behind them yet).
     T.sprite(NESTX, NESTY, HOLE_R * 2.6, HOLE_R * 2.6, "hole")
