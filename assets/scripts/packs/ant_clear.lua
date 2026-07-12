@@ -357,10 +357,11 @@ local function make_ant_clear()
       for c = 1, W do
         local ci = grid[r][c]
         if ci ~= 0 then
-          -- flat matte cell, one of four texture variants (deterministic pick) so
-          -- same-colour runs never repeat; sized to the pitch for thin even seams
+          -- soft AC food-block cell, one of four texture variants (deterministic
+          -- pick) so same-colour runs never repeat; drawn a bit OVER the pitch so
+          -- the rounded blocks nearly touch and read as one tight 3D mosaic
           local v = (r * 7 + c * 13) % 4 + 1
-          local id = T.sprite(cx(c, r), cy(r), CELL * rs(r) * 1.02, CELL * rs(r) * 1.02,
+          local id = T.sprite(cx(c, r), cy(r), CELL * rs(r) * 1.16, CELL * rs(r) * 1.16,
                               "cell_" .. CFOOD[ci] .. "_" .. v)
           -- level intro: each block POPS in (0 -> overshoot -> 1), staggered in a
           -- diagonal wave across the picture — the board builds itself in ~1s
@@ -626,11 +627,11 @@ local function make_ant_clear()
     -- CLEAN trays (empty Floniks wooden trays), drawn as 9-SLICE panels so the
     -- rounded rim stays native-crisp at any stretch (a plain scaled sprite blurs)
     local strip_w = SLOTS * (SLOT_W + 8) + 44
-    T.panel(0, SLOT_Y, strip_w, SLOT_W + 26, "tray_wood", 60)
+    T.panel(0, SLOT_Y, strip_w, SLOT_W + 26, "tray_wood", 81)
     local q_cy = (row_y(0) + row_y(QROWS - 1)) / 2
     local q_w = NCOL * (TRAY_W + 8) + 44
     local q_h = QROWS * (TRAY_W + QYGAP) + 26
-    T.panel(0, q_cy, q_w, q_h, "tray_wood", 60)
+    T.panel(0, q_cy, q_w, q_h, "tray_wood", 81)
     for i = 1, SLOTS do
       -- a soft recessed CUP socket (covers the baked block); empty = bare cup,
       -- filled = the cute species-ant character sits in it. Neutral dark so the
@@ -851,7 +852,7 @@ local function make_ant_clear()
     local by = hh - 34
     local bar_w = 2 * hw - 16
     local bar_h = 46
-    T.panel(0, by, bar_w, bar_h, "bar_wood", 34)
+    T.panel(0, by, bar_w, bar_h, "bar_wood", 52)
     local function bfx(f) return -bar_w / 2 + f * bar_w end -- fraction -> x
     T.sprite(bfx(0.09), by, bar_h * 1.25, bar_h * 1.25, "badge_wood")
     lvl_num = num_make(tostring(cur_lvl), bar_h * 0.46, 1)
@@ -881,7 +882,9 @@ local function make_ant_clear()
     local plot_h = (TOPY - b_bot) + CELL * 1.7
     local sh = T.sprite(0, pcx - CELL * 0.30, plot_w * 0.99, plot_h * 0.99, "tile_sq")
     game.set_color(sh, 0.22, 0.17, 0.10, 0.20)                 -- soft grounding shadow
-    T.panel(0, pcx, plot_w, plot_h, "soil_plot", 66)           -- soil bed + earth rim
+    local plot = T.panel(0, pcx, plot_w, plot_h, "soil_plot", 66)   -- soil bed + earth rim
+    game.set_color(plot, 0.86, 0.80, 0.72, 1)                  -- deepen soil a touch so
+                                                               -- warm amber (bread) blocks pop
     -- nest hole (generated art). The unlock buttons and the shovel/bomb power-up
     -- buttons are removed for now (no function behind them yet).
     T.sprite(NESTX, NESTY, HOLE_R * 2.6, HOLE_R * 2.6, "hole")
