@@ -37,7 +37,8 @@ for n in CELLS + ("ant_sheet", "cat_face", "hole", "ad_play", "ant_shadow", "ant
           "badge_wood", "icon_coin", "icon_sound", "icon_star", "spice_box",
           "mock_bar", "mock_slots", "mock_tray", "btn_green", "btn_amber",
           "food_choc", "food_bread", "food_sugar", "food_berry", "food_mint",
-          "antkind_choc", "antkind_bread", "antkind_sugar", "antkind_berry", "antkind_mint"):
+          "antkind_choc", "antkind_bread", "antkind_sugar", "antkind_berry", "antkind_mint",
+          "soil_plot"):
     p = f"assets/textures/{n}.png"
     TEX[n] = Image.open(p).convert("RGBA") if os.path.exists(p) else None
 AF = TEX["ant_sheet"].width // 8 if TEX["ant_sheet"] else 48
@@ -117,7 +118,7 @@ def draw_frame(bg, rec):
         dr.text((wx(e[0]), wy(e[1])), "←", font=font(int(e[3] * SCALE * 0.6)), fill=(255, 255, 255), anchor="mm")
     # wooden furniture (status bar + trays + sliced mockup pieces) FIRST, then
     # the tile_sq covers/fills that sit on them, then tokens
-    for nm in ("bar_wood", "tray_wood", "mock_bar", "mock_slots", "mock_tray",
+    for nm in ("soil_plot", "bar_wood", "tray_wood", "mock_bar", "mock_slots", "mock_tray",
                "btn_green", "btn_amber"):
         t = TEX.get(nm)
         if t is None: continue
