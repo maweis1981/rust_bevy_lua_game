@@ -243,7 +243,10 @@ check(not D.stuck(), "manual good play never gets stuck")
 D = rebuild()
 D.set_mode("manual")
 D.load(1); D.load(2)                                  -- commit two column heads
-for _ = 1, 150 do scene.update(DT, HW, HH) end         -- ants go to work
+for _ = 1, 30 do scene.update(DT, HW, HH) end          -- ants start marching (few
+                                                       -- frames: keep the slot
+                                                       -- occupied — small chunky-level
+                                                       -- batches empty a slot fast)
 local before = D.free_slots()
 D.cancel(1)                                            -- rewarded-ad cancel
 scene.update(DT, HW, HH)
