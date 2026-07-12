@@ -347,9 +347,7 @@ local function make_ant_clear()
           -- vivid and pops off the dirt (was dimming far rows up to 30% -> muddy).
           local k = (1 - 0.12 * (1 - rs(r))) * (0.96 + 0.04 * (((r * 31 + c * 17) % 7) / 6))
           game.set_color(id, k, k, k, 1)
-          -- REAL-TIME shadow: the engine casts + moves this block's shadow from the
-          -- time-of-day sun (not baked into the texture). Removed with the block.
-          if game.shadow then game.shadow(id) end
+          -- (real-time engine shadow temporarily disabled — see LightingPlugin)
           cell_id[r][c] = id; painted = painted + 1
         end
       end

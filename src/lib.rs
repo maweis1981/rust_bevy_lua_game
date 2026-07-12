@@ -48,7 +48,8 @@ pub fn run() {
     .add_plugins(FrameTimeDiagnosticsPlugin::default())
     .add_plugins(background::BackgroundPlugin)
     .add_plugins(rock3d::Rock3dPlugin)
-    .add_plugins(lighting::LightingPlugin)
+    // .add_plugins(lighting::LightingPlugin)  // TEMP DISABLED: caused a runtime
+    // panic (blank/green screen) — re-enable once the fix is validated locally.
     .add_plugins(ScriptPlugin);
     // FPS overlay is dev-only; enable with FPS_OVERLAY=1 (kept off for players).
     if std::env::var("FPS_OVERLAY").is_ok() {
