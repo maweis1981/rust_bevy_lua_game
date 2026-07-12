@@ -9,6 +9,7 @@ use bevy::diagnostic::{DiagnosticsStore, FrameTimeDiagnosticsPlugin};
 use bevy::prelude::*;
 
 mod background;
+mod lighting;
 mod rig;
 mod rock3d;
 mod script;
@@ -47,6 +48,7 @@ pub fn run() {
     .add_plugins(FrameTimeDiagnosticsPlugin::default())
     .add_plugins(background::BackgroundPlugin)
     .add_plugins(rock3d::Rock3dPlugin)
+    .add_plugins(lighting::LightingPlugin)
     .add_plugins(ScriptPlugin);
     // FPS overlay is dev-only; enable with FPS_OVERLAY=1 (kept off for players).
     if std::env::var("FPS_OVERLAY").is_ok() {

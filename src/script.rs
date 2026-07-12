@@ -771,6 +771,9 @@ enum LuaCommand {
         id: u32,
         z: f32,
     },
+    Shadow {
+        id: u32,
+    },
     SpawnPanel {
         id: u32,
         x: f32,
@@ -1318,6 +1321,18 @@ fn register_api(lua: &Lua) -> mlua::Result<()> {
         lua.create_function(|lua, (id, z): (u32, f32)| {
             if let Some(mut bridge) = lua.app_data_mut::<Bridge>() {
                 bridge.queue.push(LuaCommand::SetLayer { id, z });
+            }
+            Ok(())
+        })?,
+    )?;
+
+    // game.shadow(id): give this sprite a real-time cast shadow (engine-computed
+    // from the time-of-day sun, not baked into the texture).
+    game.set(
+        "shadow",
+        lua.create_function(|lua, id: u32| {
+            if let Some(mut bridge) = lua.app_data_mut::<Bridge>() {
+                bridge.queue.push(LuaCommand::Shadow { id });
             }
             Ok(())
         })?,
@@ -2061,6 +2076,13 @@ fn register_api(lua: &mut Lua, bridge: Rc<RefCell<Bridge>>) {
         game.set(ctx, "set_layer", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
             let (id, z): (u32, f32) = stack.consume(ctx)?;
             b.borrow_mut().queue.push(LuaCommand::SetLayer { id, z });
+            Ok(CallbackReturn::Return)
+        })).unwrap();
+
+        let b = bridge.clone();
+        game.set(ctx, "shadow", Callback::from_fn(&ctx, move |ctx, _, mut stack| {
+            let id: u32 = stack.consume(ctx)?;
+            b.borrow_mut().queue.push(LuaCommand::Shadow { id });
             Ok(CallbackReturn::Return)
         })).unwrap();
 
@@ -2918,6 +2940,24 @@ fn apply_lua(
                             .entry::<Transform>()
                             .and_modify(move |mut t| t.translation.z = zz);
                     }
+                }
+            }
+            LuaCommand::Shadow { id } => {
+                // Give this sprite a real-time cast shadow: a companion soft-blob
+                // sprite the lighting system repositions/tints every frame from the
+                // sun. Reaped automatically when the caster despawns.
+                if let Some(&caster) = registry.0.get(&id) {
+                    commands.spawn((
+                        Sprite {
+                            image: assets.load("textures/ant_shadow.png"),
+                            color: Color::srgba(0.05, 0.035, 0.03, 0.0),
+                            custom_size: Some(Vec2::new(16.0, 9.0)),
+                            ..default()
+                        },
+                        Transform::from_xyz(0.0, 0.0, 0.0009 * id as f32),
+                        crate::lighting::ShadowFor(caster),
+                    ));
+                    commands.entity(caster).insert(crate::lighting::ShadowCaster);
                 }
             }
             LuaCommand::SpawnSprite {
