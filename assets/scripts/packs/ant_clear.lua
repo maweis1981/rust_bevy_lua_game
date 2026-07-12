@@ -333,7 +333,7 @@ local function make_ant_clear()
           -- pick) so same-colour runs never repeat; drawn a bit OVER the pitch so
           -- the rounded blocks nearly touch and read as one tight 3D mosaic
           local v = (r * 7 + c * 13) % 4 + 1
-          local id = T.sprite(cx(c, r), cy(r), CELL * rs(r) * 1.04, CELL * rs(r) * 1.04,
+          local id = T.sprite(cx(c, r), cy(r), CELL * rs(r) * 0.95, CELL * rs(r) * 0.95,
                               "cell_" .. CFOOD[ci] .. "_" .. v)
           -- level intro: each block POPS in (0 -> overshoot -> 1), staggered in a
           -- diagonal wave across the picture — the board builds itself in ~1s
@@ -604,6 +604,16 @@ local function make_ant_clear()
     local q_w = NCOL * (TRAY_W + 8) + 44
     local q_h = QROWS * (TRAY_W + QYGAP) + 26
     T.panel(0, q_cy, q_w, q_h, "tray_wood", 81)
+    -- bento partition WALLS between cells (raised honey-wood dividers, like the
+    -- mockup's compartment trays)
+    for i = 1, SLOTS - 1 do
+      local w = T.sprite((slot_x(i) + slot_x(i + 1)) / 2, SLOT_Y, 6, SLOT_W * 0.88, "tile_sq")
+      game.set_color(w, 0.88, 0.68, 0.44, 1)
+    end
+    for c = 1, NCOL - 1 do
+      local w = T.sprite((col_x(c) + col_x(c + 1)) / 2, q_cy, 6, q_h * 0.86, "tile_sq")
+      game.set_color(w, 0.88, 0.68, 0.44, 1)
+    end
     for i = 1, SLOTS do
       -- a soft recessed CUP socket (covers the baked block); empty = bare cup,
       -- filled = the cute species-ant character sits in it. Neutral dark so the
@@ -681,7 +691,8 @@ local function make_ant_clear()
         local i = qi(c, row)
         local b = cols[c][row + 1]
         local head = (row == 0)
-        local a = head and 1 or 0.5                 -- only the head row is "live"
+        local a = head and 1 or 0.75                -- head row live; deeper rows only
+                                                    -- slightly dimmed (was muddy at 0.5)
         local yy = row_y(row) - slide * (TRAY_W + QYGAP)   -- slide up from one row below
         local xx = col_x(c)
         -- a wooden TOKEN + a colour-tinted ANT + count, so the queue reads
