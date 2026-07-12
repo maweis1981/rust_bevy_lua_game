@@ -34,7 +34,7 @@ TEX = {}
 for n in CELLS + ("ant_sheet", "cat_face", "hole", "ad_play", "ant_shadow", "ant_icon",
           "icon_speed", "icon_x2", "icon_gift", "game_bg", "btn_pill", "num_font",
           "leaf", "petal", "cube", "ant_hero", "btn_base", "bar_wood", "tray_wood",
-          "badge_wood", "icon_coin", "icon_sound", "icon_star", "spice_box",
+          "badge_wood", "icon_coin", "icon_sound", "icon_star", "icon_back", "spice_box",
           "mock_bar", "mock_slots", "mock_tray", "btn_green", "btn_amber",
           "food_choc", "food_bread", "food_sugar", "food_berry", "food_mint",
           "antkind_choc", "antkind_bread", "antkind_sugar", "antkind_berry", "antkind_mint",
@@ -138,7 +138,7 @@ def draw_frame(bg, rec):
     for nm in CELLS + ("cube", "spice_box", "food_choc", "food_bread", "food_sugar",
                        "food_berry", "food_mint", "antkind_choc", "antkind_bread",
                        "antkind_sugar", "antkind_berry", "antkind_mint",
-                       "badge_wood", "icon_coin", "icon_sound", "icon_star"):
+                       "badge_wood", "icon_coin", "icon_sound", "icon_star", "icon_back"):
         tc = TEX.get(nm)
         if tc is None: continue
         for e in bytex(nm):
