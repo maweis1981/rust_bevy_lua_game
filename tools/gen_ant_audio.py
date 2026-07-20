@@ -69,18 +69,100 @@ def gen_stuck():
     write_wav(os.path.join(OUT, "ac_stuck.wav"), normalize(out, 0.5))
 
 
+# ---- chiptune synths (authentic 8-bit voices for the pixel-art BGM) ---------
+def _pulse(freq, dur, duty=0.5, amp=1.0, dec=2.2):
+    """A square/pulse voice (NES-style). `duty` sets the timbre (0.5 = hollow,
+    0.25 = reedy, 0.125 = thin). A mild exp decay gives each note a plucked pop."""
+    n = int(SR * dur); out = [0.0] * n
+    for i in range(n):
+        ph = (freq * i / SR) % 1.0
+        out[i] = amp * math.exp(-dec * i / SR) * (1.0 if ph < duty else -1.0)
+    return ramp(out, atk=0.003, rel=0.02)
+
+
+def _tri(freq, dur, amp=1.0):
+    """A triangle voice (NES bass channel): mellow, round, no harsh edges."""
+    n = int(SR * dur); out = [0.0] * n
+    for i in range(n):
+        ph = (freq * i / SR) % 1.0
+        out[i] = amp * (4 * abs(ph - 0.5) - 1)
+    return ramp(out, atk=0.004, rel=0.03)
+
+
+def _noise(dur, amp=1.0, decay=42.0):
+    """A percussive noise burst via a 15-bit LFSR (the NES noise channel)."""
+    n = int(SR * dur); out = [0.0] * n; reg = 0x7FFF
+    for i in range(n):
+        bit = (reg ^ (reg >> 1)) & 1
+        reg = (reg >> 1) | (bit << 14)
+        out[i] = amp * math.exp(-decay * i / SR) * (1.0 if (reg & 1) else -1.0)
+    return ramp(out, atk=0.001, rel=0.004)
+
+
+def _mix(buf, sig, at):
+    """Add `sig` into `buf` at sample `at`, wrapping the tail to the front so the
+    loop seam stays seamless (a note's release folds back to the loop start)."""
+    L = len(buf)
+    for i, v in enumerate(sig):
+        buf[(at + i) % L] += v
+
+
+# note frequencies (Hz) used by the score
+_N = {
+    "C2": 65.41, "E2": 82.41, "F2": 87.31, "G2": 98.00, "A2": 110.00, "C3": 130.81,
+    "D3": 146.83, "E3": 164.81, "F3": 174.61, "G3": 196.00, "A3": 220.00, "B3": 246.94,
+    "C4": 261.63, "D4": 293.66, "E4": 329.63, "F4": 349.23, "G4": 392.00, "A4": 440.00,
+    "B4": 493.88, "C5": 523.25, "D5": 587.33, "E5": 659.25, "F5": 698.46, "G5": 783.99, "A5": 880.00,
+}
+
+
 def gen_bgm():
-    # Cozy music-box loop: C - Am - F - G, a soft bell twinkle over a warm pad.
-    # Slow and sparse so it sits under the puzzle without ever getting busy.
-    chords = [
-        (130.81, [523.25, 659.25, 783.99, 659.25]),   # C:  C5 E5 G5 E5
-        (220.00, [523.25, 659.25, 880.00, 659.25]),   # Am: C5 E5 A5 E5
-        (174.61, [523.25, 698.46, 880.00, 698.46]),   # F:  C5 F5 A5 F5
-        (196.00, [493.88, 587.33, 783.99, 587.33]),   # G:  B4 D5 G5 D5
+    """A bright, bouncy chiptune loop that fits the pixel-art look: a pulse-wave
+    lead melody over a triangle bass and a noise-channel beat. Progression
+    C - G - Am - F (I-V-vi-IV), 4 bars, ~140 BPM, loops seamlessly."""
+    BPM = 140.0
+    spb = int(SR * (60.0 / BPM) * 4)          # samples per 4/4 bar
+    e = spb // 8                               # one eighth-note
+    N = spb * 4
+    buf = [0.0] * N
+
+    # per-bar: (bass_root, bass_fifth, triad[3], lead[(note,len_in_eighths)...])
+    bars = [
+        ("C3", "G3", ("C4", "E4", "G4"),
+         [("G4", 1), ("C5", 1), ("E5", 2), ("C5", 1), ("G4", 1), ("E4", 2)]),
+        ("G2", "D3", ("G3", "B3", "D4"),
+         [("D5", 1), ("B4", 1), ("G4", 2), ("B4", 1), ("D5", 1), ("G4", 2)]),
+        ("A2", "E3", ("A3", "C4", "E4"),
+         [("E5", 1), ("C5", 1), ("A4", 2), ("C5", 1), ("E5", 1), ("A4", 2)]),
+        ("F2", "C3", ("F3", "A3", "C4"),
+         [("F5", 2), ("C5", 1), ("A4", 1), ("F5", 1), ("C5", 1), ("A4", 2)]),
     ]
-    buf = _loop(chords, bar=3.0, pattern=[0, None, 1, 2, None, 3, 2, None],
-                arp_amp=0.085, bass_amp=0.10, peak=0.80)
-    write_wav(os.path.join(OUT, "ac_bgm.wav"), stereo_reverb(buf, 0.62, wet=0.36))
+
+    beat_dur = 60.0 / BPM
+    for b, (broot, bfifth, triad, lead) in enumerate(bars):
+        base = b * spb
+        # triangle bass: bouncy root/fifth on the eighth grid
+        bass_pat = [broot, broot, bfifth, broot, broot, bfifth, broot, bfifth]
+        for k, nm in enumerate(bass_pat):
+            _mix(buf, _tri(_N[nm], beat_dur * 0.5 * 0.95, amp=0.55), base + k * e)
+        # pulse-2 arpeggio shimmer: fast 16th triad cycle, thin duty, quiet
+        for k in range(16):
+            f = _N[triad[k % 3]] * 2.0
+            _mix(buf, _pulse(f, (e / SR) * 0.9, duty=0.25, amp=0.14, dec=6.0),
+                 base + k * (e // 2))
+        # pulse-1 lead melody: hollow 50% duty, sits on top
+        cur = 0
+        for nm, ln in lead:
+            _mix(buf, _pulse(_N[nm], (e * ln / SR) * 0.92, duty=0.5, amp=0.42, dec=1.6),
+                 base + cur * e)
+            cur += ln
+        # noise beat: soft hat every eighth, snare on beats 2 & 4
+        for k in range(8):
+            _mix(buf, _noise((e / SR) * 0.4, amp=0.06, decay=90.0), base + k * e)
+        for k in (2, 6):
+            _mix(buf, _noise((e / SR) * 0.9, amp=0.22, decay=34.0), base + k * e)
+
+    write_wav(os.path.join(OUT, "ac_bgm.wav"), normalize(buf, 0.72))
 
 
 if __name__ == "__main__":
