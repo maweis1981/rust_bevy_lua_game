@@ -903,7 +903,14 @@ local function make_ant_clear()
     -- The PICTURE is the hero and gets the lion's share of the height. A COMPACT
     -- control panel (queue + slots) sits at the bottom, a SMALL nest hole tucks
     -- just under the board, and the mosaic fills all the rest up to the HUD.
-    local M = 18                       -- bottom margin
+    -- Everything is inset by FRAME so nothing sits under the pixel bezel that
+    -- encloses the play field. The status bar drops below the top bezel; a small
+    -- toolbar band under it holds the back/mute medallions (off the play area).
+    local FRAME = 20                   -- bezel inset (matches game_frame border)
+    local BAR_CY = hh - 34 - FRAME     -- status bar centre (below top bezel)
+    local BAR_H = 46
+    local BTN_CY = (BAR_CY - BAR_H / 2) - 26   -- back/mute band, below the bar
+    local M = FRAME + 14               -- bottom margin (clears the bottom bezel)
     TRAY_W = math.min((2 * hw - 44) / 4 - 8, 54)
     SLOT_W = math.min((2 * hw - 60) / 5 - 8, 50)
     -- control panel: QROWS queue rows (head row on top) + one slot row above them
@@ -918,8 +925,13 @@ local function make_ant_clear()
     -- only by the (now generous) vertical space left up to the HUD — it scales
     -- with the device, never a fixed size. Leave ~2.6 blocks of width for the
     -- soil-plot rim + inner margin so the mosaic sits inside a generous plot.
-    local board_h = (hh - 78) - board_bottom
-    CELL = math.min((2 * hw - 18) / (W + 2.6), board_h / (H * (1 - PERSP / 2)))
+    -- Board fills the width (inside the bezel) and grows up to a top budget that
+    -- leaves the button band clear — the plot RIM (≈ 1.35 cells above the mosaic)
+    -- must not reach the buttons, so it's subtracted from the budget.
+    local widthCell = (2 * hw - 18 - 2 * FRAME) / (W + 2.6)
+    local rim = widthCell * 1.35
+    local board_h = ((BTN_CY - 22) - rim) - board_bottom
+    CELL = math.min(widthCell, board_h / (H * (1 - PERSP / 2)))
     -- nest hole: sized to the CELLS (a modest ~2-cell entrance, not a crater) and
     -- centred in the hole band right under the board — a landmark, not the star.
     local HOLE_R = CELL * 1.05
@@ -962,9 +974,9 @@ local function make_ant_clear()
     -- the soil plot + soft drop-shadows, not from darkening the frame.)
     -- top status bar: SEPARATE live sprites (no baked values) — wooden plank,
     -- level badge + live digits, star progress groove, coin + live score
-    local by = hh - 34
-    local bar_w = 2 * hw - 16
-    local bar_h = 46
+    local by = BAR_CY
+    local bar_w = 2 * hw - 2 * (FRAME + 8)
+    local bar_h = BAR_H
     T.panel(0, by, bar_w, bar_h, "bar_wood", 52)
     local function bfx(f) return -bar_w / 2 + f * bar_w end -- fraction -> x
     T.sprite(bfx(0.09), by, bar_h * 1.25, bar_h * 1.25, "badge_wood")
@@ -1012,9 +1024,12 @@ local function make_ant_clear()
     draw_board()
     total_cells = painted            -- progress bar denominator (set once per build)
     draw_hud()
-    -- back + sound: two small wooden medallions tucked under the bar's left end
-    -- (the bar itself is badge · star progress · coin, exactly like the mockup)
-    back = { x = -hw + 30, y = hh - 76, w = 38, h = 38 }
+    -- pixel bezel enclosing the whole play field (drawn on top so it frames the
+    -- board/HUD on every edge; the buttons below sit inside the window, on top).
+    T.sprite(0, 0, 2 * hw, 2 * hh, "game_frame")
+    -- back + sound: two small wooden medallions in the toolbar band under the bar,
+    -- OFF the play area (the bar itself is badge · star progress · coin)
+    back = { x = -hw + FRAME + 22, y = BTN_CY, w = 36, h = 36 }
     T.sprite(back.x, back.y, back.w, back.h, "badge_wood")
     T.sprite(back.x, back.y, 22, 22, "icon_back")   -- AC back arrow (was a "<" glyph)
     local snd_b = T.sprite(back.x + 44, back.y, 36, 36, "badge_wood")

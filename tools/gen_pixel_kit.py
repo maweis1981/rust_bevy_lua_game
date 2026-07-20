@@ -68,6 +68,24 @@ def bg(name, base, light, hi, tuft, decos):
     save(up(im, (768, 1152)), name)
 
 
+# --- full-screen pixel BORDER frame (a chunky wooden bezel with rounded corners
+#     + light bevel, transparent centre). Drawn at the portrait screen aspect so
+#     scaling keeps the border a uniform thickness on all four sides. Overlaid on
+#     top of the play field so the game is nicely enclosed on every edge. ---
+def frame():
+    W, H = 100, 214            # ~ portrait screen aspect (0.467)
+    im = grid(W, H); d = ImageDraw.Draw(im)
+    def rr(inset, rad, fill):
+        d.rounded_rectangle([inset, inset, W - 1 - inset, H - 1 - inset], rad, fill=fill + (255,))
+    rr(0, 9, WOODD)            # outer dark outline
+    rr(1, 8, WOOD1)            # wood band
+    rr(2, 7, WOODL)            # top light bevel
+    rr(3, 6, WOOD2)            # inner wood
+    # punch the transparent play window (~4px border => ~18px on screen)
+    d.rounded_rectangle([4, 4, W - 5, H - 5], 4, fill=(0, 0, 0, 0))
+    save(up(im, (800, 1712)), "game_frame")
+
+
 BIOMES = [
     # level 1 — meadow (the original look): bright grass + white/yellow flowers
     ("game_bg",   GRASS2, GRASS1, GRASS3, GRASS1,
@@ -278,6 +296,7 @@ FOODS = {
 if __name__ == "__main__":
     for spec in BIOMES:
         bg(*spec)
+    frame()
     panel("soil_plot", (64, 64), (512, 512), DIRT1, DIRT3, DIRTD, noise=DIRT2)
     panel("bar_wood", (46, 16), (368, 128), WOOD1, WOODL, WOODD, noise=WOOD2)
     panel("tray_wood", (64, 64), (512, 512), WOOD1, WOODL, WOODD, noise=WOOD2)
