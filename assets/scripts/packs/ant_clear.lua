@@ -870,9 +870,13 @@ local function make_ant_clear()
     playing, won, stuck, speed2, was_stuck = true, false, false, false, false
     dispatch_cd = 0
 
-    -- full-screen cozy background (generated art), behind everything
-    local bgspr = T.sprite(0, 0, math.max(2 * hw, 2 * hh * 512 / 768) + 4, 2 * hh + 4, "game_bg")
-    game.set_color(bgspr, 1, 1, 1, 1)   -- pixel grass (colour baked in)
+    -- full-screen background (generated art), behind everything. Each level has
+    -- its OWN biome so the run reads as a JOURNEY (meadow -> forest -> autumn ->
+    -- desert -> snow) — a sense of level progression. Cycles with the levels.
+    local BGS = { "game_bg", "bg_forest", "bg_autumn", "bg_desert", "bg_snow" }
+    local bgtex = BGS[((cur_lvl - 1) % #BGS) + 1] or "game_bg"
+    local bgspr = T.sprite(0, 0, math.max(2 * hw, 2 * hh * 512 / 768) + 4, 2 * hh + 4, bgtex)
+    game.set_color(bgspr, 1, 1, 1, 1)   -- biome colour baked into the texture
     spawn_drifters()   -- ambient floating leaves/motes over the background
     -- (No dark vignette — Animal Crossing is bright & high-key. Focus comes from
     -- the soil plot + soft drop-shadows, not from darkening the frame.)
