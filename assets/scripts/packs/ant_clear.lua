@@ -134,7 +134,7 @@ local function make_ant_clear()
   local ANTS_PER_SLOT = 4
   local ANT_SPEED = 48       -- world units / sec (a leisurely, casual crawl —
                              -- premium casual games amble, they don't scurry)
-  local ANT_SIZE = 1.6       -- ant BODY LENGTH in cells (small vs the blocks,
+  local ANT_SIZE = 1.05      -- ant BODY LENGTH in cells (small vs the blocks,
                              -- like the reference — was reading 3+ cells)
   local MAX_DT = 1 / 30
   local mode = "manual"      -- "manual" (tap to load) | "auto" (autoplay/tests)
@@ -427,7 +427,7 @@ local function make_ant_clear()
   end
   local function face(a, nx, ny)
     local dx, dy = nx - a.x, ny - a.y
-    if dx * dx + dy * dy > 0.01 then game.set_rotation(a.id, math.atan(-dx, dy)) end
+    if dx * dx + dy * dy > 0.0001 then a.face_target = math.atan(-dx, dy) end
   end
   local function move_along(a, dt)
     local step = ANT_SPEED * dt * (speed2 and 2 or 1)
@@ -440,21 +440,29 @@ local function make_ant_clear()
       if d <= step then a.x, a.y, a.pi, step, moved = nx, ny, a.pi + 1, step - d, moved + d
       else a.x, a.y, step, moved = a.x + dx / d * step, a.y + dy / d * step, 0, moved + step end
     end
-    a.anim = (a.anim + moved * 0.16) % 8   -- drives the sway timing (single sprite, no frames)
-    -- gentle side-to-side meander perpendicular to travel (visual only — logical
-    -- position stays on the path), plus little dust puffs while walking.
+    a.anim = (a.anim + moved) % 1000
+    -- SOLID pixel motion: a small CONSTANT lane offset (two-way ant road) — NO
+    -- floaty perpendicular sway, so the ant tracks the path instead of drifting.
     local tdx, tdy = a.x - sx0, a.y - sy0
     local tl = math.sqrt(tdx * tdx + tdy * tdy)
     local rx, ry = a.x, a.y
     if tl > 0.01 then
+      -- TWO-WAY ANT ROAD: outbound ants keep to one side, returning to the other,
+      -- so opposite streams pass cleanly. A fixed offset never wobbles.
       local px, py = -tdy / tl, tdx / tl
-      -- TWO-WAY ANT ROAD: everyone shares one trail; outbound ants keep to one
-      -- side, returning ants to the other, so opposite streams pass cleanly.
-      local lane = (a.state == "out" and 1 or -1) * CELL * 0.24
-      local sway = math.sin(a.anim * 0.85 + a.phase) * CELL * 0.12
-      rx, ry = a.x + px * (sway + lane), a.y + py * (sway + lane)
+      local lane = (a.state == "out" and 1 or -1) * CELL * 0.14
+      rx, ry = a.x + px * lane, a.y + py * lane
       a.dust = a.dust + moved
-      if a.dust > CELL * 0.85 then a.dust = 0; game.emit("dust", rx, ry - CELL * 0.15, 3) end
+      if a.dust > CELL * 1.2 then a.dust = 0; game.emit("dust", rx, ry - CELL * 0.15, 2) end
+    end
+    -- EASE the heading toward the path direction (no 90-degree snaps at corners)
+    if a.face_target then
+      a.rot = a.rot or a.face_target
+      local diff = a.face_target - a.rot
+      while diff > math.pi do diff = diff - 2 * math.pi end
+      while diff < -math.pi do diff = diff + 2 * math.pi end
+      a.rot = a.rot + diff * math.min(1, dt * 12)
+      game.set_rotation(a.id, a.rot)
     end
     game.move_to(a.id, rx, ry)
     if a.shadow then game.move_to(a.shadow, rx, ry - CELL * 0.40) end
