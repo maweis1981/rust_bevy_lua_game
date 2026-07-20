@@ -7,6 +7,8 @@ ImagePlugin::default_nearest). Same filenames + dimensions as the old art, so th
 ant_clear layout keeps working — only the pixels change. A garden palette: grass,
 dirt, wood UI, and 5 tintable food-block colours.
 """
+import math
+
 from PIL import Image, ImageDraw
 
 T = "assets/textures"
@@ -167,49 +169,69 @@ def pixel_tile():
 #     it to the species hue while the outline & eyes stay dark and the highlight
 #     reads as a sheen. Detailed like the reference: 3 clear body segments, a
 #     pinched waist, six jointed legs, bent antennae + mandibles. 24px src. ---
-def ant(name):
-    n = 24
-    im = grid(n, n); d = ImageDraw.Draw(im)
-    B = (54, 43, 38, 255)          # dark outline (stays dark under any tint)
-    L = (236, 228, 220, 255)       # light body (takes the tint)
-    S = (168, 158, 150, 255)       # mid shade (tints to a darker hue)
-    H = (252, 250, 248, 255)       # highlight sheen
-    E = (30, 24, 22, 255)          # eyes / mandibles (stay dark)
-    cx = 12
-    # --- six jointed legs first (drawn under the body) ---
-    #     each: body-anchor -> knee -> foot, mirrored across cx. Front pair
-    #     reaches forward, mid pair straight out, rear pair sweeps back.
-    legs = [((10, 9), (6, 6), (3, 4)),      # front
-            ((10, 12), (5, 12), (2, 13)),   # middle
-            ((10, 15), (6, 17), (3, 20))]   # rear
+_ANT_B = (54, 43, 38, 255)      # dark outline (stays dark under any tint)
+_ANT_L = (236, 228, 220, 255)   # light body (takes the tint)
+_ANT_S = (168, 158, 150, 255)   # mid shade (tints to a darker hue)
+_ANT_H = (252, 250, 248, 255)   # highlight sheen
+_ANT_E = (30, 24, 22, 255)      # eyes / mandibles (stay dark)
+
+
+def _ant_legs(d, phase):
+    """Six jointed legs (under the body) stepping in the insect TRIPOD gait: the
+    two alternating tripods swing fore/aft in anti-phase, driven by `phase` (0..1),
+    so cycling frames makes the ant actually walk instead of sliding."""
+    B, E, cx, SW = _ANT_B, _ANT_E, 12, 2.4
+    # (leg index 0=front/1=mid/2=rear, anchor, knee, foot) on the LEFT side
+    legs = [(0, (10, 9), (6, 6), (3, 4)),
+            (1, (10, 12), (5, 12), (2, 13)),
+            (2, (10, 15), (6, 17), (3, 20))]
     for side in (-1, 1):
-        for (a0, k, f) in legs:
-            ax = cx + side * (a0[0] - cx); kx = cx + side * (k[0] - cx); fx = cx + side * (f[0] - cx)
-            d.line([(ax, a0[1]), (kx, k[1])], fill=B, width=1)
-            d.line([(kx, k[1]), (fx, f[1])], fill=B, width=1)
-            px(d, fx, f[1], E)     # dark foot tip
-    # --- antennae: from the head, angle out then bend forward ---
-    for side in (-1, 1):
+        for (idx, a0, k, f) in legs:
+            # tripod A = {L-front, R-mid, L-rear}; tripod B = the other three
+            is_a = (side == -1) if idx != 1 else (side == 1)
+            sw = SW * math.sin(2 * math.pi * phase + (0 if is_a else math.pi))
+            ax = cx + side * (a0[0] - cx); ay = a0[1]
+            kx = cx + side * (k[0] - cx); ky = round(k[1] - sw * 0.4)
+            fx = cx + side * (f[0] - cx); fy = round(f[1] - sw)   # foot steps fore/aft
+            d.line([(ax, ay), (kx, ky)], fill=B, width=1)
+            d.line([(kx, ky), (fx, fy)], fill=B, width=1)
+            px(d, fx, fy, E)     # dark foot tip
+
+
+def _ant_body(d):
+    """Antennae, mandibles, the 3 body segments, eyes and sheen (leg-independent)."""
+    B, L, S, H, E, cx = _ANT_B, _ANT_L, _ANT_S, _ANT_H, _ANT_E, 12
+    for side in (-1, 1):        # antennae: angle out then bend forward
         b0 = (cx + side * 1, 4); b1 = (cx + side * 4, 1); b2 = (cx + side * 5, -1)
         d.line([b0, b1], fill=B, width=1); d.line([b1, b2], fill=B, width=1)
         px(d, b2[0], max(0, b2[1]), E)
-    # --- mandibles: two dark forks reaching up off the head ---
-    d.line([(cx - 1, 3), (cx - 3, 0)], fill=E); d.line([(cx + 1, 3), (cx + 3, 0)], fill=E)
-    # --- body: abdomen (big teardrop) -> pinched waist -> thorax -> head ---
+    d.line([(cx - 1, 3), (cx - 3, 0)], fill=E); d.line([(cx + 1, 3), (cx + 3, 0)], fill=E)  # mandibles
     d.ellipse([cx - 4, 13, cx + 3, 22], fill=L, outline=B)   # abdomen
     d.ellipse([cx - 2, 11, cx + 1, 14], fill=S, outline=B)   # petiole / waist
     d.ellipse([cx - 3, 6, cx + 2, 12], fill=L, outline=B)    # thorax
     d.ellipse([cx - 3, 1, cx + 2, 7], fill=L, outline=B)     # head
-    # segment seams (mid-shade) so the 3 parts read distinctly
-    d.line([(cx - 3, 13), (cx + 2, 13)], fill=S)             # abdomen shoulder
-    d.line([(cx - 4, 17), (cx + 3, 17)], fill=S)             # abdomen belt
-    # eyes on the head
-    px(d, cx - 2, 4, E); px(d, cx - 2, 5, E)
+    d.line([(cx - 3, 13), (cx + 2, 13)], fill=S)             # segment seams
+    d.line([(cx - 4, 17), (cx + 3, 17)], fill=S)
+    px(d, cx - 2, 4, E); px(d, cx - 2, 5, E)                 # eyes
     px(d, cx + 1, 4, E); px(d, cx + 1, 5, E)
-    # sheen: highlight top-left of head & abdomen (reads as a glossy back)
-    px(d, cx - 2, 2, H); px(d, cx - 1, 2, H)
+    px(d, cx - 2, 2, H); px(d, cx - 1, 2, H)                 # sheen
     px(d, cx - 3, 15, H); px(d, cx - 2, 15, H); px(d, cx - 3, 16, H)
-    save(up(im, (192, 192)), name)
+
+
+# --- pixel ant, TOP-DOWN, head UP (0deg faces heading). Now a 6-frame WALK
+#     sheet (768x128, frames laid left-to-right): the legs step in a tripod gait
+#     so the ant walks. Drawn in LUMINANCE so game.set_color tints the body while
+#     the outline & eyes stay dark. ant_clear spawns it via game.spawn_sheet and
+#     advances the frame with the ant's travelled distance. ---
+def ant(name):
+    N, FR, UP = 24, 6, 128
+    sheet = Image.new("RGBA", (UP * FR, UP), (0, 0, 0, 0))
+    for i in range(FR):
+        im = grid(N, N); d = ImageDraw.Draw(im)
+        _ant_legs(d, i / FR)    # legs first (under the body), stepping
+        _ant_body(d)
+        sheet.paste(up(im, (UP, UP)), (i * UP, 0))
+    save(sheet, name)
 
 
 # --- pixel ant TOKEN: species-colour tile + small dark ant ---
