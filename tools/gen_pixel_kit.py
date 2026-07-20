@@ -103,25 +103,54 @@ def pixel_tile():
     save(up(im, (96, 96)), "pixel_tile")
 
 
-# --- pixel ant, TOP-DOWN, head UP (0deg faces heading); light body + dark
-#     outline so game.set_color tints it to the species colour. 16px. ---
+# --- pixel ant, TOP-DOWN, head UP (0deg faces heading). Drawn in LUMINANCE
+#     (bright body / mid shade / dark outline+eyes) so game.set_color multiplies
+#     it to the species hue while the outline & eyes stay dark and the highlight
+#     reads as a sheen. Detailed like the reference: 3 clear body segments, a
+#     pinched waist, six jointed legs, bent antennae + mandibles. 24px src. ---
 def ant(name):
-    n = 16
+    n = 24
     im = grid(n, n); d = ImageDraw.Draw(im)
-    B = ANTD + (255,); L = ANTL + (255,)
-    cx = 8
-    # 6 legs first (under the body): 3 pairs splayed out from the thorax
-    for (ly, dy) in [(5, -2), (8, 0), (11, 2)]:
-        d.line([(cx-1, ly), (cx-4, ly+dy)], fill=B)
-        d.line([(cx, ly), (cx+3, ly+dy)], fill=B)
-    # body: abdomen (bottom, big), thorax (mid), head (top)
-    d.ellipse([cx-3, 9, cx+2, 14], fill=L, outline=B)     # abdomen
-    d.ellipse([cx-2, 6, cx+1, 9], fill=L, outline=B)      # thorax
-    d.ellipse([cx-2, 2, cx+1, 6], fill=L, outline=B)      # head
-    # eyes + antennae
-    px(d, cx-2, 3, B); px(d, cx+1, 3, B)
-    d.line([(cx-1, 2), (cx-3, 0)], fill=B); d.line([(cx, 2), (cx+2, 0)], fill=B)
-    save(up(im, (128, 128)), name)
+    B = (54, 43, 38, 255)          # dark outline (stays dark under any tint)
+    L = (236, 228, 220, 255)       # light body (takes the tint)
+    S = (168, 158, 150, 255)       # mid shade (tints to a darker hue)
+    H = (252, 250, 248, 255)       # highlight sheen
+    E = (30, 24, 22, 255)          # eyes / mandibles (stay dark)
+    cx = 12
+    # --- six jointed legs first (drawn under the body) ---
+    #     each: body-anchor -> knee -> foot, mirrored across cx. Front pair
+    #     reaches forward, mid pair straight out, rear pair sweeps back.
+    legs = [((10, 9), (6, 6), (3, 4)),      # front
+            ((10, 12), (5, 12), (2, 13)),   # middle
+            ((10, 15), (6, 17), (3, 20))]   # rear
+    for side in (-1, 1):
+        for (a0, k, f) in legs:
+            ax = cx + side * (a0[0] - cx); kx = cx + side * (k[0] - cx); fx = cx + side * (f[0] - cx)
+            d.line([(ax, a0[1]), (kx, k[1])], fill=B, width=1)
+            d.line([(kx, k[1]), (fx, f[1])], fill=B, width=1)
+            px(d, fx, f[1], E)     # dark foot tip
+    # --- antennae: from the head, angle out then bend forward ---
+    for side in (-1, 1):
+        b0 = (cx + side * 1, 4); b1 = (cx + side * 4, 1); b2 = (cx + side * 5, -1)
+        d.line([b0, b1], fill=B, width=1); d.line([b1, b2], fill=B, width=1)
+        px(d, b2[0], max(0, b2[1]), E)
+    # --- mandibles: two dark forks reaching up off the head ---
+    d.line([(cx - 1, 3), (cx - 3, 0)], fill=E); d.line([(cx + 1, 3), (cx + 3, 0)], fill=E)
+    # --- body: abdomen (big teardrop) -> pinched waist -> thorax -> head ---
+    d.ellipse([cx - 4, 13, cx + 3, 22], fill=L, outline=B)   # abdomen
+    d.ellipse([cx - 2, 11, cx + 1, 14], fill=S, outline=B)   # petiole / waist
+    d.ellipse([cx - 3, 6, cx + 2, 12], fill=L, outline=B)    # thorax
+    d.ellipse([cx - 3, 1, cx + 2, 7], fill=L, outline=B)     # head
+    # segment seams (mid-shade) so the 3 parts read distinctly
+    d.line([(cx - 3, 13), (cx + 2, 13)], fill=S)             # abdomen shoulder
+    d.line([(cx - 4, 17), (cx + 3, 17)], fill=S)             # abdomen belt
+    # eyes on the head
+    px(d, cx - 2, 4, E); px(d, cx - 2, 5, E)
+    px(d, cx + 1, 4, E); px(d, cx + 1, 5, E)
+    # sheen: highlight top-left of head & abdomen (reads as a glossy back)
+    px(d, cx - 2, 2, H); px(d, cx - 1, 2, H)
+    px(d, cx - 3, 15, H); px(d, cx - 2, 15, H); px(d, cx - 3, 16, H)
+    save(up(im, (192, 192)), name)
 
 
 # --- pixel ant TOKEN: species-colour tile + small dark ant ---
