@@ -268,6 +268,14 @@ def icon_back():
     save(up(im, (128, 128)), "icon_back")
 
 
+def icon_lock():
+    n = 16; im = grid(n, n); d = ImageDraw.Draw(im)
+    d.arc([5, 2, 10, 9], 180, 360, fill=INK + (255,), width=2)       # shackle
+    d.rounded_rectangle([4, 7, 11, 14], 2, fill=YEL + (255,), outline=YELD + (255,))  # body
+    px(d, 7, 10, INK + (255,)); px(d, 7, 11, INK + (255,))           # keyhole
+    save(up(im, (128, 128)), "icon_lock")
+
+
 def icon_sound():
     n = 16; im = grid(n, n); d = ImageDraw.Draw(im)
     d.polygon([(4,6),(7,6),(10,3),(10,13),(7,10),(4,10)], fill=INK + (255,))
@@ -305,5 +313,5 @@ if __name__ == "__main__":
     ant("ant_walk")
     for f, c in FOODS.items():
         ant_token(f, c)
-    icon_star(); icon_coin(); icon_back(); icon_sound(); leaf(); petal()
+    icon_star(); icon_coin(); icon_back(); icon_sound(); icon_lock(); leaf(); petal()
     print("pixel kit done")
