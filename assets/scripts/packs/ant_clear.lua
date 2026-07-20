@@ -302,6 +302,9 @@ local function make_ant_clear()
   local col_adv = {}                    -- per-column slide-up animation timer
   local slot_pulse = {}   -- brief scale bump when a slot's count ticks down
   local playing, won, stuck, speed2 = true, false, false, false
+  local screen = "play"                 -- "play" | "select" (level-picker page)
+  local max_lvl = 1                     -- highest UNLOCKED level (saved progress)
+  local sel_cards, sel_back = {}, nil   -- level-select hit-rects + its back button
   local dispatch_cd = 0        -- ants leave the nest ONE AT A TIME (single file)
   local DISPATCH_GAP = 0.45    -- seconds between departures
   local muted = false          -- sound toggle (music + sfx)
@@ -1072,9 +1075,12 @@ local function make_ant_clear()
   local function win()
     playing, won, win_t = false, true, 0
     game.set_text("")                    -- no caption; the star show says it
-    -- advance the saved progression; the celebration auto-advances into it
+    -- advance the saved progression; the celebration auto-advances into it. Beating
+    -- level N unlocks N+1 in the level-select page (max_lvl never decreases).
+    local beaten = cur_lvl
     cur_lvl = (cur_lvl % #LEVELS) + 1
-    if game.save then game.save("ant_clear_lvl", cur_lvl) end
+    max_lvl = math.max(max_lvl, math.min(#LEVELS, beaten + 1))
+    if game.save then game.save("ant_clear_lvl", cur_lvl); game.save("ant_clear_max", max_lvl) end
     game.play_sound("ac_win"); game.haptic("success"); game.shake(0.5); game.log("ant_clear win")
     game.zoom(0.6)
     -- WIN SHOW: three big stars rise from where the picture was and fly one by
@@ -1093,17 +1099,86 @@ local function make_ant_clear()
     end
   end
 
+  -- ---- LEVEL SELECT page ---------------------------------------------------
+  -- A grid of picture-preview cards (rendered from each level's grid, see
+  -- tools/gen_level_thumbs.py). Levels above max_lvl show a padlock and can't be
+  -- entered; unlocked ones jump straight into that level on tap. Everything is
+  -- tracked (T.*) so T.clear() tears the page down when a card / back is tapped.
+  local function build_select(hw, hh)
+    HW, HH = hw, hh
+    T.clear(); despawn_dynamic(); ants = {}; sel_cards = {}
+    local FRAME = 20
+    local bgspr = T.sprite(0, 0, math.max(2 * hw, 2 * hh * 512 / 768) + 4, 2 * hh + 4, "game_bg")
+    game.set_color(bgspr, 1, 1, 1, 1)
+    spawn_drifters()
+    -- title bar + back medallion (mirrors the play screen's toolbar)
+    local ty = hh - 34 - FRAME
+    T.panel(0, ty, 2 * hw - 2 * (FRAME + 8), 46, "bar_wood", 52)
+    T.text(0, ty, 30, 1, 0.96, 0.86, 1, "LEVELS")
+    sel_back = { x = -hw + FRAME + 22, y = ty - 58, w = 36, h = 36 }
+    T.sprite(sel_back.x, sel_back.y, 36, 36, "badge_wood")
+    T.sprite(sel_back.x, sel_back.y, 22, 22, "icon_back")
+    -- 3-column card grid, centred, below the title/back band
+    local COLS = 3
+    local usable_w = 2 * hw - 2 * (FRAME + 12)
+    local gap = 14
+    local cw = (usable_w - (COLS - 1) * gap) / COLS
+    local ch = cw
+    local ROWS = math.ceil(#LEVELS / COLS)
+    local grid_top = (ty - 96) - ch / 2                    -- first row centre
+    for idx = 0, #LEVELS - 1 do
+      local r, c = math.floor(idx / COLS), idx % COLS
+      local cx = -usable_w / 2 + cw / 2 + c * (cw + gap)
+      local cy = grid_top - r * (ch + gap)
+      local lvl = idx + 1
+      local locked = lvl > max_lvl
+      local card = T.panel(cx, cy, cw, ch, "tray_wood", 66)
+      local th = T.sprite(cx, cy + ch * 0.05, cw * 0.62, ch * 0.62, "lvl_thumb_" .. lvl)
+      if locked then
+        game.set_color(card, 0.52, 0.50, 0.54, 1)
+        game.set_color(th, 0.30, 0.30, 0.34, 1)
+        T.sprite(cx, cy, cw * 0.34, cw * 0.34, "icon_lock")
+      else
+        game.set_color(card, 1, 1, 1, 1)
+        T.text(cx, cy - ch * 0.35, 22, 1, 0.96, 0.86, 1, tostring(lvl))
+      end
+      sel_cards[#sel_cards + 1] = { x = cx, y = cy, w = cw, h = ch, lvl = lvl, locked = locked }
+    end
+    -- the pixel bezel on top, framing the page like the play screen
+    T.sprite(0, 0, 2 * hw, 2 * hh, "game_frame")
+  end
+
   return {
     enter = function()
-      built = false
+      built = false; screen = "play"
       -- (assign first: a host whose `load` returns no values must read as nil)
       local saved = game.load and game.load("ant_clear_lvl")
       cur_lvl = tonumber(saved) or cur_lvl
+      local savedmax = game.load and game.load("ant_clear_max")
+      max_lvl = math.max(1, tonumber(savedmax) or max_lvl)
       game.play_music("ac_bgm")
     end,
     leave = function() T.clear(); despawn_dynamic(); ants = {}; built = false; game.stop_music() end,
     tap = function(x, y)
-      if back and K.in_rect(back, x, y) then K.switch("menu"); return end
+      -- LEVEL SELECT page: back -> menu, tap an unlocked card -> jump to that level
+      if screen == "select" then
+        if sel_back and K.in_rect(sel_back, x, y) then K.switch("menu"); return end
+        for _, cd in ipairs(sel_cards) do
+          if math.abs(x - cd.x) <= cd.w / 2 and math.abs(y - cd.y) <= cd.h / 2 then
+            if cd.locked then
+              game.play_sound("ac_stuck"); game.haptic("medium")   -- locked buzz
+            else
+              cur_lvl = cd.lvl; screen = "play"
+              game.play_sound("ac_place"); game.haptic("light")
+              T.clear(); build(HW, HH)
+            end
+            return
+          end
+        end
+        return
+      end
+      -- PLAY screen: the back button now opens the level-select page
+      if back and K.in_rect(back, x, y) then screen = "select"; build_select(HW, HH); return end
       if not playing then T.clear(); build(HW, HH); return end
       if press_button(x, y) then return end   -- bottom bar + unlock buttons (press feedback)
       if mode == "manual" then
@@ -1125,6 +1200,7 @@ local function make_ant_clear()
     end,
     update = function(dt, hw, hh)
       if not built then build(hw, hh) end
+      if screen == "select" then update_drifters(math.min(dt, MAX_DT)); return end
       update_drifters(math.min(dt, MAX_DT))   -- ambient motion, even on the win card
       update_buttons(math.min(dt, MAX_DT))    -- ease button press/selected states
       update_intro(math.min(dt, MAX_DT))      -- level-intro title card sweep
