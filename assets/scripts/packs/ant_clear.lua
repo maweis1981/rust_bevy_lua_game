@@ -1289,12 +1289,10 @@ local function make_ant_clear()
       -- (assign first: a host whose `load` returns no values must read as nil)
       local saved = game.load and game.load("ant_clear_lvl")
       cur_lvl = tonumber(saved) or cur_lvl
-      local savedmax = game.load and game.load("ant_clear_max")
-      max_lvl = math.max(1, tonumber(savedmax) or max_lvl)
-      max_lvl = math.max(max_lvl, cur_lvl)   -- the level you're ON is always unlocked
-      -- (repairs saves from before the level-select existed, where ant_clear_lvl
-      -- advanced but ant_clear_max was never written)
-      if game.save then game.save("ant_clear_max", max_lvl) end
+      -- FREE PLAY: every level is unlocked so you can jump straight to any picture
+      -- (including the big 45x60 rocket). The star rating on each card still tracks
+      -- which levels you've completed and how fast, so progression is still visible.
+      max_lvl = #LEVELS
       for i = 1, #LEVELS do   -- best time-grade per level (for the select cards)
         local s = game.load and game.load("ant_clear_stars_" .. i)
         best_stars[i] = tonumber(s) or best_stars[i] or 0
