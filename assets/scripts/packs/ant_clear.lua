@@ -545,7 +545,9 @@ local function make_ant_clear()
     -- to the species colour while the outline stays dark. Ants start HIDDEN
     -- (alpha 0) resting inside the nest, not piled on the hole.
     local aw = CELL * ANT_SIZE
-    local id = game.spawn_sprite(NESTX, NESTY, aw, aw, "ant_walk")
+    -- ant_walk is a 6-frame WALK sheet (128x128 frames); the frame is advanced by
+    -- the ant's travelled distance in move_along so the legs actually step.
+    local id = game.spawn_sheet(NESTX, NESTY, aw, aw, "ant_walk", 128, 128, 6, 1)
     ants[#ants + 1] = { id = id, shadow = sh, slot = slot_i, state = "idle", x = NESTX, y = NESTY,
                         pi = 1, path = nil, tr = 0, tc = 0, anim = 0, carry = nil, cc = 0,
                         rig_s = 1, hidden = true, tintk = nil,
@@ -606,6 +608,9 @@ local function make_ant_clear()
       else a.x, a.y, step, moved = a.x + dx / d * step, a.y + dy / d * step, 0, moved + step end
     end
     a.anim = (a.anim + moved) % 1000
+    -- step the walk-cycle frame by distance travelled (~6 frames per 0.9 cell) so
+    -- the legs move while the ant walks; a still ant holds its current frame
+    if moved > 0 then game.set_frame(a.id, math.floor(a.anim / (CELL * 0.15)) % 6) end
     -- SOLID pixel motion: a small CONSTANT lane offset (two-way ant road) — NO
     -- floaty perpendicular sway, so the ant tracks the path instead of drifting.
     local tdx, tdy = a.x - sx0, a.y - sy0
