@@ -305,6 +305,11 @@ local function make_ant_clear()
   local screen = "play"                 -- "play" | "select" (level-picker page)
   local max_lvl = 1                     -- highest UNLOCKED level (saved progress)
   local sel_cards, sel_back = {}, nil   -- level-select hit-rects + its back button
+  -- TIME RACE: the top bar drains over the level's deadline; you keep more stars
+  -- the faster you clear the picture (shorter time -> higher grade & score).
+  local elapsed, star_grade = 0, 3      -- level timer + live time grade (3..1)
+  local par3, par2, par1 = 0, 0, 0      -- 3-star / 2-star / deadline thresholds (s)
+  local best_stars = {}                 -- best grade earned per level (select page)
   local dispatch_cd = 0        -- ants leave the nest ONE AT A TIME (single file)
   local DISPATCH_GAP = 0.45    -- seconds between departures
   local muted = false          -- sound toggle (music + sfx)
@@ -749,16 +754,21 @@ local function make_ant_clear()
   end
   local total_cells = 0   -- set in build; drives the star progress bar
   local function refresh_hud()
-    -- star progress: fill tracks the cleared fraction; lit stars fade IN over
-    -- the baked dark stars of the mockup strip at 1/3 2/3 3/3
+    -- TIME RACE bar: the fill drains from full to empty over the deadline (par1),
+    -- shifting gold -> orange -> red as time runs out. The 3 stars are the live
+    -- grade you'll earn (all lit, then drop right-to-left as you pass par3/par2)
+    -- — race the clock to keep them. Completion shows in the emptying picture.
     if prog_fill and total_cells > 0 then
-      local frac = 1 - painted / total_cells
+      local frac = math.max(0, math.min(1, 1 - elapsed / par1))   -- time remaining
       local fw = math.max(1, prog_w * frac)
       game.set_size(prog_fill, fw, prog_h or 8)
       game.move_to(prog_fill, prog_x0 + fw / 2, prog_y or (HH - 34))
+      if frac > 0.5 then game.set_color(prog_fill, 1.0, 0.78, 0.20, 1)
+      elseif frac > 0.25 then game.set_color(prog_fill, 1.0, 0.55, 0.15, 1)
+      else game.set_color(prog_fill, 0.95, 0.28, 0.20, 1) end
       for k = 1, 3 do
         if prog_stars[k] then
-          if frac >= k / 3 - 0.001 then game.set_color(prog_stars[k], 1, 1, 1, 1)
+          if k <= star_grade then game.set_color(prog_stars[k], 1, 1, 1, 1)
           else game.set_color(prog_stars[k], 0.42, 0.32, 0.24, 1) end
         end
       end
@@ -1026,6 +1036,12 @@ local function make_ant_clear()
 
     draw_board()
     total_cells = painted            -- progress bar denominator (set once per build)
+    -- TIME RACE thresholds, scaled to the level's size (bigger picture = more
+    -- time). Generous so casual play still earns stars; tune to taste.
+    elapsed, star_grade = 0, 3
+    par3 = math.max(8, total_cells * 0.60)    -- fast  -> keep all 3 stars
+    par2 = math.max(16, total_cells * 1.00)   -- ok    -> 2 stars
+    par1 = math.max(28, total_cells * 1.60)   -- slow  -> 1 star (bar empty)
     draw_hud()
     -- pixel bezel enclosing the whole play field (drawn on top so it frames the
     -- board/HUD on every edge; the buttons below sit inside the window, on top).
@@ -1075,18 +1091,29 @@ local function make_ant_clear()
   local function win()
     playing, won, win_t = false, true, 0
     game.set_text("")                    -- no caption; the star show says it
+    -- TIME GRADE: the stars still lit when you finished = the grade earned. Keep
+    -- the best per level (for the select page) and add a speed bonus to the score.
+    local g = star_grade
+    local beaten = cur_lvl
+    best_stars[beaten] = math.max(best_stars[beaten] or 0, g)
+    local bonus = math.floor(math.max(0, par2 - elapsed) * 6)   -- faster = bigger
+    local final = (total_cells or 0) + bonus
+    num_free(coin_num); coin_num = num_make(tostring(final), 18, 1); coin_shown = tostring(final)
+    num_place(coin_num, coin_x, coin_y)
     -- advance the saved progression; the celebration auto-advances into it. Beating
     -- level N unlocks N+1 in the level-select page (max_lvl never decreases).
-    local beaten = cur_lvl
     cur_lvl = (cur_lvl % #LEVELS) + 1
     max_lvl = math.max(max_lvl, math.min(#LEVELS, beaten + 1))
-    if game.save then game.save("ant_clear_lvl", cur_lvl); game.save("ant_clear_max", max_lvl) end
+    if game.save then
+      game.save("ant_clear_lvl", cur_lvl); game.save("ant_clear_max", max_lvl)
+      game.save("ant_clear_stars_" .. beaten, best_stars[beaten])
+    end
     game.play_sound("ac_win"); game.haptic("success"); game.shake(0.5); game.log("ant_clear win")
     game.zoom(0.6)
-    -- WIN SHOW: three big stars rise from where the picture was and fly one by
+    -- WIN SHOW: the EARNED stars rise from where the picture was and fly one by
     -- one into their bar sockets (overshoot ease), each launch with confetti
     local py = TOPY - 0.5 * CELL * H
-    for k = 1, 3 do
+    for k = 1, g do
       local sp = prog_star_pos[k]
       if sp then
         local st = T.sprite(0, py, 46, 46, "icon_star")
@@ -1140,7 +1167,14 @@ local function make_ant_clear()
         T.sprite(cx, cy, cw * 0.34, cw * 0.34, "icon_lock")
       else
         game.set_color(card, 1, 1, 1, 1)
-        T.text(cx, cy - ch * 0.35, 22, 1, 0.96, 0.86, 1, tostring(lvl))
+        T.text(cx, cy + ch * 0.36, 20, 1, 0.96, 0.86, 1, tostring(lvl))
+        -- earned time-grade stars along the card's bottom (dark = not yet earned)
+        local bs = best_stars[lvl] or 0
+        for s = 1, 3 do
+          local st = T.sprite(cx + (s - 2) * cw * 0.20, cy - ch * 0.37, cw * 0.16, cw * 0.16, "icon_star")
+          if s <= bs then game.set_color(st, 1.0, 0.82, 0.20, 1)
+          else game.set_color(st, 0.40, 0.34, 0.28, 1) end
+        end
       end
       sel_cards[#sel_cards + 1] = { x = cx, y = cy, w = cw, h = ch, lvl = lvl, locked = locked }
     end
@@ -1156,6 +1190,10 @@ local function make_ant_clear()
       cur_lvl = tonumber(saved) or cur_lvl
       local savedmax = game.load and game.load("ant_clear_max")
       max_lvl = math.max(1, tonumber(savedmax) or max_lvl)
+      for i = 1, #LEVELS do   -- best time-grade per level (for the select cards)
+        local s = game.load and game.load("ant_clear_stars_" .. i)
+        best_stars[i] = tonumber(s) or best_stars[i] or 0
+      end
       game.play_music("ac_bgm")
     end,
     leave = function() T.clear(); despawn_dynamic(); ants = {}; built = false; game.stop_music() end,
@@ -1221,6 +1259,8 @@ local function make_ant_clear()
         return
       end
       dt = math.min(dt, MAX_DT)
+      elapsed = elapsed + dt
+      star_grade = (elapsed <= par3 and 3) or (elapsed <= par2 and 2) or 1
       dispatch_cd = math.max(0, dispatch_cd - dt * (speed2 and 2 or 1))
       if dirty then recompute_field() end
       fill_slots()
