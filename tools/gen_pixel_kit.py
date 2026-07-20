@@ -178,21 +178,25 @@ _ANT_E = (30, 24, 22, 255)      # eyes / mandibles (stay dark)
 
 def _ant_legs(d, phase):
     """Six jointed legs (under the body) stepping in the insect TRIPOD gait: the
-    two alternating tripods swing fore/aft in anti-phase, driven by `phase` (0..1),
-    so cycling frames makes the ant actually walk instead of sliding."""
-    B, E, cx, SW = _ANT_B, _ANT_E, 12, 2.4
+    two alternating tripods swing fore/aft in anti-phase, driven by `phase` (0..1).
+    The motion is deliberately BIG — a large fore/aft sweep plus an in/out splay —
+    because the ant renders tiny in-game, so a subtle swing quantizes away and just
+    reads as sliding. Feet visibly step and legs open/close as frames cycle."""
+    B, E, cx, SW, SP = _ANT_B, _ANT_E, 12, 3.6, 2.6
     # (leg index 0=front/1=mid/2=rear, anchor, knee, foot) on the LEFT side
-    legs = [(0, (10, 9), (6, 6), (3, 4)),
+    legs = [(0, (10, 9), (6, 6), (3, 5)),
             (1, (10, 12), (5, 12), (2, 13)),
             (2, (10, 15), (6, 17), (3, 20))]
     for side in (-1, 1):
         for (idx, a0, k, f) in legs:
             # tripod A = {L-front, R-mid, L-rear}; tripod B = the other three
             is_a = (side == -1) if idx != 1 else (side == 1)
-            sw = SW * math.sin(2 * math.pi * phase + (0 if is_a else math.pi))
+            ph = 2 * math.pi * phase + (0 if is_a else math.pi)
+            sw = SW * math.sin(ph)              # fore/aft sweep of the foot
+            sp = SP * (0.5 + 0.5 * math.cos(ph))  # foot splays OUT on the forward reach
             ax = cx + side * (a0[0] - cx); ay = a0[1]
-            kx = cx + side * (k[0] - cx); ky = round(k[1] - sw * 0.4)
-            fx = cx + side * (f[0] - cx); fy = round(f[1] - sw)   # foot steps fore/aft
+            kx = cx + side * (k[0] - cx) + round(side * sp * 0.4); ky = round(k[1] - sw * 0.5)
+            fx = cx + side * (f[0] - cx) + round(side * sp); fy = round(f[1] - sw)
             d.line([(ax, ay), (kx, ky)], fill=B, width=1)
             d.line([(kx, ky), (fx, fy)], fill=B, width=1)
             px(d, fx, fy, E)     # dark foot tip
