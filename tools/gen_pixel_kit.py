@@ -39,26 +39,52 @@ def px(d, x, y, c):
     d.point((x, y), fill=c)
 
 
-# --- background: pixel grass field with blades + tiny flowers ---
-def bg():
+# --- background: themed pixel field. One recipe (base + speckle + tufts + a few
+#     accent decos) recoloured per biome, so the levels read as a JOURNEY —
+#     meadow -> forest -> autumn -> desert -> snow — a sense of level progression
+#     while the chunky-pixel style stays identical. `game_bg` stays the level-1
+#     meadow (unchanged look); bg_2..5 are the later biomes. ---
+def bg(name, base, light, hi, tuft, decos):
+    """decos: list of (color, is2x) accent dots (flowers/leaves/stones/sparkles)."""
     W, H = 96, 144
-    im = Image.new("RGBA", (W, H), GRASS2 + (255,))
+    im = Image.new("RGBA", (W, H), base + (255,))
     d = ImageDraw.Draw(im)
     for y in range(H):
         for x in range(W):
             n = (x * 7 + y * 13) % 11
-            if n == 0: px(d, x, y, GRASS1 + (255,))
-            elif n == 1: px(d, x, y, GRASS3 + (255,))
-    # scattered grass blades (2px verticals) + a few flowers
-    for i in range(70):
-        x = (i * 37 + 5) % W; y = (i * 53 + 11) % H
-        d.line([(x, y), (x, y - 2)], fill=GRASS1 + (255,))
-    for i in range(10):
+            if n == 0: px(d, x, y, light + (255,))
+            elif n == 1: px(d, x, y, hi + (255,))
+    if tuft:  # short 2px verticals = grass blades / ground texture strokes
+        for i in range(70):
+            x = (i * 37 + 5) % W; y = (i * 53 + 11) % H
+            d.line([(x, y), (x, y - 2)], fill=tuft + (255,))
+    # scattered accent decorations, cycled through the biome's deco palette
+    for i in range(14):
         x = (i * 41 + 9) % W; y = (i * 61 + 20) % H
-        px(d, x, y, (255, 240, 250, 255)); px(d, x+1, y, (255, 240, 250, 255))
-        px(d, x, y+1, (255, 240, 250, 255)); px(d, x+1, y+1, (255, 240, 250, 255))
-        px(d, x, y, YEL + (255,))   # flower centre-ish
-    save(up(im, (768, 1152)), "game_bg")
+        col, big = decos[i % len(decos)]
+        px(d, x, y, col + (255,))
+        if big:
+            px(d, x+1, y, col + (255,)); px(d, x, y+1, col + (255,)); px(d, x+1, y+1, col + (255,))
+    save(up(im, (768, 1152)), name)
+
+
+BIOMES = [
+    # level 1 — meadow (the original look): bright grass + white/yellow flowers
+    ("game_bg",   GRASS2, GRASS1, GRASS3, GRASS1,
+     [((255, 240, 250), True), ((255, 206, 82), False)]),
+    # level 2 — forest: deeper greens, denser tufts, tiny blue/violet blooms
+    ("bg_forest", (66, 128, 58), (82, 146, 70), (100, 164, 84), (54, 110, 50),
+     [((120, 150, 235), False), ((210, 160, 235), False), ((150, 190, 96), True)]),
+    # level 3 — autumn: olive-tan grass with fallen orange/red leaves
+    ("bg_autumn", (150, 150, 78), (168, 166, 92), (186, 182, 108), (132, 132, 68),
+     [((222, 118, 46), True), ((196, 70, 50), False), ((236, 176, 70), False)]),
+    # level 4 — desert: warm sand, scattered pebbles + tiny cactus dots
+    ("bg_desert", (214, 178, 118), (228, 196, 140), (240, 210, 158), None,
+     [((176, 150, 108), True), ((150, 130, 96), False), ((110, 170, 96), False)]),
+    # level 5 — snow: pale blue-white drifts, icy sparkles + snow tufts
+    ("bg_snow", (216, 228, 240), (232, 242, 250), (246, 250, 253), (200, 214, 232),
+     [((255, 255, 255), True), ((150, 195, 235), False), ((198, 220, 244), False)]),
+]
 
 
 # --- 9-slice pixel panel helper: fill + 1px dark outline + top light edge ---
@@ -235,7 +261,8 @@ FOODS = {
 }
 
 if __name__ == "__main__":
-    bg()
+    for spec in BIOMES:
+        bg(*spec)
     panel("soil_plot", (64, 64), (512, 512), DIRT1, DIRT3, DIRTD, noise=DIRT2)
     panel("bar_wood", (46, 16), (368, 128), WOOD1, WOODL, WOODD, noise=WOOD2)
     panel("tray_wood", (64, 64), (512, 512), WOOD1, WOODL, WOODD, noise=WOOD2)

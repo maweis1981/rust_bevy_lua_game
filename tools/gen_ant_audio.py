@@ -50,9 +50,18 @@ def gen_load():
 
 
 def gen_deposit():
-    # a bright little two-note music-box ping as a pixel drops into the nest
-    out = bell(1046.5, 0.16, amp=0.9) + bell(1568.0, 0.20, amp=0.7)   # C6 -> G6
-    write_wav(os.path.join(OUT, "ac_deposit.wav"), normalize(out, 0.5))
+    # a soft, rounded "plop" as the ant drops its morsel INTO the nest hole — a
+    # quick downward pitch drop (falling underground) with a warm body, not a
+    # bright ping. Reads as "deposited", and stays gentle on rapid repeats.
+    n = int(SR * 0.15); out = [0.0] * n; ph = 0.0
+    for i in range(n):
+        t = i / SR
+        f = 150.0 + 360.0 * math.exp(-15.0 * t)          # glide ~510Hz -> ~150Hz
+        ph += 2 * math.pi * f / SR
+        env = math.exp(-8.0 * t)
+        out[i] = env * (math.sin(ph) + 0.16 * math.sin(2 * ph))
+    out = ramp(out, atk=0.002, rel=0.03)
+    write_wav(os.path.join(OUT, "ac_deposit.wav"), normalize(out, 0.55))
 
 
 def gen_win():
