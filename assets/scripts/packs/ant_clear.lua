@@ -127,7 +127,11 @@ local function make_ant_clear()
   -- (concept-matched). Hue roles are kept so the pictures read: 1 dark cocoa
   -- (eyes/outline), 2 orange (fur/face), 3 warm cream (muzzle/light), 4 rose
   -- (nose/accents), 5 mint-teal (eyes/accents). Blocks are this colour, flat.
-  local PALETTE5 = { {0.400,0.245,0.150}, {1.000,0.600,0.135}, {1.000,0.930,0.780}, {0.975,0.410,0.505}, {0.300,0.800,0.640} }
+  -- NOTE colour 1 is a deep espresso, not a mid-cocoa: the old {0.40,0.245,0.15}
+  -- was nearly the soil board's own shadow tone, so dark blocks camouflaged into
+  -- the dirt and looked "unloaded". A near-black espresso reads as an intentional
+  -- dark accent (eyes/outline) with strong contrast against the brown board.
+  local PALETTE5 = { {0.220,0.130,0.110}, {1.000,0.600,0.135}, {1.000,0.930,0.780}, {0.975,0.410,0.505}, {0.300,0.800,0.640} }
 
   -- ---- tunables ------------------------------------------------------------
   local SLOTS = LEVEL.slots or 4   -- active slots (< palette size on purpose)
@@ -401,7 +405,11 @@ local function make_ant_clear()
   -- nest) are fully transparent, so idle workers never pile up on the hole.
   local function tint_ant(a)
     local s = slots[a.slot]
-    local ci = s and s.color or 0
+    -- A DISPATCHED ant keeps the colour it left the nest with (a.color), even
+    -- after its slot empties and is cleared to nil mid-journey — otherwise the
+    -- traveling ant would repaint to the idle brown ("染色丢失变成纯色"). Idle
+    -- ants (a.color == nil) follow their slot so the resting swarm previews it.
+    local ci = a.color or (s and s.color) or 0
     local key = ci .. (a.hidden and "h" or "v")
     if key ~= a.tintk then
       local c = (ci == 0) and IDLE_ANT or palette[ci]
@@ -486,6 +494,7 @@ local function make_ant_clear()
       reserved[(r-1)*W+c] = true
       s.n = s.n - 1                     -- reserve the count at DISPATCH so a slot
       slot_pulse[a.slot] = 1            -- animate the count tick-down
+      a.color = s.color                 -- LOCK the dispatch colour to this ant
       a.hidden = false; tint_ant(a)     -- step out of the nest, visible again
       -- emerge pop: rig scale grows from a quarter to full (tween is absolute
       -- Transform scale, so the target is the rig's own base scale)
@@ -515,6 +524,7 @@ local function make_ant_clear()
           game.emit("spark", NESTX, NESTY - CELL * 0.4, 5)   -- deposit sparkle at the hole
           game.zoom(0.12)                                     -- tiny satisfying punch
         end
+        a.color = nil                    -- release the lock: idle ants re-follow slot
         a.hidden = true; tint_ant(a)     -- slip back INSIDE the nest (no pile-up)
         a.state = "idle"
       end
