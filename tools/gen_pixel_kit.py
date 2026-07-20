@@ -84,6 +84,21 @@ BIOMES = [
     # level 5 — snow: pale blue-white drifts, icy sparkles + snow tufts
     ("bg_snow", (216, 228, 240), (232, 242, 250), (246, 250, 253), (200, 214, 232),
      [((255, 255, 255), True), ((150, 195, 235), False), ((198, 220, 244), False)]),
+    # level 6 — beach: warm sand with turquoise water flecks + shells
+    ("bg_beach", (232, 208, 156), (244, 224, 176), (250, 234, 192), None,
+     [((90, 190, 200), True), ((60, 160, 185), False), ((255, 240, 220), False)]),
+    # level 7 — candyland: bubblegum pinks + pastel sprinkles
+    ("bg_candy", (236, 168, 196), (246, 186, 210), (250, 202, 222), None,
+     [((255, 255, 255), False), ((150, 210, 235), False), ((255, 230, 150), False)]),
+    # level 8 — twilight: deep indigo dusk with tiny stars
+    ("bg_night", (54, 52, 96), (66, 64, 116), (80, 78, 138), (44, 42, 80),
+     [((255, 250, 210), False), ((190, 200, 255), False), ((150, 150, 220), True)]),
+    # level 9 — cave: cool grey stone with darker rubble speckle
+    ("bg_cave", (108, 108, 120), (124, 124, 138), (140, 140, 154), (90, 90, 102),
+     [((70, 70, 82), True), ((150, 150, 168), False), ((90, 130, 120), False)]),
+    # level 10 — volcano: charcoal rock glowing with ember flecks
+    ("bg_lava", (58, 46, 46), (74, 58, 56), (92, 72, 68), (44, 34, 34),
+     [((255, 130, 40), False), ((230, 70, 30), True), ((255, 200, 90), False)]),
 ]
 
 
