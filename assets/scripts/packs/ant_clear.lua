@@ -380,17 +380,15 @@ local function make_ant_clear()
   local function spawn_ant(slot_i)
     local sh = game.spawn_sprite(NESTX, NESTY, CELL * ANT_SIZE * 0.7, CELL * ANT_SIZE * 0.45, "ant_shadow")
     game.set_color(sh, 1, 1, 1, 0)
-    -- SKELETAL ant (assets/rigs/ant.rig): a body part + six legs driven by a
-    -- looping tripod-gait clip, so the legs genuinely walk. The rig root scales
-    -- the authored 156px-tall body to ANT_SIZE cells of length; set_color on
-    -- the root tints every bone (species colour) — the engine propagates it.
-    -- Ants start HIDDEN: idle ants live inside the nest, not piled on the hole.
-    local rig_s = CELL * ANT_SIZE / 156
-    local id = game.spawn_rig(NESTX, NESTY, "ant", rig_s)
-    game.play_anim(id, "walk")
+    -- PIXEL ant sprite (ant_walk.png, top-down, head-up so set_rotation to the
+    -- heading faces it forward). Light body + dark outline, so set_color tints it
+    -- to the species colour while the outline stays dark. Ants start HIDDEN
+    -- (alpha 0) resting inside the nest, not piled on the hole.
+    local aw = CELL * ANT_SIZE
+    local id = game.spawn_sprite(NESTX, NESTY, aw, aw, "ant_walk")
     ants[#ants + 1] = { id = id, shadow = sh, slot = slot_i, state = "idle", x = NESTX, y = NESTY,
                         pi = 1, path = nil, tr = 0, tc = 0, anim = 0, carry = nil, cc = 0,
-                        rig_s = rig_s, hidden = true, tintk = nil,
+                        rig_s = 1, hidden = true, tintk = nil,
                         phase = (#ants % 8) * 0.8, dust = 0 }
   end
   -- Colour each ant to its slot's colour (a red slot -> red ants), so the swarm
@@ -492,7 +490,8 @@ local function make_ant_clear()
         if grid[a.tr][a.tc] ~= 0 then
           a.cc = grid[a.tr][a.tc]
           clear_cell(a.tr, a.tc)
-          a.carry = game.spawn_sprite(a.x, a.y - CELL * 0.5, CELL * 0.72, CELL * 0.72, FOOD[a.cc])
+          a.carry = game.spawn_sprite(a.x, a.y - CELL * 0.5, CELL * 0.62, CELL * 0.62, "pixel_tile")
+          local pc = palette[a.cc] or {1,1,1}; game.set_color(a.carry, pc[1], pc[2], pc[3], 1)
           a.carry_t = 0                 -- pop the picked morsel up from nothing
           game.shake(0.02); game.haptic("light")   -- grab: subtle (deposit is the sound)
         end
@@ -856,7 +855,7 @@ local function make_ant_clear()
 
     -- full-screen cozy background (generated art), behind everything
     local bgspr = T.sprite(0, 0, math.max(2 * hw, 2 * hh * 512 / 768) + 4, 2 * hh + 4, "game_bg")
-    game.set_color(bgspr, 1.0, 1.0, 0.88, 1)   -- warm the grass toward the concept's sunny yellow-green
+    game.set_color(bgspr, 1, 1, 1, 1)   -- pixel grass (colour baked in)
     spawn_drifters()   -- ambient floating leaves/motes over the background
     -- (No dark vignette — Animal Crossing is bright & high-key. Focus comes from
     -- the soil plot + soft drop-shadows, not from darkening the frame.)
@@ -893,11 +892,9 @@ local function make_ant_clear()
     local pcx = (TOPY + b_bot) / 2 - 2
     local plot_w = W * CELL + CELL * 2.6
     local plot_h = (TOPY - b_bot) + CELL * 2.7
-    local sh = T.sprite(0, pcx - CELL * 0.30, plot_w * 0.99, plot_h * 0.99, "tile_sq")
-    game.set_color(sh, 0.22, 0.17, 0.10, 0.20)                 -- soft grounding shadow
-    local plot = T.panel(0, pcx, plot_w, plot_h, "soil_plot", 66)   -- soil bed + earth rim
-    game.set_color(plot, 0.72, 0.64, 0.54, 1)                  -- deepen soil so the
-                                                               -- warm amber (bread) blocks pop
+    -- pixel dirt bed (no soft shadow — pixel-art style)
+    local plot = T.panel(0, pcx, plot_w, plot_h, "soil_plot", 66)   -- pixel dirt frame
+    game.set_color(plot, 1, 1, 1, 1)                           -- baked pixel dirt colour
     -- nest hole (generated art). The unlock buttons and the shovel/bomb power-up
     -- buttons are removed for now (no function behind them yet).
     T.sprite(NESTX, NESTY, HOLE_R * 2.0, HOLE_R * 2.0, "hole")
@@ -905,10 +902,10 @@ local function make_ant_clear()
     for k = 1, 6 do
       local fx = (math.random() * 2 - 1) * CELL * W * 0.42
       local fy = board_bottom - 10 - math.random() * 26
-      local cr = T.sprite(fx, fy, CELL * (0.28 + math.random() * 0.22), CELL * (0.28 + math.random() * 0.22),
-                          FOOD[math.random(1, #FOOD)])
-      game.set_color(cr, 1, 1, 1, 0.9)
-      game.set_rotation(cr, math.random() * 6.28)
+      local sz = CELL * (0.22 + math.random() * 0.16)
+      local cr = T.sprite(fx, fy, sz, sz, "pixel_tile")
+      local pc = palette[math.random(1, #palette)]
+      game.set_color(cr, pc[1], pc[2], pc[3], 0.9)
     end
 
     draw_board()
