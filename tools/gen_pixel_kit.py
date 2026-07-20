@@ -268,6 +268,27 @@ def icon_back():
     save(up(im, (128, 128)), "icon_back")
 
 
+# --- the BOSS: a big menacing beetle that races the player on later levels
+#     (marches along the time bar; if it reaches the start, you lose). Baked
+#     colours (placed untinted), clearly badder than the worker ants. ---
+def boss(name="boss"):
+    n = 20; im = grid(n, n); d = ImageDraw.Draw(im)
+    B = (34, 26, 24, 255); body = (86, 52, 44, 255); R = (235, 66, 52, 255); hi = (140, 92, 78, 255)
+    cx = 10
+    for (ly, dy) in [(7, -3), (11, 0), (15, 3)]:      # six thick legs
+        d.line([(cx - 3, ly), (cx - 8, ly + dy)], fill=B, width=2)
+        d.line([(cx + 2, ly), (cx + 7, ly + dy)], fill=B, width=2)
+    d.ellipse([cx - 6, 9, cx + 5, 19], fill=body, outline=B)   # abdomen
+    d.ellipse([cx - 5, 5, cx + 4, 11], fill=body, outline=B)   # thorax
+    d.ellipse([cx - 4, 1, cx + 3, 7], fill=body, outline=B)    # head
+    d.line([(cx - 3, 2), (cx - 7, -2)], fill=B, width=2)       # mandibles
+    d.line([(cx + 2, 2), (cx + 6, -2)], fill=B, width=2)
+    px(d, cx - 2, 3, R); px(d, cx - 2, 4, R)                   # glowing red eyes
+    px(d, cx + 1, 3, R); px(d, cx + 1, 4, R)
+    px(d, cx - 3, 11, hi); px(d, cx - 2, 11, hi)               # carapace sheen
+    save(up(im, (160, 160)), name)
+
+
 def icon_lock():
     n = 16; im = grid(n, n); d = ImageDraw.Draw(im)
     d.arc([5, 2, 10, 9], 180, 360, fill=INK + (255,), width=2)       # shackle
@@ -313,5 +334,5 @@ if __name__ == "__main__":
     ant("ant_walk")
     for f, c in FOODS.items():
         ant_token(f, c)
-    icon_star(); icon_coin(); icon_back(); icon_sound(); icon_lock(); leaf(); petal()
+    icon_star(); icon_coin(); icon_back(); icon_sound(); icon_lock(); boss(); leaf(); petal()
     print("pixel kit done")

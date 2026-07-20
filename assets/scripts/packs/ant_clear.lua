@@ -310,6 +310,10 @@ local function make_ant_clear()
   local elapsed, star_grade = 0, 3      -- level timer + live time grade (3..1)
   local par3, par2, par1 = 0, 0, 0      -- 3-star / 2-star / deadline thresholds (s)
   local best_stars = {}                 -- best grade earned per level (select page)
+  -- BOSS RACE: later levels (>= BOSS_FROM) pit you against a boss beetle that eats
+  -- the time bar. If it empties before you clear the picture, the boss wins -> lose.
+  local BOSS_FROM = 6
+  local lost, boss_on, boss_id = false, false, nil
   local dispatch_cd = 0        -- ants leave the nest ONE AT A TIME (single file)
   local DISPATCH_GAP = 0.45    -- seconds between departures
   local muted = false          -- sound toggle (music + sfx)
@@ -766,6 +770,8 @@ local function make_ant_clear()
       if frac > 0.5 then game.set_color(prog_fill, 1.0, 0.78, 0.20, 1)
       elseif frac > 0.25 then game.set_color(prog_fill, 1.0, 0.55, 0.15, 1)
       else game.set_color(prog_fill, 0.95, 0.28, 0.20, 1) end
+      -- boss beetle rides the draining edge, marching toward the start (boss lvls)
+      if boss_on and boss_id then game.move_to(boss_id, prog_x0 + fw, prog_y) end
       for k = 1, 3 do
         if prog_stars[k] then
           if k <= star_grade then game.set_color(prog_stars[k], 1, 1, 1, 1)
@@ -1037,12 +1043,20 @@ local function make_ant_clear()
     draw_board()
     total_cells = painted            -- progress bar denominator (set once per build)
     -- TIME RACE thresholds, scaled to the level's size (bigger picture = more
-    -- time). Generous so casual play still earns stars; tune to taste.
-    elapsed, star_grade = 0, 3
+    -- time). Generous so casual play still earns stars; tune to taste. Boss levels
+    -- get a TIGHTER deadline (par1) — the bar can actually run out and you lose.
+    elapsed, star_grade, lost = 0, 3, false
+    boss_on = ((cur_lvl - 1) % #LEVELS) + 1 >= BOSS_FROM
     par3 = math.max(8, total_cells * 0.60)    -- fast  -> keep all 3 stars
     par2 = math.max(16, total_cells * 1.00)   -- ok    -> 2 stars
-    par1 = math.max(28, total_cells * 1.60)   -- slow  -> 1 star (bar empty)
+    par1 = math.max(28, total_cells * (boss_on and 1.15 or 1.60))   -- deadline
     draw_hud()
+    -- the boss marker rides the draining edge of the time bar (boss levels only)
+    if boss_on then
+      boss_id = T.sprite(prog_x0 + prog_w, prog_y, prog_h * 3.4, prog_h * 3.4, "boss")
+    else
+      boss_id = nil
+    end
     -- pixel bezel enclosing the whole play field (drawn on top so it frames the
     -- board/HUD on every edge; the buttons below sit inside the window, on top).
     T.sprite(0, 0, 2 * hw, 2 * hh, "game_frame")
@@ -1124,6 +1138,22 @@ local function make_ant_clear()
       game.emit("confetti", (math.random() * 2 - 1) * CELL * W * 0.4,
                 py + (math.random() * 2 - 1) * CELL * H * 0.3, 14)
     end
+  end
+
+  -- The BOSS caught you: the time bar emptied before the picture was cleared.
+  -- No progress lost — tap to retry the same level (cur_lvl is NOT advanced).
+  local function lose()
+    playing, won, lost, win_t = false, false, true, 0
+    game.play_sound("ac_stuck"); game.haptic("heavy"); game.shake(0.7); game.log("ant_clear lose")
+    local cyb = TOPY - 0.5 * CELL * H
+    -- dim the whole field, then the boss looms in over the board with a caption
+    local ov = T.sprite(0, 0, 2 * HW + 8, 2 * HH + 8, "tile_sq")
+    game.set_color(ov, 0.06, 0.05, 0.08, 0.55)
+    local bz = T.sprite(0, cyb + CELL * 1.0, CELL * 5.2, CELL * 5.2, "boss")
+    game.tween(bz, nil, nil, 1.0, 0.42, "back", 0, 0.25)
+    T.text(0, cyb + CELL * 4.4, 27, 1.0, 0.34, 0.30, 1, "BOSS WINS!")
+    T.text(0, cyb - CELL * 1.6, 19, 1, 0.96, 0.86, 1, "TAP TO RETRY")
+    game.emit("dust", 0, cyb, 14)
   end
 
   -- ---- LEVEL SELECT page ---------------------------------------------------
@@ -1221,7 +1251,7 @@ local function make_ant_clear()
       end
       -- PLAY screen: the back button now opens the level-select page
       if back and K.in_rect(back, x, y) then screen = "select"; build_select(HW, HH); return end
-      if not playing then T.clear(); build(HW, HH); return end
+      if not playing then game.set_text(""); T.clear(); build(HW, HH); return end
       if press_button(x, y) then return end   -- bottom bar + unlock buttons (press feedback)
       if mode == "manual" then
         for i = 1, SLOTS do
@@ -1265,6 +1295,7 @@ local function make_ant_clear()
       dt = math.min(dt, MAX_DT)
       elapsed = elapsed + dt
       star_grade = (elapsed <= par3 and 3) or (elapsed <= par2 and 2) or 1
+      if boss_on and elapsed >= par1 and painted > 0 then lose(); return end
       dispatch_cd = math.max(0, dispatch_cd - dt * (speed2 and 2 or 1))
       if dirty then recompute_field() end
       fill_slots()
