@@ -145,12 +145,11 @@ local function make_ant_clear()
   -- geometry (filled in build)
   local CELL, OX, TOPY, NESTX, NESTY = 0, 0, 0, 0, 0
   local SLOT_Y, TRAY_Y, SLOT_W, TRAY_W = 0, 0, 0, 0
-  -- FAKE PERSPECTIVE (the mockup's 3D tabletop look): rows shrink and converge
-  -- toward a vanishing point as they recede. PS[r] = scale of row r, ROWY[r] =
-  -- its centre-line. Filled in build(); identity until then. Ant paths go
-  -- through cx/cy too, so the swarm walks the same tilted table.
+  -- FLAT grid (pixel-art): all cells the SAME size, no perspective. PS[r] = row
+  -- scale (all 1), ROWY[r] = centre-line. The `rs`/PS machinery is kept so cx/cy
+  -- and the ant paths still route through one place — PERSP = 0 makes it uniform.
   local PS, ROWY = {}, {}
-  local PERSP = 0.30            -- how much the far (top) row shrinks
+  local PERSP = 0.0            -- 0 = flat uniform grid (was a fake-3D taper)
   local function rs(r) return PS[r] or 1 end
   local function cx(c, r) return (OX + (c - 0.5) * CELL) * rs(r or H) end
   local function cy(r) return ROWY[r] or (TOPY - (r - 0.5) * CELL) end
