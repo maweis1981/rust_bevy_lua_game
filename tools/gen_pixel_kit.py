@@ -7,11 +7,21 @@ ImagePlugin::default_nearest). Same filenames + dimensions as the old art, so th
 ant_clear layout keeps working — only the pixels change. A garden palette: grass,
 dirt, wood UI, and 5 tintable food-block colours.
 """
+import colorsys
 import math
 
 from PIL import Image, ImageDraw
 
 T = "assets/textures"
+
+
+def sat(rgb, f=1.32):
+    """Boost an RGB tuple's saturation by factor `f` (keeps hue & lightness). Used
+    to make the biome backgrounds more vivid — the whole scene reads punchier."""
+    r, g, b = [c / 255 for c in rgb]
+    h, l, s = colorsys.rgb_to_hls(r, g, b)
+    r, g, b = colorsys.hls_to_rgb(h, l, min(1.0, s * f))
+    return tuple(round(c * 255) for c in (r, g, b))
 
 
 def grid(w, h):
@@ -48,6 +58,9 @@ def px(d, x, y, c):
 #     meadow (unchanged look); bg_2..5 are the later biomes. ---
 def bg(name, base, light, hi, tuft, decos):
     """decos: list of (color, is2x) accent dots (flowers/leaves/stones/sparkles)."""
+    base, light, hi = sat(base), sat(light), sat(hi)   # vivid biome
+    if tuft:
+        tuft = sat(tuft)
     W, H = 96, 144
     im = Image.new("RGBA", (W, H), base + (255,))
     d = ImageDraw.Draw(im)

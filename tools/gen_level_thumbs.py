@@ -9,7 +9,7 @@ from PIL import Image
 LUA = "assets/scripts/packs/ant_clear.lua"
 OUT = "assets/textures"
 # PALETTE5 in ant_clear.lua (0 = empty)
-PAL = {1:(88,56,38), 2:(255,153,34), 3:(255,237,199), 4:(249,105,129), 5:(77,204,163)}
+PAL = {1:(96,52,40), 2:(255,142,18), 3:(255,232,180), 4:(255,86,120), 5:(38,222,158)}
 
 
 def parse_grids(text):
