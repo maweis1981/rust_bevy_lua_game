@@ -308,7 +308,7 @@ local function make_ant_clear()
   -- dark accent (eyes/outline) with strong contrast against the brown board.
   -- VIVID candy palette: saturation pushed up for a punchier look (deeper orange,
   -- hotter rose, brighter mint). Colour 1 stays a rich dark espresso accent.
-  local PALETTE5 = { {0.251,0.133,0.106}, {1.000,0.557,0.071}, {1.000,0.910,0.706}, {1.000,0.337,0.471}, {0.149,0.871,0.620} }
+  local PALETTE5 = { {0.290,0.208,0.251}, {0.969,0.604,0.298}, {0.992,0.902,0.784}, {0.949,0.478,0.584}, {0.388,0.812,0.651} }
 
   -- ---- tunables ------------------------------------------------------------
   local SLOTS = LEVEL.slots or 4   -- active slots (< palette size on purpose)
