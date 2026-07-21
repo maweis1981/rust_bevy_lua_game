@@ -15,7 +15,7 @@ from PIL import Image, ImageDraw
 T = "assets/textures"
 
 
-def sat(rgb, f=1.32):
+def sat(rgb, f=1.12):
     """Boost an RGB tuple's saturation by factor `f` (keeps hue & lightness). Used
     to make the biome backgrounds more vivid — the whole scene reads punchier."""
     r, g, b = [c / 255 for c in rgb]
@@ -38,9 +38,9 @@ def save(im, name):
 
 
 # --- palette (RGBA) ---
-GRASS1 = (122, 196, 82); GRASS2 = (104, 178, 70); GRASS3 = (142, 210, 96)
-DIRT1 = (150, 104, 66); DIRT2 = (128, 86, 52); DIRT3 = (170, 124, 82); DIRTD = (96, 62, 38)
-WOOD1 = (176, 120, 70); WOOD2 = (150, 98, 54); WOODD = (104, 64, 34); WOODL = (206, 152, 100)
+GRASS1 = (134, 194, 110); GRASS2 = (120, 182, 96); GRASS3 = (150, 206, 126)
+DIRT1 = (190, 150, 108); DIRT2 = (172, 132, 92); DIRT3 = (206, 168, 126); DIRTD = (132, 96, 64)
+WOOD1 = (200, 146, 94); WOOD2 = (176, 124, 78); WOODD = (128, 86, 50); WOODL = (224, 178, 128)
 STONE = (210, 214, 224); STONED = (150, 156, 170)
 ANTD = (60, 46, 40); ANTL = (235, 225, 215)   # ant: dark outline + light body (tintable)
 INK = (46, 36, 30); WHITE = (255, 255, 255)
