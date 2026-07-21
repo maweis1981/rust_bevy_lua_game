@@ -306,7 +306,9 @@ local function make_ant_clear()
   -- was nearly the soil board's own shadow tone, so dark blocks camouflaged into
   -- the dirt and looked "unloaded". A near-black espresso reads as an intentional
   -- dark accent (eyes/outline) with strong contrast against the brown board.
-  local PALETTE5 = { {0.220,0.130,0.110}, {1.000,0.600,0.135}, {1.000,0.930,0.780}, {0.975,0.410,0.505}, {0.300,0.800,0.640} }
+  -- VIVID candy palette: saturation pushed up for a punchier look (deeper orange,
+  -- hotter rose, brighter mint). Colour 1 stays a rich dark espresso accent.
+  local PALETTE5 = { {0.251,0.133,0.106}, {1.000,0.557,0.071}, {1.000,0.910,0.706}, {1.000,0.337,0.471}, {0.149,0.871,0.620} }
 
   -- ---- tunables ------------------------------------------------------------
   local SLOTS = LEVEL.slots or 4   -- active slots (< palette size on purpose)
