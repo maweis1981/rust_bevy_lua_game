@@ -30,7 +30,7 @@ var C = {
   TUBE_EDGE: 'rgba(255,255,255,0.28)',
   TEXT: '#eaf0ff',
   SUBTEXT: '#9fb0d0',
-  POUR_MS: 260,           // pour animation duration
+  POUR_MS: 900,           // pour animation duration
 };
 
 module.exports = C;

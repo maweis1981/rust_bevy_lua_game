@@ -180,6 +180,7 @@ function createGame(platform) {
     var t = (platform.now ? platform.now() : Date.now());
     var dt = G._lastT ? Math.min(0.05, Math.max(0, (t - G._lastT) / 1000)) : 0;
     G._lastT = t;
+    if (G._scrub != null) return;             // test scrub: hold the anim frozen
     if (G.anim && t - G.anim.t0 >= G.anim.ms) {
       var acol = G.anim.col, ato = G.anim.to;
       G.anim = null;
@@ -201,8 +202,9 @@ function createGame(platform) {
     var t = (platform.now ? platform.now() : Date.now());
     var anim = null;
     if (G.anim) {
+      var pp = (G._scrub != null) ? G._scrub : (t - G.anim.t0) / G.anim.ms;
       anim = { from: G.anim.from, to: G.anim.to, col: G.anim.col, units: G.anim.units,
-               p: Math.max(0, Math.min(1, (t - G.anim.t0) / G.anim.ms)) };
+               p: Math.max(0, Math.min(1, pp)) };
     }
     return {
       W: G.W, H: G.H, level: G.level, wins: G.stats.wins, parts: G.parts || [],
@@ -224,6 +226,9 @@ function createGame(platform) {
       select: function (i) { return G.lv.select(i); },
       level: function () { return G.level; },
       forceLayout: relayout,
+      // test-only: start a pour anim and hold it at a fixed progress p (0..1)
+      pourAnim: function (from, to) { beginPourAnim(from, to); G.pending = { from: from, to: to }; },
+      scrub: function (p) { G._scrub = p; },
     },
   };
 }
