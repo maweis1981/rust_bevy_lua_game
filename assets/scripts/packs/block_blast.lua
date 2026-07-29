@@ -215,7 +215,7 @@ local function make_block_blast()
     BY0 = hh - 120                                  -- top edge of the board
     local bcy = BY0 - N * CELL / 2
     -- board frame
-    local fr = T.panel(0, bcy, N * CELL + 22, N * CELL + 22, "bp_panel")
+    local fr = T.sprite(0, bcy, N * CELL + 22, N * CELL + 22, "bp_panel")
     game.set_color(fr, 0.24, 0.24, 0.32, 1)
     -- cells
     bg, fg = {}, {}
